@@ -8,6 +8,8 @@ import { fetchComments, addComment } from '../api/comments'
 import { fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
+import { IconArrowLeft, IconLock, IconCheck } from '../components/icons'
+import { Reveal } from '../components/Reveal'
 
 const { input, btnPrimary, btnGhost } = ui
 
@@ -65,16 +67,21 @@ function PostDetailPage() {
 
   return (
     <>
-      <Link to="/blog" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400">← 목록으로</Link>
+      <Link to="/blog" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+        <IconArrowLeft className="h-4 w-4" />목록으로
+      </Link>
 
       {error && <p className="mt-4 text-sm text-red-600">에러: {error}</p>}
 
       {post && (
-        <article className="mt-4 rounded-xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-800">
-          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+        <Reveal>
+        <article className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
+          <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
             {post.title}
             {post.visibility === 'private' && (
-              <span className="rounded bg-red-50 px-2 py-1 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">🔒 비공개</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-sm text-gray-500 dark:bg-white/10 dark:text-gray-400">
+                <IconLock className="h-3.5 w-3.5" />비공개
+              </span>
             )}
           </h1>
           <div className="mt-2 flex items-center gap-3">
@@ -84,12 +91,12 @@ function PostDetailPage() {
             {/* 로그인 + 남의 글이면 글쓴이 구독 버튼 (구독하면 그 사람 비공개글도 볼 수 있음) */}
             {user && post.owner_id && post.owner_id !== user.id && (
               <button type="button" onClick={toggleSubscribe} className={subscribed ? btnGhost : btnPrimary}>
-                {subscribed ? '✔ 구독중' : '+ 글쓴이 구독'}
+                {subscribed ? <><IconCheck className="h-4 w-4" />구독중</> : '+ 글쓴이 구독'}
               </button>
             )}
           </div>
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}
-          <div className="prose prose-gray mt-6 max-w-none dark:prose-invert">
+          <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-[#0071e3] prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert dark:prose-a:text-[#0a84ff]">
             <ReactMarkdown
               components={{
                 img: (props) => <img {...props} className="rounded-lg" />,
@@ -99,16 +106,17 @@ function PostDetailPage() {
             </ReactMarkdown>
           </div>
         </article>
+        </Reveal>
       )}
 
-      <section className="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800">
-        <h2 className="mb-4 text-lg font-semibold text-gray-800 dark:text-gray-100">
-          댓글 <span className="text-gray-500 dark:text-gray-400">({comments.length})</span>
+      <section className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">
+        <h2 className="mb-4 text-lg font-semibold tracking-tight">
+          댓글 <span className="text-gray-400 dark:text-gray-500">({comments.length})</span>
         </h2>
-        {comments.length === 0 && <p className="text-gray-500 dark:text-gray-400">아직 댓글이 없어. 첫 댓글을 남겨봐.</p>}
+        {comments.length === 0 && <p className="text-gray-400 dark:text-gray-500">아직 댓글이 없어. 첫 댓글을 남겨봐.</p>}
         <div className="space-y-3">
           {comments.map((c) => (
-            <div key={c.id} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-700">
+            <div key={c.id} className="rounded-xl bg-black/[0.03] p-3 dark:bg-white/[0.04]">
               <div className="flex items-baseline gap-2">
                 <strong className="text-gray-800 dark:text-gray-100">{c.author}</strong>
                 <time className="text-xs text-gray-500 dark:text-gray-400">{new Date(c.created_at).toLocaleString()}</time>

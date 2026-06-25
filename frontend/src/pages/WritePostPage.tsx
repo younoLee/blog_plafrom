@@ -6,6 +6,7 @@ import { uploadImage } from '../api/uploads'
 import { generateDraft } from '../api/ai'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
+import { IconArrowLeft, IconSparkles, IconImage, IconLock } from '../components/icons'
 
 const { input, btnPrimary, btnGhost } = ui
 
@@ -92,16 +93,20 @@ function WritePostPage() {
 
   return (
     <div>
-      <Link to="/" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400">← 홈으로</Link>
-      <div className="mt-4 rounded-xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-800">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-white">
+      <Link to="/" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+        <IconArrowLeft className="h-4 w-4" />홈으로
+      </Link>
+      <div className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
+      <h1 className={`mb-6 text-3xl font-semibold tracking-tight ${ui.gradientText}`}>
         {editingId === null ? '새 글 쓰기' : '글 수정'}
       </h1>
 
       {/* AI 초안 잡기: 거친 메모 → 정돈된 글 구조를 제목·본문에 채움 */}
-      <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900 dark:bg-indigo-950/40">
-        <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200">🤖 AI로 초안 잡기</p>
-        <p className="mt-1 text-xs text-indigo-700/80 dark:text-indigo-300/70">
+      <div className="mb-6 rounded-2xl border border-[#0071e3]/20 bg-[#0071e3]/[0.06] p-4 dark:border-[#0a84ff]/25 dark:bg-[#0a84ff]/[0.08]">
+        <p className="flex items-center gap-1.5 text-sm font-medium text-[#0071e3] dark:text-[#0a84ff]">
+          <IconSparkles className="h-4 w-4" />AI로 초안 잡기
+        </p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           떠오르는 메모를 대충 적고 누르면 제목·소제목·초안으로 정리해줘. (제목/본문을 덮어써)
         </p>
         <textarea
@@ -118,7 +123,7 @@ function WritePostPage() {
             disabled={aiLoading || !memo.trim()}
             className={`${btnPrimary} disabled:opacity-50`}
           >
-            {aiLoading ? '생성 중…' : '✨ 초안 생성'}
+            {aiLoading ? '생성 중…' : <><IconSparkles className="h-4 w-4" />초안 생성</>}
           </button>
           {aiError && <span className="text-sm text-red-600">{aiError}</span>}
         </div>
@@ -133,8 +138,9 @@ function WritePostPage() {
           onChange={(e) => setContent(e.target.value)}
           className={input}
         />
-        <label className="text-sm text-gray-600 dark:text-gray-400">
-          🖼 이미지 첨부: <input type="file" accept="image/*" onChange={handleImagePick} className="text-sm" />
+        <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+          <IconImage className="h-4 w-4" />이미지 첨부:
+          <input type="file" accept="image/*" onChange={handleImagePick} className="text-sm" />
         </label>
         <div className="flex gap-4 text-sm text-gray-700 dark:text-gray-300">
           <span>공개범위:</span>
@@ -142,7 +148,8 @@ function WritePostPage() {
             <input type="radio" checked={visibility === 'public'} onChange={() => setVisibility('public')} /> 전체공개
           </label>
           <label className="flex items-center gap-1">
-            <input type="radio" checked={visibility === 'private'} onChange={() => setVisibility('private')} /> 🔒 일부공개(나만)
+            <input type="radio" checked={visibility === 'private'} onChange={() => setVisibility('private')} />
+            <IconLock className="h-3.5 w-3.5" /> 일부공개(나만)
           </label>
         </div>
         <div className="flex gap-2">

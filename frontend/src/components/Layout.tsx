@@ -2,33 +2,37 @@ import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { useTheme } from '../theme'
 import { ui } from '../ui'
+import { IconMoon, IconSun, IconPencil } from './icons'
 
 function Layout() {
   const { user, logout } = useAuth()
   const { theme, toggle } = useTheme()
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-100">
-      {/* 상단 고정 헤더 (모든 페이지 공통) */}
-      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white/80 backdrop-blur dark:border-gray-800 dark:bg-gray-900/80">
+    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] dark:bg-black dark:text-[#f5f5f7]">
+      {/* 상단 고정 헤더 (모든 페이지 공통) — 애플풍 프로스티드 바 */}
+      <header className="sticky top-0 z-10 border-b border-black/5 bg-[#f5f5f7]/70 backdrop-blur-xl dark:border-white/10 dark:bg-black/60">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <Link to="/" className="text-lg font-bold tracking-tight text-gray-900 dark:text-white">
-            📝 <span className="text-indigo-600 dark:text-indigo-400">DEV</span> 블로그
+          <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
+            <img src="/favicon.svg" alt="" className="h-6 w-6" />
+            <span>DEV 블로그</span>
           </Link>
-          <nav className="flex items-center gap-2">
-            {/* 테마 토글 */}
+          <nav className="flex items-center gap-1.5">
+            {/* 테마 토글 — 동그란 아이콘 버튼 */}
             <button
               type="button"
               onClick={toggle}
               aria-label="테마 전환"
-              className={ui.btnGhost}
+              className="grid h-9 w-9 place-items-center rounded-full text-gray-600 transition hover:bg-black/[0.06] dark:text-gray-300 dark:hover:bg-white/10"
             >
-              {theme === 'dark' ? '☀️' : '🌙'}
+              {theme === 'dark' ? <IconSun className="h-5 w-5" /> : <IconMoon className="h-5 w-5" />}
             </button>
             {user ? (
               <>
-                <span className="hidden text-sm text-gray-600 dark:text-gray-300 sm:inline">{user.email}</span>
-                <Link to="/blog/new" className={ui.btnPrimary}>✏️ 글쓰기</Link>
+                <span className="hidden text-sm text-gray-500 dark:text-gray-400 sm:inline">{user.email}</span>
+                <Link to="/blog/new" className={ui.btnPrimary}>
+                  <IconPencil className="h-4 w-4" />글쓰기
+                </Link>
                 <button type="button" onClick={logout} className={ui.btnGhost}>로그아웃</button>
               </>
             ) : (
@@ -42,11 +46,11 @@ function Layout() {
       </header>
 
       {/* 페이지 본문 */}
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      <main className="mx-auto max-w-3xl px-4 py-12">
         <Outlet />
       </main>
 
-      <footer className="mx-auto max-w-3xl px-4 py-10 text-center text-xs text-gray-500 dark:text-gray-400">
+      <footer className="mx-auto max-w-3xl px-4 py-12 text-center text-xs text-gray-400 dark:text-gray-500">
         © 2026 DEV 블로그 · FastAPI · React · Tailwind
       </footer>
     </div>

@@ -125,7 +125,17 @@
       "Bash(curl -s -o /dev/null -w 'HTTP %{http_code}\\\\n' --max-time 15 https://d2j66m9udyg9yq.cloudfront.net/)",
       "Bash(curl -s -o /dev/null -w 'HTTP %{http_code}\\\\n' --max-time 15 https://d2j66m9udyg9yq.cloudfront.net/blog)",
       "Bash(curl -s --max-time 15 https://d2j66m9udyg9yq.cloudfront.net/api/health)",
-      "WebFetch(domain:releases.hashicorp.com)"
+      "WebFetch(domain:releases.hashicorp.com)",
+      "Bash(sed -n '/\"scripts\"/,/}/p' frontend/package.json)",
+      "Bash(ls -la .github)",
+      "Bash(find . -path ./node_modules -prune -o -name \"*.yml\" -path \"*workflow*\" -print)",
+      "Bash(aws iam *)",
+      "Bash(python3 -c \"import yaml,sys; d=yaml.safe_load\\(open\\('.github/workflows/deploy.yml'\\)\\); print\\('YAML 파싱 OK'\\); print\\('트리거:', list\\(d.get\\(True, d.get\\('on',{}\\)\\).keys\\(\\)\\) if isinstance\\(d.get\\(True, d.get\\('on'\\)\\),dict\\) else d.get\\('on'\\)\\); print\\('스텝수:', len\\(d['jobs']['deploy']['steps']\\)\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(aws s3 *)",
+      "Bash(aws cloudfront *)",
+      "Bash(curl -s -o /dev/null -w \"HTTP상태: %{http_code}\\\\n\" https://d2j66m9udyg9yq.cloudfront.net)",
+      "Bash(curl -s -o /dev/null -w \"API상태: %{http_code}\\\\n\" https://d2j66m9udyg9yq.cloudfront.net/api/health)"
     ]
   }
 }

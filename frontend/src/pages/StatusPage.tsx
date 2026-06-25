@@ -7,6 +7,7 @@ import {
   type ServiceUptime,
 } from '../api/status'
 import { ui } from '../ui'
+import { IconActivity, IconRefresh } from '../components/icons'
 
 // 서비스 한 줄 표시 (이름 + 초록/빨강 점 + 정상/중단)
 function ServiceRow({ name, ok }: { name: string; ok: boolean }) {
@@ -102,9 +103,12 @@ function StatusPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">📊 서비스 상태</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          <IconActivity className="h-6 w-6 text-emerald-500" />
+          <span className={ui.gradientText}>서비스 상태</span>
+        </h1>
         <button type="button" onClick={load} disabled={loading} className={ui.btnGhost}>
-          {loading ? '확인 중…' : '🔄 새로고침'}
+          {loading ? '확인 중…' : <><IconRefresh className="h-4 w-4" />새로고침</>}
         </button>
       </div>
 
@@ -170,13 +174,13 @@ function StatusPage() {
         <div className="grid grid-cols-2 gap-4">
           <div className={ui.card}>
             <p className="text-sm text-gray-500 dark:text-gray-400">전체 글</p>
-            <p className="mt-1 text-3xl font-bold text-indigo-600 dark:text-indigo-400">
+            <p className={`mt-1 text-4xl font-semibold ${ui.gradientText}`}>
               {status.stats.posts ?? '—'}
             </p>
           </div>
           <div className={ui.card}>
             <p className="text-sm text-gray-500 dark:text-gray-400">구독자</p>
-            <p className="mt-1 text-3xl font-bold text-indigo-600 dark:text-indigo-400">
+            <p className="mt-1 bg-gradient-to-r from-emerald-500 to-teal-400 bg-clip-text text-4xl font-semibold text-transparent">
               {status.stats.subscribers ?? '—'}
             </p>
           </div>

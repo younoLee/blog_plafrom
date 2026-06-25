@@ -4,11 +4,39 @@
 /* 다크모드를 .dark 클래스로 제어 (기본은 OS 설정 따름이라 수동 토글용으로 바꿈) */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* 전역 기본 폰트: Pretendard 우선 */
+/* 애플풍 폰트 스택: 영문은 SF, 한글은 Pretendard(글리프 단위로 자동 폴백) */
 :root {
-  font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    Pretendard, system-ui, "Helvetica Neue", sans-serif;
 }
 
 html {
   scroll-behavior: smooth;
+}
+
+/* 애플 특유의 또렷한 글자(안티앨리어싱) + 자간 살짝 조이기 */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+/* 드래그 선택 영역도 애플 블루 톤으로 */
+::selection {
+  background: rgba(0, 113, 227, 0.18);
+}
+
+/* 그라데이션 글자가 천천히 좌우로 흐르는 효과 (animate-gradient 클래스로 켬) */
+@keyframes gradient-pan {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-pan 6s ease infinite;
 }

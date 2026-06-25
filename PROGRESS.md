@@ -336,3 +336,26 @@ cd frontend && npm run dev                               # :5173
 - import 핵심 패턴 체득: 실제 설정 조회(describe/get) → 코드화 → import → plan 차이 수렴(보통 태그·메타 등 사소한 것). destroy/replace 뜨면 멈춤
 - 남은 폴리시(선택): ① 하드코딩된 IDS(계정·배포·subnet·ami 등)를 변수/참조로 정리 ② state를 S3 backend로 ③ 키페어 등 미관리 리소스
 - **다음 로드맵: 5단계 GitHub Actions CI/CD (push→자동배포)**. 그 전에 git init(2단계 GitHub 연동 미완) 필요
+
+### 2단계 GitHub 연동 [완료] (2026-06-25)
+- 첫 커밋(c55222b)은 로컬에만 있었음 → GitHub 원격 저장소 만들어 push
+- GitHub 웹에서 **빈 저장소** 생성(younoLee/blog_plafrom). README/.gitignore/license 전부 OFF — 이유: 로컬에 이미 커밋이 있어서 원격에 커밋이 생기면 역사 어긋나 push 충돌
+- 연결: `git remote add origin https://github.com/younoLee/blog_plafrom.git` → `git branch -M main` → `git remote -v`로 확인(fetch/push 둘 다 origin)
+- 인증: HTTPS는 비번 불가(2021 막힘) → **Fine-grained PAT**(저장소 1개+Contents read/write만, 최소권한) 발급. push는 토큰 프롬프트 때문에 `!`세션 말고 **외부 WSL 터미널**에서 실행(Username=younoLee, Password=토큰)
+- 검증: `git ls-remote origin` = 로컬 HEAD와 원격 main 둘 다 c55222b로 일치 → push 성공
+- 배운 것: commit은 로컬 스냅샷일 뿐 인터넷에 안 올라감 / remote=원격 주소 이름표(origin) / push=로컬커밋을 원격으로 밀어올림 / PAT 최소권한(IAM 최소권한 원칙과 동일)
+- **다음 로드맵: 5단계 GitHub Actions CI/CD (push→자동배포)** — 이제 코드가 GitHub에 있으니 전제조건 충족
+
+### 5단계 GitHub Actions CI/CD [완료] (2026-06-25)
+- 목표: main에 push하면 프론트엔드가 자동 빌드→S3→CloudFront 무효화. 수동 배포 명령을 워크플로로 옮김. (백엔드 EC2 자동배포는 SSH라 복잡 → 별도/나중)
+- ① 배포 전용 IAM 사용자 `github-actions-deploy`(콘솔접근X, 프로그램용) + 정책 `github-brench`(이름만 그럴뿐 내용 정확): S3 List/Get/Put/Delete on blogplafromops, cloudfront:CreateInvalidation on E1438IL9CSVBS4. 최소권한 — 루트/IAM_cli 키 안 씀. 액세스키 AKIASURS2YM7WKLL4SV3
+- ② GitHub repo Secrets(Repository secrets)에 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 등록. 워크플로에서 ${{ secrets.* }}로 꺼냄, 로그엔 *** 마스킹
+- ③ `.github/workflows/deploy.yml`: on push(main, paths=frontend/**·워크플로파일) + workflow_dispatch(수동버튼). 스텝7: checkout→setup-node(20,npm cache)→npm ci→build(VITE_API_BASE=라이브/api)→configure-aws-credentials@v4→s3 sync dist/ --delete→cloudfront create-invalidation /*
+- 검증(교차): Actions 초록 + AWS 실측 — S3 index.html 등 방금 시각 갱신, CloudFront 무효화 I8ZLDNWIKQALWOMW02DPQTPH7R Completed
+- 막혔던 것/배운 것:
+  - 워크플로 파일 push는 PAT에 **workflow 권한** 필요(없으면 `refusing to allow a PAT to create/update workflow without workflow scope`) → fine-grained 토큰에 Workflows: Read&write 추가(토큰 재발급 불필요, 값 유지)
+  - configure-aws-credentials `Could not load credentials from any providers` = Secret 이름 불일치로 빈 값 들어옴 → 이름 정확히 일치해야(대문자·언더스코어). Secret 삭제 후 재생성
+  - **Re-run jobs를 실제로 눌러야** 새 Secret 반영됨. 옛 실행 로그를 새 결과로 착각하지 말 것
+  - Node20 deprecation은 경고일 뿐(빌드는 정상). 나중에 setup-node 버전 올리면 사라짐
+- 남은 선택: 백엔드 EC2 자동배포(SSH), Node 버전업, S3 backend state
+- **다음 로드맵: 6단계 AI 글쓰기 도구(음성메모→글구조 / 커스텀 슬래시커맨드). 또는 AI 글초안 키 충전 e2e.**
