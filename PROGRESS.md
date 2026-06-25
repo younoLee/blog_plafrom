@@ -447,3 +447,12 @@ cd frontend && npm run dev                               # :5173
 - **현재 상태**: 코드/기능은 GitHub·로컬에 안전(완성). **프로드 라이브 = 계정기능 전 버전으로 일관**(읽기 정상)
 - 🔴 **다음에 프로드에 계정시스템 올리려면**(한 번에): ① EC2 백엔드 재배포(tar→scp→`docker compose -f docker-compose.prod.yml up -d --build`, prod compose 시작 시 alembic upgrade 자동 → role·email_verified 마이그레이션 적용) ② SES 셋업(이메일 인증/비번재설정 메일) + prod .env에 `FRONTEND_BASE_URL=CloudFront`, `ADMIN_EMAIL`, `SMTP_*`=SES ③ 그 다음 프론트 재배포(CI 또는 수동)
 - 🔴 **CI/CD 함정**: deploy.yml이 frontend/** push마다 자동배포 → 백엔드+SES 준비 전에 frontend 또 push하면 프로드 다시 어긋남. 프로드 풀배포 전까진 frontend push 주의(또는 워크플로 일시중단 고려)
+
+### 🎉 계정 시스템 AWS 프로드 풀 배포 완료 (2026-06-25)
+- **SES 셋업**: SES 콘솔(서울 ap-northeast-2)에서 이메일 ID(es2646526@gmail.com) verify + SMTP 자격증명 생성(IAM `ses-smtp-user.20260625-184915`, username=AKIA…). 엔드포인트 `email-smtp.ap-northeast-2.amazonaws.com:587`(STARTTLS). ⚠️ 아직 **샌드박스** → verify된 수신자에게만 발송됨(공개가입 받으려면 production access 요청 필요)
+- **코드**: `config`에 smtp_user/password/use_tls, `email.send_email`에 STARTTLS+login 분기(로컬 Mailpit은 평문 그대로). 커밋 f59dea3
+- **백엔드 배포(EC2 15.164.102.25)**: 로컬 backend tar→scp→`~/blog` 추출, `.env`에 SMTP_*(SES)·MAIL_FROM·FRONTEND_BASE_URL(CloudFront)·ADMIN_EMAIL 추가(비번은 사용자가 nano로, 나는 안 봄), `sudo docker compose -f docker-compose.prod.yml up -d --build` → slowapi 설치 + **alembic이 role·email_verified 마이그레이션 RDS에 자동 적용**(로그 확인)
+- **프론트 배포**: 최신(HEAD) `VITE_API_BASE=CloudFront/api` 빌드 → `aws s3 sync --delete` → 무효화(I1SBWZYI7HCAF3IXCZRJ9DENZG). 라이브 JS=index-Cl94fXKg.js
+- 검증: 라이브 `/api/auth/verify` 400·`/forgot-password` 202·`/admin/users` 401(전부 살아남, 옛날엔 404), `/api/posts` 200, 포털 200, 프론트=백엔드 일치
+- **프로드 관리자 만들기**: 라이브에서 es2646526@gmail.com으로 가입 → ADMIN_EMAIL이라 **자동 admin+자동 인증(메일 불필요)** → 바로 로그인 가능
+- 이제 CI 함정 해소(백엔드가 최신이라 frontend push 자동배포돼도 일치). 남은 선택: SES 프로덕션 액세스(공개가입), 커밋들 GitHub push
