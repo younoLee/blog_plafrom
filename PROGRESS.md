@@ -456,3 +456,11 @@ cd frontend && npm run dev                               # :5173
 - 검증: 라이브 `/api/auth/verify` 400·`/forgot-password` 202·`/admin/users` 401(전부 살아남, 옛날엔 404), `/api/posts` 200, 포털 200, 프론트=백엔드 일치
 - **프로드 관리자 만들기**: 라이브에서 es2646526@gmail.com으로 가입 → ADMIN_EMAIL이라 **자동 admin+자동 인증(메일 불필요)** → 바로 로그인 가능
 - 이제 CI 함정 해소(백엔드가 최신이라 frontend push 자동배포돼도 일치). 남은 선택: SES 프로덕션 액세스(공개가입), 커밋들 GitHub push
+
+### 보안: ADMIN_EMAIL 자동승격 부트스트랩 제거 (2026-06-25) — 커밋 4363542
+- 라이브에서 es2646526@gmail.com 가입 → admin 됨(부트스트랩으로). **첫 관리자 생겼으니 부트스트랩 제거**(이메일 장악/비번재설정 악용 시 admin 탈취 위험)
+- 제거: auth.py `_is_admin_email`·register admin특례·login 자동승격, config `admin_email`, docker-compose `ADMIN_EMAIL`. 이제 register는 전부 pending+미인증
+- 기존 admin 계정(role=admin)은 DB에 남아있어 영향 없음(코드 제거해도 행은 유지)
+- **앞으로 관리자 승격은 DB에서만**: `ssh ec2 → sudo docker compose -f docker-compose.prod.yml exec backend python` 또는 psql로 `UPDATE users SET role='admin' WHERE email='...'`
+- 프로드 재배포(tar→scp→up --build) 완료, 배포코드 `_is_admin_email` 0개 확인, es2646526 admin 유지 확인. prod .env의 ADMIN_EMAIL은 이제 코드가 안 읽음(무해, 지워도 됨)
+- 로컬/원격 git: 로컬 다수 커밋 앞섬 → 외부터미널 `git push origin main` 필요
