@@ -48,3 +48,12 @@ export async function unbanUser(id: number): Promise<User> {
   if (!res.ok) throw new Error('차단 해제에 실패했어')
   return res.json()
 }
+
+// 영구 삭제: 계정 + 그 사람의 글·댓글까지 (되돌리기 불가)
+export async function deleteUser(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/admin/users/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('삭제에 실패했어')
+}

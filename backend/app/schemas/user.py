@@ -14,7 +14,8 @@ class UserRead(BaseModel):
 
     id: int
     email: EmailStr
-    role: str  # pending / writer / admin
+    role: str  # pending / writer / admin / banned
+    email_verified: bool
     created_at: datetime
 
 

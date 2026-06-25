@@ -42,7 +42,16 @@ export async function register(email: string, password: string): Promise<void> {
   })
   if (res.status === 409) throw new Error('이미 가입된 이메일이야')
   if (res.status === 422) throw new Error('이메일 형식이 올바르지 않아')
+  if (res.status === 429) throw new Error('가입 시도가 너무 많아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('회원가입 실패')
+}
+
+// 메일 링크의 토큰으로 이메일 인증 처리
+export async function verifyEmail(token: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/verify?token=${encodeURIComponent(token)}`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error('유효하지 않거나 만료된 인증 링크야')
 }
 
 export async function login(email: string, password: string): Promise<void> {
@@ -52,6 +61,12 @@ export async function login(email: string, password: string): Promise<void> {
     body: JSON.stringify({ email, password }),
   })
   if (res.status === 401) throw new Error('이메일 또는 비밀번호가 틀렸어')
+  // 403 = 미인증/차단 (백엔드 메시지 그대로 보여줌), 429 = 너무 잦은 시도
+  if (res.status === 403) {
+    const d = await res.json().catch(() => null)
+    throw new Error(d?.detail ?? '로그인할 수 없는 계정이야')
+  }
+  if (res.status === 429) throw new Error('로그인 시도가 너무 많아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('로그인 실패')
   const data = await res.json()
   setToken(data.access_token)

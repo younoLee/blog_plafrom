@@ -9,6 +9,7 @@ import WritePostPage from './pages/WritePostPage'
 import StatusPage from './pages/StatusPage'
 import PortalPage from './pages/PortalPage'
 import AdminPage from './pages/AdminPage'
+import VerifyPage from './pages/VerifyPage'
 import './App.css'
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
             {/* 인증 (루트 유지) */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/verify" element={<VerifyPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
+from app.core.ratelimit import limiter
 from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin
 from app.services.status import run_checks, get_history, start_recorder
 
@@ -17,6 +20,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Blog Platform API", lifespan=lifespan)
+
+# 레이트 리밋: 한도 초과 시 429 응답 (가입/로그인 폭주 방어)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

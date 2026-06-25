@@ -35,3 +35,25 @@ def decode_access_token(token: str) -> int | None:
         return int(payload["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
+
+
+# --- 이메일 링크용 토큰 (이메일 인증 / 비밀번호 재설정 공용) ---
+# 로그인 토큰과 구분하려고 purpose("verify"/"reset")를 넣음 → 용도 섞어쓰기 방지
+def create_email_token(user_id: int, purpose: str, expire_hours: int = 24) -> str:
+    payload = {
+        "sub": str(user_id),
+        "purpose": purpose,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=expire_hours),
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
+
+
+def decode_email_token(token: str, purpose: str) -> int | None:
+    """purpose가 일치하고 유효하면 user_id, 아니면 None (만료·위조·용도불일치)."""
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        if payload.get("purpose") != purpose:
+            return None
+        return int(payload["sub"])
+    except (jwt.PyJWTError, KeyError, ValueError):
+        return None

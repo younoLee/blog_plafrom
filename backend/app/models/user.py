@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import String, DateTime, Boolean, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
@@ -14,6 +14,9 @@ class User(Base):
     # 권한: pending(가입 직후·승인 대기) / writer(승인됨·글쓰기 가능) / admin(승인권자)
     # 기존 가입자도 server_default 덕분에 마이그레이션 시 pending으로 채워짐
     role: Mapped[str] = mapped_column(String(20), server_default="pending")
+    # 이메일 인증 여부. 가입 직후 False → 확인메일 링크 클릭하면 True (봇 대량가입 차단)
+    # 기존 계정은 마이그레이션에서 True로 백필 (잠기지 않게)
+    email_verified: Mapped[bool] = mapped_column(Boolean, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

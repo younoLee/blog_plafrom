@@ -412,3 +412,22 @@ cd frontend && npm run dev                               # :5173
 - 프론트: `Role`에 banned, `api/admin.ts` banUser/unbanUser, AdminPage에 '차단됨' 빨강 뱃지 + pending/writer엔 '차단' 버튼, banned엔 '차단 해제' 버튼(ACTIONS 맵으로 핸들러 일반화)
 - 검증: curl e2e — 차단→role=banned, 차단계정 로그인 403, 차단 전 받은 토큰 글쓰기 403, 해제→pending, 해제 후 로그인 200, 임시계정 정리. build/lint 통과 + 브라우저 확인
 - 다음 결정: 가입 폭탄(봇 대량가입) 방어 = **이메일 인증**으로 결정(미인증=목록에 안 뜸·로그인 불가). CAPTCHA는 풀이농장/ML로 뚫려 만능 아님 → 개인블로그엔 이메일인증+가벼운 레이트리밋이면 충분. 4단계 비번재설정과 메일·토큰 인프라 공유 예정
+
+### 권한제 체크포인트 커밋 (2026-06-25) — `d80002a`
+- 1~3단계 + 관리자 글관리 + 블랙리스트를 한 커밋으로 저장(되돌릴 지점). admin 이메일은 docker-compose에서 `${ADMIN_EMAIL}`로 빼고 gitignore된 `.env`에서 주입(깃 미포함). push는 외부 터미널에서 나중에
+
+### 이메일 인증 + 레이트 리밋 (봇 가입 폭탄 방어) [완료] (2026-06-25)
+- **토큰·메일 토대**: `security.py`에 create/decode_email_token(purpose 'verify'/'reset', 만료 — 인증·비번재설정 공용), config에 `frontend_base_url`(메일 링크용, 로컬 5173/프로드 CloudFront). `services/email.py`에 send_verification_email
+- **DB**: `users.email_verified` Boolean 추가 → 마이그레이션 `5284e000bf4e`. **기존 계정은 upgrade에서 `UPDATE ... SET email_verified=true`로 백필**(잠기지 않게). 신규 가입은 false로 시작
+- **백엔드 흐름**: register=미인증 생성+확인메일(백그라운드, admin 이메일은 자동 인증+admin), `POST /auth/verify?token=`, 로그인은 미인증 403, 관리자 목록은 `email_verified=true`만(미인증 봇 제외)
+- **레이트 리밋(slowapi)**: `core/ratelimit.py` Limiter + client_ip(X-Forwarded-For 우선 = CloudFront 뒤 진짜 IP). register 5/hour, login 10/minute, 초과 429. main.py에 limiter·핸들러 등록. requirements에 `slowapi==0.1.9` → **docker backend 재빌드 필요**(이미지에 패키지 설치)
+- **프론트**: AuthProvider.register 자동로그인 제거, RegisterPage "메일 확인" 안내 화면, `pages/VerifyPage.tsx`(/verify?token= → 인증, setState는 .then/.catch로 lint 회피), App에 /verify, api/auth.ts verifyEmail + login 403(상세메시지)·429 처리
+- 검증: curl e2e — 가입 미인증·확인메일 발송(Mailpit +1)·미인증 로그인 403·토큰 verify→인증·인증 후 로그인 200·가짜토큰 400, 레이트리밋 6연타 6번째 429. 브라우저 전체 흐름 OK
+- 함정: slowapi 추가 후 docker backend가 import에러로 다운 → `docker compose up -d --build backend`로 재설치. 레이트리밋은 메모리 저장이라 테스트로 한도 소진 시 `docker compose restart backend`로 초기화
+- 프로드 주의: prod는 아직 메일서버(SES) 없음 → CloudFront에선 인증메일 안 감 = 가입 막힘. SES 붙일 때 같이 적용
+
+### 관리자 계정 삭제 [완료] (2026-06-25)
+- `DELETE /api/admin/users/{id}`(admin만, admin 자기삭제 400): 글 먼저 삭제(posts.owner_id는 cascade 없음)→댓글은 posts FK CASCADE로, user 삭제→author_subscriptions는 users FK CASCADE로 자동 정리
+- 프론트: api/admin.ts deleteUser, AdminPage 빨간 '삭제' 버튼(admin 외 전원) + window.confirm(글·댓글 영구삭제 경고) → 목록에서 제거
+- 검증: curl e2e — 글+댓글 있는 계정 삭제 시 user/post/comment 전부 0(cascade), admin 자기삭제 400. build/lint 통과 + 브라우저 확인
+- 다음: 4단계 비번 재설정(이메일 링크 — security.py 토큰 'reset' purpose·메일 인프라 그대로 재활용)

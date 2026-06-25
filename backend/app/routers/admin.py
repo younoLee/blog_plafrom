@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_admin
 from app.models.user import User
+from app.models.post import Post
 from app.schemas.user import UserRead
 
 # 관리자 전용 라우터 — 모든 엔드포인트가 require_admin 통과해야 함
@@ -13,8 +14,10 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(requir
 
 @router.get("/users", response_model=list[UserRead])
 def list_users(db: Session = Depends(get_db)):
-    # 가입자 전원 목록 (id 순) — 누구를 승인할지 보기 위함
-    return db.scalars(select(User).order_by(User.id)).all()
+    # 이메일 인증을 마친 가입자만 목록에 (미인증=봇 가능성 → 제외해 목록 깨끗하게)
+    return db.scalars(
+        select(User).where(User.email_verified.is_(True)).order_by(User.id)
+    ).all()
 
 
 def _get_user_or_404(user_id: int, db: Session) -> User:
@@ -70,3 +73,16 @@ def unban_user(user_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    # 영구 삭제(되돌리기 불가). admin은 삭제 불가
+    user = _get_user_or_404(user_id, db)
+    if user.role == "admin":
+        raise HTTPException(status_code=400, detail="관리자 계정은 삭제할 수 없어")
+    # 이 사용자의 글 삭제 → 댓글은 posts FK CASCADE로 함께 삭제
+    db.execute(delete(Post).where(Post.owner_id == user_id))
+    # author_subscriptions는 users FK ondelete CASCADE라 user 삭제 시 자동 정리
+    db.delete(user)
+    db.commit()

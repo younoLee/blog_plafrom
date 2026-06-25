@@ -21,8 +21,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function register(email: string, password: string) {
+    // 이메일 인증 도입 후로는 가입해도 바로 로그인 안 함 (메일 인증 먼저)
     await authApi.register(email, password)
-    await login(email, password) // 가입 후 바로 로그인
   }
 
   function logout() {

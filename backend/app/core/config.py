@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # 첫 관리자를 수동 SQL 없이 만드는 부트스트랩 용도. 비밀 아님(이메일일 뿐).
     admin_email: str = ""
 
+    # 메일 링크(이메일 인증·비번 재설정)에 넣을 프론트엔드 주소. 프로드는 CloudFront로 교체
+    frontend_base_url: str = "http://localhost:5173"
+
     # 메일 발송 설정 (로컬 기본값은 Mailpit. 나중에 AWS SES 주소로 교체)
     smtp_host: str = "localhost"
     smtp_port: int = 1025

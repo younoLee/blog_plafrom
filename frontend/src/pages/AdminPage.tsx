@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { listUsers, approveUser, revokeUser, banUser, unbanUser } from '../api/admin'
+import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser } from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 
@@ -39,6 +39,17 @@ function AdminPage() {
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
     } catch (e) {
       setError(e instanceof Error ? e.message : '처리 실패')
+    }
+  }
+
+  // 영구 삭제 (글·댓글까지) — 되돌릴 수 없으니 확인창
+  async function handleDelete(id: number, email: string) {
+    if (!window.confirm(`정말 ${email} 계정을 삭제할까?\n이 사람의 글·댓글도 영구 삭제되고 되돌릴 수 없어.`)) return
+    try {
+      await deleteUser(id)
+      setUsers((prev) => prev.filter((u) => u.id !== id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '삭제 실패')
     }
   }
 
@@ -86,6 +97,16 @@ function AdminPage() {
                 {u.role === 'banned' && (
                   <button type="button" onClick={() => handle(u.id, 'unban')} className={ui.btnPrimary}>
                     차단 해제
+                  </button>
+                )}
+                {/* admin 외 모든 계정에 영구 삭제 버튼 */}
+                {u.role !== 'admin' && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(u.id, u.email)}
+                    className="rounded-full px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                  >
+                    삭제
                   </button>
                 )}
               </div>
