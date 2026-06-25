@@ -1,0 +1,22 @@
+from datetime import datetime
+from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column
+from app.core.database import Base
+
+
+class AuthorSubscription(Base):
+    """로그인 사용자(subscriber)가 글쓴이(author)를 구독하는 관계."""
+    __tablename__ = "author_subscriptions"
+    # 같은 사람을 두 번 구독 못 하게
+    __table_args__ = (UniqueConstraint("subscriber_id", "author_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subscriber_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    author_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

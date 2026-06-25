@@ -1,0 +1,14 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* 다크모드를 .dark 클래스로 제어 (기본은 OS 설정 따름이라 수동 토글용으로 바꿈) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 전역 기본 폰트: Pretendard 우선 */
+:root {
+  font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}

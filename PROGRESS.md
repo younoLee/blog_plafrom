@@ -1,0 +1,338 @@
+# 블로그 플랫폼 진행 기록
+
+스택: FastAPI + PostgreSQL + React (Vite + TypeScript)
+
+## 기능 목록
+- [x] 글 작성/열람 (+ 수정/삭제, 상세 라우팅, 요약, 이미지, 댓글)
+- [x] 구독
+- [x] 새 글 알림 (Mailpit, 나중에 SES)
+- [x] 계정/로그인 + 글 공개범위(전체/일부)
+- [ ] AI 글 구조 생성
+- [ ] 서비스 상태 페이지
+- (나중에) 인프라 AWS 이전: RDS/컨테이너/S3+CloudFront/Terraform/CI·CD
+
+## 재개 방법 (다음 세션)
+```
+sg docker -c "docker compose up -d db mailpit"          # 컨테이너(이미 떠있을 수 있음)
+backend/.venv/bin/uvicorn app.main:app --app-dir backend --port 8000
+cd frontend && npm run dev                               # :5173
+```
+데모 계정: kim@test.com / secret123 (공개+비공개글 소유), lee@test.com / pw12345
+
+---
+
+## 2026-06-21
+
+- [완료] 프로젝트 폴더 구조 설정
+  - backend/: FastAPI 앱 골격 (main.py, core/, models/, schemas/, routers/, services/)
+  - frontend/: React 빈 폴더 구조 (src/components, pages, api, types)
+  - docker-compose.yml: PostgreSQL + 백엔드 로컬 실행 환경
+  - .gitignore: .env, node_modules 등 제외
+
+- [완료] 백엔드 FastAPI 서버 실제 실행 확인
+  - 시스템 python3에 pip 없음 → `backend/.venv` 가상환경 생성(ensurepip로 pip 자동 포함)
+  - `.venv/bin/pip install -r requirements.txt` 로 의존성 설치 (fastapi, uvicorn, sqlalchemy 등)
+  - uvicorn 기동 → `/health` 200 `{"status":"ok"}`, `/docs` 200 확인
+  - 메모: main.py는 DB를 import 안 함 → Postgres 없이도 서버는 뜸(create_engine은 lazy)
+
+- [완료] React 프론트엔드 초기화 (Vite + react-ts)
+  - 기존 빈 폴더(api/components/pages/types) 보존 위해 임시폴더에 scaffold 후 frontend/로 병합
+  - package.json name: blog-platform-frontend 로 변경
+  - `npm install` + `npm run build` 통과 (tsc 타입체크 + vite build → dist/ 생성)
+
+- [완료] 프론트-백엔드 연결 검증
+  - App.tsx에 /health 호출(useEffect 최초 1회) → "백엔드 연결 상태: ok" 표시하는 최소 코드
+  - 양쪽 서버 동시 기동: 프론트 :5173 (200), 백엔드 :8000
+  - CORS 검증: Origin: localhost:5173 요청에 access-control-allow-origin 헤더 정상 응답 → 브라우저 fetch 성공 보장
+
+- [완료] Docker(WSL 통합) 손봄
+  - Docker Desktop은 Windows에 이미 설치돼 있었고, Ubuntu 배포판 WSL 통합이 꺼져 있던 게 원인
+  - Docker Desktop GUI → Resources → WSL Integration → Ubuntu 토글 ON 후 동작
+  - 남은 권한 이슈: 현재 셸이 docker 그룹 반영 전에 시작됨 → `sg docker -c "..."`로 우회, 영구 적용은 `wsl --shutdown` 후 재시작
+  - `docker ps` 정상(컨테이너 목록 비어있음)
+
+### 글 작성/열람 기능 (완료)
+- [완료] Postgres 컨테이너 기동 (`sg docker -c "docker compose up -d db"`)
+  - postgres:16-alpine, blog DB 존재, pg_isready accepting 확인
+  - 백엔드 SQLAlchemy로 실제 연결 성공(PostgreSQL 16.14) — config.py 기본 URL 그대로 동작
+- [완료] Post 모델 정의(app/models/post.py) + 테이블 생성(create_all)
+  - posts: id(PK,자동증가), title(varchar200), content(text), created_at/updated_at(timestamptz, now()/onupdate)
+  - 테이블 생성은 지금 create_all 방식. 스키마 복잡해지기 전 Alembic 도입 예정
+- [완료] 글 CRUD API (schemas/post.py + routers/posts.py, main.py에 라우터 연결)
+  - POST/GET목록/GET단건/PUT/DELETE 5종 curl로 전부 검증, 404/204 동작 확인
+  - PUT 시 updated_at만 갱신·created_at 유지 확인
+- [완료] 프론트 글 목록·작성 화면
+  - types/post.ts, api/posts.ts(fetchPosts/createPost), App.tsx(작성 폼 + 목록)
+  - npm run build 통과, 프론트가 쓰는 POST/GET 경로 CORS 포함 검증
+  - 작성→목록 자동 갱신, created_at 표시
+
+- [완료] 프론트 글 수정/삭제 UI
+  - api/posts.ts에 updatePost/deletePost 추가
+  - App.tsx: editingId 상태로 작성/수정 모드 전환, 글마다 수정·삭제 버튼, 수정 시 폼에 채우고 "수정 저장"/"취소"
+  - 점검: build/lint OK, 작성→수정→삭제 API 경로 204/404까지 검증, 서버 에러 0
+- [완료] Alembic 도입 (DB 스키마 버전 관리)
+  - alembic init → env.py에 settings.database_url 주입 + target_metadata=Base.metadata 연결
+  - 기존 create_all 테이블 drop 후 autogenerate로 초기 마이그레이션(create posts) 생성 → upgrade head 적용
+  - alembic_version 테이블이 현재 버전(13f4b1ff2dc5) 추적, 앱 CRUD 정상 회귀 확인
+  - 앞으로 스키마 변경은 모델 수정 → `alembic revision --autogenerate -m "..."` → `alembic upgrade head` 순서
+### 구독 기능 (완료)
+- [완료] 백엔드: Subscriber 모델(email unique+index) → Alembic 마이그레이션(ad25d4c8b1b3) → schema(EmailStr) + 라우터(POST 등록/GET 목록)
+  - 중복 이메일 409, 형식 오류 422, alembic check "no new ops"(모델=DB 일치) 확인
+  - email-validator 패키지 추가(requirements.txt)
+- [완료] 프론트: api/subscribers.ts + App.tsx 구독 폼(이메일 입력→상태별 안내 메시지)
+  - build/lint OK, 등록/중복/형식/목록/CORS/회귀 전부 통과, 테스트 데이터 정리
+### 새 글 알림 기능 (완료)
+- [완료] Mailpit 컨테이너(docker-compose, SMTP 1025 / 웹UI 8025)로 로컬 메일 캐처 구성
+- [완료] config.py SMTP 설정(smtp_host/port, mail_from) — 로컬 Mailpit 기본값, 나중에 SES로 교체
+- [완료] services/email.py: smtplib 발송 + notify_new_post(구독자 전원에게, 자체 DB 세션)
+- [완료] create_post에 BackgroundTasks로 알림 연결 — 응답 후 백그라운드 발송
+  - 검증: 구독자 2명→글 작성→Mailpit 2통 수신(제목/수신자 정확), 서버 에러 0, 테스트데이터 정리
+### 글 상세 페이지 + 라우팅 (완료)
+- [완료] react-router-dom 7.18 도입
+- [완료] 화면 분리: App.tsx=라우터 설정만, pages/HomePage(구독·작성·목록, 제목→상세 링크), pages/PostDetailPage(/posts/:id 글 전문)
+- [완료] api/posts.ts에 getPost(id) 추가(404 처리)
+  - build/lint OK, / 와 /posts/:id 라우팅 동작, getPost 200 확인
+### 글 요약(발췌) (완료)
+- [완료] HomePage 목록에 본문 앞 100자 자동 발췌 표시(100자+ 시 …), 요약/제목 클릭→상세
+  - DB 변경 없음(자동 발췌 방식), build/lint OK
+
+### 추가 요청받은 기능 (순서대로 진행 예정)
+- [완료] ① 글 요약
+- [완료] ③ 댓글 — comments 테이블(post_id FK, ondelete CASCADE) + 마이그레이션(627870b1c2e4) + /posts/{id}/comments API(목록/작성) + 상세페이지 댓글목록·작성폼
+  - 작성자 이름 직접입력(로그인 전), CASCADE(글 삭제→댓글 삭제) 검증, 404/422 확인, build/lint OK
+- [완료] ② 이미지 업로드 (마크다운 방식)
+  - 백엔드: POST /upload(이미지만, uuid 파일명, backend/uploads/ 저장) + StaticFiles로 /uploads/<파일> 서빙, config.public_base_url(나중에 S3/CloudFront로 교체), python-multipart 추가
+  - 프론트: api/uploads.ts, HomePage 이미지 첨부 input→업로드 후 본문에 ![](url) 삽입, PostDetailPage react-markdown으로 본문 렌더링(이미지 표시)
+  - 검증: PNG 업로드 URL→GET 200, txt 거부 400, e2e(업로드→글 삽입→상세 이미지) OK, build/lint OK
+  - DB 변경 없음(이미지 URL은 본문 텍스트에 마크다운으로 들어감). uploads/는 .gitignore
+### ④ 계정+공개범위 (완료)
+- [완료] 4a 인증 백엔드: User 모델+마이그레이션(86ed6449b339), bcrypt 해싱, JWT(PyJWT), /auth/register·login·me, deps(get_current_user/_optional)
+- [완료] 4c 글 owner_id+visibility 마이그레이션(d6c9c2009ad6) + 권한: 작성=로그인필수, 목록/상세=비공개는 본인만(404), 수정/삭제=소유자만(403)
+- [완료] 4b 인증 프론트: api/auth.ts(토큰 localStorage), auth/auth-context.ts + AuthProvider, App을 AuthProvider로 감쌈, posts api에 authHeaders 첨부
+- [완료] 4d 공개범위 UI: HomePage 로그인바(로그인/회원가입/로그아웃), 작성폼 로그인 게이팅, 공개범위 라디오, 비공개 🔒 뱃지, 본인 글만 수정/삭제 버튼; 상세페이지 비공개 뱃지
+  - build/lint OK, alembic clean. 데모계정 kim@test.com/secret123(공개+비공개글 소유), lee@test.com/pw12345
+- 추가 요청 4개 기능(①요약 ③댓글 ②이미지 ④계정+공개범위) 전부 완료
+
+### 디자인/스타일링 (진행중)
+- [완료] Tailwind CSS v4 도입(@tailwindcss/vite 플러그인, index.css에 @import "tailwindcss") + @tailwindcss/typography
+  - 옛 Vite 데모 CSS(index.css/App.css) 제거, App 래퍼 max-w-2xl 컨테이너
+  - HomePage 재디자인(헤더, 카드형 목록, 버튼/입력 스타일 통일, 🔒뱃지, line-clamp 요약)
+  - PostDetailPage 재디자인(본문 prose 타이포그래피, 댓글 카드)
+  - build/lint OK, 생성 CSS에 유틸/hover/prose 룰 확인
+- [완료] 로그인/회원가입/글쓰기를 별도 페이지로 분리
+  - pages/LoginPage(/login), RegisterPage(/register), WritePostPage(/new 작성 + /posts/:id/edit 수정)
+  - HomePage: 인라인 폼 제거 → 헤더에 네비 버튼(로그아웃 시 로그인/회원가입, 로그인 시 글쓰기/로그아웃), 수정은 edit 페이지로 이동
+  - 작업 후 navigate('/')로 홈 복귀, 글쓰기 페이지는 비로그인 시 /login으로 리다이렉트
+  - build/lint OK, 라우트 6개(/, /login, /register, /new, /posts/:id, /posts/:id/edit) 서빙 확인
+- [완료] 디자인 고급화: 공통 Layout(sticky 헤더+푸터, Outlet 중첩 라우트), Pretendard 폰트, indigo 테마, ui.ts 공통 토큰(btn/input/card), 흰 카드+그림자+hover 떠오름, 홈 히어로, 상세/로그인/가입/글쓰기 카드화
+  - build/lint OK, 라우트 6개 200, Pretendard 로드 확인
+- [완료] 다크모드: index.css @custom-variant dark(.dark 클래스 제어), theme.ts(getInitial/apply/useTheme, localStorage+OS설정), main.tsx 렌더 전 적용(깜빡임 방지), 헤더 🌙/☀️ 토글, ui.ts·Layout·전 페이지 dark: 변형(배경/텍스트/카드/입력/prose-invert)
+  - build/lint OK, .dark 규칙 생성 확인
+- [ ] 남은 디자인(선택): 모바일 반응형 추가 점검
+
+### 글쓴이 구독 → 일부공개 글 열람 (완료)
+- [완료] author_subscriptions 테이블(subscriber_id→author_id, unique, CASCADE) + 마이그레이션(f02bc00a3b57)
+- [완료] /subscriptions API: GET(내 구독 author id목록)/POST(구독, 자기자신 400)/DELETE(해제)
+- [완료] posts 권한 확장: 일부공개(private) = 작성자 본인 OR 그 작성자를 구독한 사람 (can_view + list 필터 + subscribed_author_ids)
+- [완료] 프론트: api/subscriptions.ts, 상세페이지 "글쓴이 구독/구독중" 토글 버튼(로그인+남의 글일 때)
+- 검증: 구독 전 404 → 구독 후 200 → 해제 후 404, 자기구독 400, 비로그인 404, build/lint OK
+- 다음 할 일(미정): AI 글 구조 생성, 서비스 상태 페이지. (나중에 AWS: SES로 메일 교체)
+
+## 2026-06-22
+
+목표: 통합 랜딩(포털) + 상태정보 페이지. 구조는 "포털 분리형"으로 결정 — / = 통합 랜딩, /blog = 블로그, /status = 상태.
+
+### 1단계 — 상태정보 페이지 (/status) [완료]
+- [완료] 백엔드 /status 확장(main.py): 기존 backend+database에 **mail(SMTP 소켓 연결, Mailpit 1025)** + **stats(글 수/구독자 수, count 쿼리)** 추가
+  - 점검 원칙: 실제로 안 도는 건 가짜로 안 넣음(외부/AWS는 나중에 진짜 붙을 때)
+- [완료] 프론트: api/status.ts(fetchStatus + StatusInfo 타입), pages/StatusPage.tsx(서비스 3개 초록●/빨강● + 글/구독자 통계 + 새로고침 버튼 + 마지막 점검 시각), App.tsx에 /status 라우트
+  - lint 주의: effect 안 동기 setState 금지 룰 → effect는 .then 패턴, 동기 setState는 새로고침 버튼(load) 쪽만
+- 검증: build/lint OK. e2e — db+mailpit 띄우고 백엔드 기동 후 curl /status → `{backend:ok, database:ok, mail:ok, stats:{posts:4,subscribers:1}}` 확인
+
+### 2단계 — 통합 랜딩 + 블로그 /blog 이동 [완료]
+- [완료] pages/PortalPage.tsx: 카드 2개(📝 블로그→/blog, 📊 상태정보→/status)
+- [완료] App.tsx 라우트 재배치: / = Portal, /blog = HomePage, /blog/new, /blog/posts/:id, /blog/posts/:id/edit, /status, /login, /register
+- [완료] 링크/navigate 경로 수정:
+  - HomePage 글/수정 링크 → /blog/posts/..., Layout 글쓰기 → /blog/new, PostDetail "목록으로" → /blog
+  - WritePost 저장/취소 → /blog, Login·Register 성공 후 → /blog
+  - "← 홈으로"(Login/Register/Write 좌상단) = to="/" 그대로 두니 자동으로 포털 가리킴
+- 검증: 옛 경로 grep 0개, build/lint OK, dev 서버 부팅 에러 0, 라우트 5개(/, /blog, /status, /blog/posts/1, /login) 전부 200
+- 결과: 통합사이트 완성 — 루트 진입 → 블로그/상태정보 갈라짐
+
+### 3단계 — 업타임(uptime) 기록·표시 [완료]
+- 업타임 % 정의: "돌고 있을 때 건강했나" = 정상 점검 / 전체 기록된 점검. 서버 꺼진 날 = 데이터 없음(회색)
+  - 정직한 한계: 자기 자신 다운은 자기가 기록 못 함 → 진짜 다운 감지는 나중 AWS 외부 모니터(Lambda+크론)
+- [완료] 백엔드:
+  - 모델 status_checks(checked_at index, backend_ok/database_ok/mail_ok) + 마이그레이션(62118f8854d4)
+  - app/services/status.py: run_checks(실시간 점검+통계) / record_check(1줄 저장) / start_recorder(60초마다 도는 데몬 스레드) / get_history(일별 집계)
+  - main.py: lifespan에서 start_recorder() 시작, /status는 run_checks 사용, GET /status/history?days=N(1~90) 추가
+  - "정상" 기준 = backend_ok AND database_ok AND mail_ok
+- [완료] 프론트: api/status.ts fetchHistory + StatusPage 업타임 섹션(전체 % + 최근 30일 날짜별 막대 초록/노랑/빨강/회색 + 툴팁 + 범례)
+- 검증: 마이그레이션 alembic check 통과, /status·/status/history 200, 기록 1→3줄 누적 확인, build/lint OK, 프론트 /status 200
+- 메모: 기록은 서버 떠있는 동안만 쌓임 → 과거 날짜는 당분간 회색. status_checks 보존정책(오래된 행 정리)은 나중 고려
+- [완료] 막대 서비스별 분리: get_history가 backend/database/mail 각각 일별 집계 반환({services:[{name,label,overall_uptime,days}], total_checks}), StatusPage는 UptimeRow로 3줄(라벨+% +막대). 검증: /status/history 서비스 3개 응답, build/lint OK
+- 환경 메모: 백엔드 죽일 때 `pkill -f "uvicorn..."`는 명령줄 자기자신까지 매치돼 셸 자살(exit 144) → `fuser -k 8000/tcp`로 포트 기준 종료할 것
+
+### 6단계 — AI 글 초안 생성 (Claude API) [코드 완료 / 키 대기]
+- 거친 메모 → 정돈된 글 구조 마크다운(제목·소제목·불릿·초안)
+- 결정: 모델은 env로 교체 가능(config.ai_model 기본 `claude-opus-4-8`, .env에서 `claude-haiku-4-5`로 저비용 전환 가능). 비용 유료(Opus ~$0.03~0.05/건, Haiku ~$0.005~0.01/건). 키는 아직 없음
+- [완료] 백엔드: `anthropic==0.111.0` 설치(requirements 핀), config에 anthropic_api_key/ai_model 추가
+  - app/services/ai.py: SYSTEM_PROMPT(마크다운만 출력 강제) + generate_draft(memo), 키 없으면 AIKeyMissingError
+  - schemas/ai.py(memo max 5000=비용상한), routers/ai.py: POST /ai/draft, **로그인 필수(get_current_user)로 비용 보호**, 키없음→503·실패→502
+  - main.py에 ai 라우터 연결. 공식 anthropic SDK, messages.create(max_tokens 4000, system+user)
+- [완료] 프론트: api/ai.ts(generateDraft), WritePostPage에 "🤖 AI 초안" 박스(메모 textarea→생성→첫 `# 제목`은 제목칸, 나머지는 본문)
+- 검증: 백엔드 부팅 OK, /ai/draft 비로그인 401·로그인+키없음 503(친절 메시지) 확인, build/lint OK
+- 보안/비용: 키는 .env에만(.env·*.env gitignore 확인), 코드/커밋 금지. 실제 생성은 키 넣어야 동작
+- **다음 세션 할 일**: 프로젝트 루트(`/home/es0764/blog-platform/.env`)에 `ANTHROPIC_API_KEY=sk-...` 넣고 백엔드 재기동 → 실제 초안 생성 e2e 테스트
+
+### Docker 전체 컨테이너화 [완료] (2026-06-22)
+목적: 수동 실행(venv/npm) 탈출 → `docker compose up` 한 줄로 전체 스택. AWS 배포 발판.
+- 핵심 개념: 컨테이너 안 `localhost`는 자기 자신 → DB/메일은 **서비스 이름**(`db`, `mailpit`)으로 접속
+- [완료] 1단계 백엔드: backend/.dockerignore(.venv·uploads·.env 제외), Dockerfile에 `mkdir uploads`, compose backend를 env_file→`environment`(DATABASE_URL=@db, SMTP_HOST=mailpit)로 교체, db `healthcheck`(pg_isready)+`depends_on: service_healthy`(기동 경합 방지), command에 `alembic upgrade head &&` (마이그레이션 자동)
+- [완료] 2단계 프론트: 멀티스테이지 Dockerfile(node 빌드→nginx 서빙), nginx.conf SPA 폴백(try_files /index.html), .dockerignore(node_modules·dist), compose frontend 포트 `5173:80`(CORS origin 유지)
+- 검증: `docker compose up -d --build` → 4컨테이너(db healthy/mailpit/backend/frontend) Up, 프론트 라우트 4개 200(SPA 폴백 OK), 백엔드 /status ok(데이터 posts:4 유지), CORS allow-origin 확인
+- 메모: 프론트는 프로덕션 정적(핫리로드 X) → 수정 시 `docker compose up -d --build frontend`. 백엔드는 볼륨마운트+--reload라 코드수정 즉시 반영. 컨테이너 종료는 `docker compose down`(볼륨 유지) / 데이터까지 = `down -v`
+- 다음(인프라): AWS 수동 배포(프론트 S3+CloudFront / 백엔드 컨테이너+RDS / 도메인·HTTPS) → Terraform → CI/CD
+
+### AWS 배포 ① 프론트 S3 + CloudFront [완료] (2026-06-24)
+계정: 신규(프리티어 12개월 이내) → 사실상 $0. 리전 서울(ap-northeast-2).
+- [완료] vite.config.ts `build.assetsDir: ''` → dist 평평하게 출력(폴더 없이 파일만 → S3 업로드 간편). index.html이 /index-*.js, /index-*.css를 root에서 참조.
+- [완료] S3 버킷 `blogplafromops`(비공개, 퍼블릭 액세스 차단 유지)에 dist 파일 업로드(평평, 파일 5개).
+- [완료] CloudFront 배포(새 콘솔 마법사): WAF 끔(무료), 도메인 skip(기본 d*.cloudfront.net 사용), 원본=S3 버킷, "Allow private S3 bucket access (OAC) - Recommended" 선택 → 버킷 정책 자동 처리(수동 복붙 불필요).
+- [완료] 기본 루트 객체 = index.html(설정에서 별도 입력 필요했음 — 마법사가 안 물어봄).
+- [완료] 오류 페이지: 403 → /index.html → 200 (SPA 라우팅 폴백).
+- 검증: CloudFront 도메인 접속 → 포털 화면 정상. (API는 백엔드 미배포라 아직 안 뜸 = 정상)
+- 메모: WSL→S3 업로드는 콘솔 드래그(aws CLI 미설치). dist를 C:\Users\erert\Documents\blog-dist에 복사해서 드래그. 폴더 업로드가 잘 안 돼서 assetsDir 평평하게 바꿔 해결.
+- 다음: 백엔드 EC2+RDS 배포 → 프론트 API 주소(현재 localhost:8000 하드코딩)를 백엔드 공개주소로 교체(빌드 시 env로) → 재배포. (aws CLI 설치 시 업로드/배포 훨씬 쉬워짐)
+
+### AWS 배포 ② 백엔드 EC2 + RDS [진행 중] (2026-06-24)
+계정: 181568979775, IAM 사용자 `IAM_cli`. 리전 서울. AWS CLI 설치됨(`~/.local/bin/aws`, PATH는 ~/.bashrc 등록).
+
+**RDS (창고) — 생성됨/백업 중:**
+- 식별자 `blog-db`, PostgreSQL, db.t3.micro, 단일 AZ, 20GB gp2, 스토리지 자동조정 끔
+- 마스터 사용자 `postgres`, 비번=사용자만 앎(영문+숫자, 특수문자 없음) — .env DATABASE_URL에 들어감
+- 퍼블릭 액세스 = 아니요(비공개), 보안그룹 `blog-db-sg`(default VPC), 자체관리 암호인증
+- ⚠️⚠️ **초기 데이터베이스 이름 `blog`를 안 넣고 생성함** → `blog` DB 없음
+
+**🔴 꼭 할 일 (까먹지 말 것):**
+1. **EC2에서 RDS 접속 → `CREATE DATABASE blog;`** (초기 DB 이름 빠뜨려서. 1줄. EC2 뜨면 제일 먼저)
+2. **RDS 보안그룹 `blog-db-sg`에 인바운드 규칙 추가**: 소스=EC2 보안그룹 `blog-ec2-sg`, 포트 5432 (창고 문을 주방한테만 열기)
+3. **프론트 API 주소 교체**: 현재 모든 api/*.ts가 `const BASE='http://localhost:8000'` 하드코딩 → EC2 공개주소로 바꿔 재빌드 → S3 재업로드 → CloudFront 무효화(invalidation)
+4. **백엔드 CORS**: main.py `allow_origins=["http://localhost:5173"]` → CloudFront 도메인 추가
+5. **prod용 compose**: db·mailpit 컨테이너 빼고 backend만, DATABASE_URL=RDS엔드포인트, SMTP는 비활성/더미 (메일 알림은 나중에 SES)
+
+**EC2 (주방) — 만드는 중 목표 설정:**
+- 이름 `blog-backend`, AMI Amazon Linux 2023, t2.micro(프리티어), 스토리지 8GB
+- 키페어 `blog-key.pem`(사용자 보관, SSH 접속용), 자동할당 퍼블릭 IP
+- 보안그룹 `blog-ec2-sg`: SSH 22(내 IP) + TCP 8000(0.0.0.0/0, API)
+- 만든 뒤: SSH 접속 → Docker 설치 → 위 "꼭 할 일" 1~5 처리 → 백엔드 컨테이너 실행
+
+**비용 메모:** 신규 계정이라 12개월 프리티어 무료. 안 쓸 땐 EC2·RDS **중지(stop)**하면 과금 거의 0. 나중 Terraform 가면 destroy/apply로 내렸다 올리기. 콘솔 예상요금 숫자는 정가표시(프리티어 할인 미반영) — 실제 $0.
+
+**[백엔드 LIVE 달성] (2026-06-24):**
+- EC2: `i-06da19f44d1f38eff`, 퍼블릭 IP **15.164.102.25**, Amazon Linux 2023, Docker 25 + compose v5 + buildx v0.35 + nano 설치됨
+- EC2 SG `sg-09ab4afd4472bb186`(launch-wizard-1): 22(내 IP), 8000(0.0.0.0/0). RDS SG `sg-04befe624e377b573`: 5432(EC2 SG에서만)
+- RDS 엔드포인트 `blog-db.czk2i6usy011.ap-northeast-2.rds.amazonaws.com:5432`, **prod는 기본 `postgres` DB 사용**(별도 blog DB 안 만듦 — alembic이 테이블 생성). 마이그레이션 7개 전부 적용됨
+- EC2 `~/blog/`: 백엔드 코드 + `docker-compose.prod.yml`(backend만, env_file, restart) + `.env`(DATABASE_URL→RDS postgres, 비번은 사용자가 nano로 입력, 나는 안 봄). SSH: `ssh -i ~/.ssh/blog-key.pem ec2-user@15.164.102.25`
+- 검증: 인터넷에서 `http://15.164.102.25:8000/health`·`/status` → ok, database:ok(RDS연결). mail:down(prod 메일서버 없음, 나중 SES)
+- 재배포(코드 수정 시): 로컬 backend tar→scp→EC2 `~/blog`, `sudo docker compose -f docker-compose.prod.yml up -d --build`
+
+**🔴 다음 할 일 (프론트 연결 — 여기 HTTPS 함정 있음):**
+1. ⚠️ **혼합 콘텐츠 문제**: 프론트(CloudFront)는 HTTPS인데 백엔드는 HTTP(`http://15.164.102.25:8000`) → 브라우저가 HTTPS페이지에서 HTTP API 호출을 **차단**함. 해결 필요:
+   - (추천) CloudFront에 **두 번째 오리진(EC2)** 추가 + 경로 패턴(예 `/api/*`)을 EC2로 → 전부 같은 HTTPS 도메인 = CORS·혼합콘텐츠 동시 해결. 단 백엔드 라우트에 `/api` prefix 필요(또는 CloudFront에서 경로 재작성)
+   - (대안) 도메인 사서 ACM 인증서 + 백엔드 앞단 HTTPS
+2. 프론트 api/*.ts의 `BASE='http://localhost:8000'` → 백엔드 주소로 교체 후 재빌드 → S3 재업로드(`aws s3 sync`) → CloudFront 무효화(invalidation)
+3. 백엔드 CORS `allow_origins`에 CloudFront 도메인 추가 (CloudFront 경유 same-origin이면 불필요)
+- 로컬 docker compose(db+mailpit+backend+frontend)는 그대로 개발용으로 유지
+
+### 🎉 AWS 풀스택 배포 완성 [완료] (2026-06-24)
+**라이브 URL: https://d2j66m9udyg9yq.cloudfront.net (HTTPS, 전체 동작)**
+```
+브라우저 ──HTTPS──► CloudFront (d2j66m9udyg9yq.cloudfront.net, 배포ID E1438IL9CSVBS4)
+   ├─ 기본동작(/, /blog, /status…)  → S3 (blogplafromops, OAC)          [정적 화면]
+   ├─ /api/*   → EC2 오리진(ec2-backend, http-only :8000)               [백엔드 API]
+   └─ /uploads/* → EC2 오리진                                            [이미지]
+                          EC2(15.164.102.25) Docker 백엔드 → RDS(blog-db, postgres DB)
+```
+- **혼합콘텐츠+CORS 해결법**: 백엔드 라우트를 전부 `/api` 밑으로(main.py: include_router prefix='/api', /api/health·/api/status), CloudFront에 EC2 2번째 오리진 + behavior(/api/*=CachingDisabled+AllViewerExceptHostHeader, /uploads/*=CachingOptimized) 추가 → 전부 같은 HTTPS 도메인 = CORS 불필요, 혼합콘텐츠 없음
+- 프론트: api/*.ts의 BASE를 `import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'`로 통일. prod 빌드는 `VITE_API_BASE=https://d2j66m9udyg9yq.cloudfront.net/api npm run build`
+- 재배포 흐름: 프론트 = 위 빌드 → `aws s3 sync dist/ s3://blogplafromops --delete` → `aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"`. 백엔드 = tar→scp→EC2 `~/blog`→`sudo docker compose -f docker-compose.prod.yml up -d --build`
+- CloudFront 설정은 CLI로(get-distribution-config→python 수정→update-distribution --if-match ETag). 관리형 정책ID: CachingDisabled 4135ea2d.., CachingOptimized 658327ea.., AllViewerExceptHostHeader b689b0a8-53d0-40ab-baf2-68738e2966ac
+- 검증: CloudFront 경유 /, /blog 200, /api/status database:ok, /api/posts []. (504는 백엔드 재시작 순간 일시적 캐시였음)
+
+**남은 폴리시/주의:**
+- ⚠️ EC2 퍼블릭 IP/DNS는 인스턴스 stop/start 시 바뀜 → CloudFront 오리진 깨짐. 안정화하려면 EIP(인스턴스에 붙이면 무료) 할당 후 오리진 도메인 교체
+- mail:down (prod 메일서버 없음) → 나중 SES. /status에서 메일만 빨강
+- 비용: EC2·RDS 안 쓸 땐 stop. 다음 단계 Terraform 가면 destroy/apply로 관리
+- **다음 로드맵: Terraform(지금까지 한 인프라를 코드화) → GitHub Actions CI/CD(push→자동배포)**
+
+### 🐛 디버깅: 이미지 업로드 실패(WAF) [해결] (2026-06-24)
+- 증상: CloudFront 경유로 큰 이미지(>8KB) 업로드 시 "Unexpected token '<' ... not valid JSON". 작은 건 됨.
+- 진단: EC2 직접은 200인데 CloudFront는 HTML(index.html). 헤더 `server: AmazonS3` + `x-cache: Error from cloudfront` → 403→/index.html 폴백. 크기로 좁힘(60B OK, 13KB 막힘) → WAF 의심.
+- 원인: **CloudFront 생성 때 고른 "무료" 보안 = WAF(`CreatedByCloudFront-920ca6f5`) 활성화**. (내가 "무료=보안 끄기"로 잘못 안내했었음 — 실제론 무료 등급 WAF 켜기) CommonRuleSet의 **SizeRestrictions_BODY**(본문 8KB 초과 차단)에 이미지가 걸림.
+- 해결: 플랜 구독 중이라 `update-distribution`으로 WebACL 분리 불가(`WebACLId=""` 거부). 대신 `aws wafv2 update-web-acl`로 CommonRuleSet에 **RuleActionOverride**(SizeRestrictions_BODY, CrossSiteScripting_BODY → **Count**) 적용. WAF 유지하며 큰 업로드만 허용.
+- 검증: CloudFront 경유 13KB·1MB 업로드 200, 올린 이미지 GET 200(image/png). 
+- 메모: 콘솔에서 끄려면 배포 보안탭 "Manage protections"인데 새 UI에서 못 찾음. 나중 Terraform 땐 WAF를 안 켜거나 업로드 경로 예외로 코드화.
+
+## 2026-06-25
+
+### 4단계 Terraform ① S3 버킷 import [완료]
+- 목표: 손으로 만든 라이브 인프라를 Terraform 코드로 옮기기(버전관리·재현). 방식 = **import**(라이브 URL·글 데이터 유지), 한 번에 다 하지 않고 **가장 단순한 S3 버킷 하나**로 워크플로우 체득부터.
+- Terraform 설치: 바이너리 **v1.15.7** → `~/.local/bin`(aws CLI와 같은 자리, sudo 불필요). zip은 curl로 받고 `unzip`이 없어서 외부 WSL 터미널에서 `sudo apt install -y unzip`으로 해결(`!` 세션은 sudo 비번 입력 불가). python `zipfile` 우회법도 가능.
+- `terraform/` 폴더 신설:
+  - `provider.tf`: aws provider `~> 5.0`, 리전 `ap-northeast-2`, 자격증명은 기존 aws configure(IAM_cli) 자동 사용
+  - `s3.tf`: `aws_s3_bucket.frontend` = 실제 버킷 `blogplafromops`(본체만 선언)
+- 워크플로우: `terraform init`(aws provider v5.100.0) → `terraform import aws_s3_bucket.frontend blogplafromops`(Import successful) → `terraform plan` = **No changes** → `fmt`/`validate` 통과
+- 배운 것:
+  - **import는 리소스 생성이 아님** — 이미 있는 걸 state에 등록만(비용 $0, 라이브 안 건드림, init/import/plan/validate 전부 읽기성)
+  - `resource "타입" "별명"` 구조에서 별명(frontend)은 코드 내부 참조용, AWS엔 안 보임
+  - S3 부속설정(퍼블릭차단/버킷정책 등)은 **별도 리소스** → 코드에 안 적으면 plan 차이로도 안 잡힘(관리 대상 아님)
+  - **No changes = 코드가 실제와 1:1 일치**, import 성공의 증거
+- state는 로컬(`terraform.tfstate`, gitignore됨). `.gitignore`에 Terraform 제외 이미 있어 시크릿 커밋 위험 없음
+
+### 4단계 Terraform ② S3 부속 리소스 import [완료]
+- S3는 버킷 본체와 부속 설정이 **각각 별도 리소스** → 따로 선언 + 따로 import
+- `aws_s3_bucket_public_access_block.frontend`: 4개 불린 전부 true(모든 퍼블릭 차단) → import → No changes (추측 적중)
+- `aws_s3_bucket_policy.frontend`: OAC 정책. **추측 금지**, 실제 정책을 `aws s3api get-bucket-policy`로 먼저 보고 `jsonencode`로 옮김
+  - 정책 요지: Principal=cloudfront 서비스, Action=s3:GetObject, Condition ArnLike로 우리 배포(E1438IL9CSVBS4)만 허용 → import → No changes
+  - `Resource = "${aws_s3_bucket.frontend.arn}/*"`로 버킷 ARN 참조(DRY). 계정·배포 ID는 아직 하드코딩(해당 리소스 import 전)
+- 배운 것: 정책 같은 JSON은 실제 값을 조회해서 옮겨야 함(추측하면 plan 차이). aws provider는 정책을 의미 단위로 비교해 키 순서 차이는 무시. 이 버킷은 OAC 구성이라 website hosting/versioning 없음 → 본체+차단+정책 3개로 완전
+- **S3 버킷 100% 코드화 완료** (plan No changes, fmt/validate 통과)
+
+### 4단계 Terraform ③ CloudFront import [완료]
+- 전략: 설정이 방대해서 추측 대신 `aws cloudfront get-distribution-config --id E1438IL9CSVBS4`로 전체 설정을 먼저 받아 1:1 코드화. CloudFront 관련은 `cloudfront.tf`로 분리
+- ① `aws_cloudfront_origin_access_control.s3`(OAC) 먼저 import — 세부는 `get-origin-access-control`로 조회(sigv4/always/s3). import → No changes
+- ② `aws_cloudfront_distribution.main` 본체 import:
+  - 오리진 2개(S3+OAC 참조 / EC2 custom http-only:8000), default behavior(S3, CachingOptimized), `/api/*`(EC2, CachingDisabled+AllViewerExceptHostHeader), `/uploads/*`(EC2, CachingOptimized), 403→index.html 200, WAF web_acl_id, 기본 인증서
+  - **첫 plan 차이 = 태그 하나뿐**(`Name=bplgplafrom`이 실제엔 있는데 코드에 없어서 삭제하려 함) → 코드에 tags 추가 → No changes
+  - 걱정했던 S3 OAC 오리진 숨은 차이 없었음(21속성+8블록 전부 일치)
+- 배운 것: 큰 리소스는 실제 설정을 통째로 받아 코드화 → import 후 plan 차이는 보통 **태그처럼 사소한 것 1~2개** → 그것만 코드에 채우면 수렴. import는 차이를 plan으로 잡아 코드를 실제에 맞춰가는 작업
+- **CloudFront 100% 코드화 완료** (plan No changes, fmt/validate 통과)
+
+### 4단계 Terraform ④ EC2 + 보안그룹 import [완료] (`ec2.tf`)
+- 보안그룹 실제 규칙은 `aws ec2 describe-security-groups`로 조회 후 코드화
+- `aws_security_group.ec2`(sg-09ab4afd4472bb186, 실제 GroupName=launch-wizard-1): inbound 8000(전체)·22(내 IP 211.108.159.167/32), egress 전체. **ingress description은 실제로 빈값** → 코드에서도 빼야 No changes(미리 맞춰 한 방)
+- **발견**: DB용 SG가 별도 생성이 아니라 **VPC default 보안그룹**(sg-04befe624e377b573, GroupName=default)이었음 → `aws_security_group` 아니라 **`aws_default_security_group.default`** 전용 리소스로 import(삭제 아닌 관리만). 규칙: 5432(EC2 SG에서만, `security_groups=[aws_security_group.ec2.id]`)·self 전체·egress 전체
+- `aws_instance.backend`(i-06da19f44d1f38eff): describe-instances로 핵심 조회 → ami `ami-0436b3a61a7a7e22a`, t2.micro, key `blog-key.pem`, subnet, EC2 SG, metadata_options(IMDSv2 http_tokens=required), root_block_device(delete_on_termination). **태그 `Name="blog-backend "`(끝 공백 포함)** 그대로 맞춤 → 핵심만 적었는데 한 방에 No changes(나머지 computed는 terraform 자동)
+- 생략: 키페어(공개키 원문 필요, 인스턴스가 key_name 문자열로 참조하면 충분), EIP(없음)
+- 배운 것: SG ingress description 빈값/태그 공백 같은 미세한 것까지 실제와 일치해야 함. default SG는 전용 리소스. EC2는 computed가 많아 핵심만 적어도 import가 채워줌
+- 다음: RDS(blog-db) import
+
+### 4단계 Terraform ⑤ RDS import [완료] (`rds.tf`)
+- `aws rds describe-db-instances`로 설정 조회: postgres 16.12, db.t3.micro, 20GB gp2, 암호화 on, multi_az off, 비공개, DBName null(=postgres 기본 DB 사용), default 서브넷그룹/SG, 백업 1일
+- **비번 처리**: password를 코드/state에 안 넣음. AWS가 비번을 조회로 안 돌려주기도 하고 평문 유출 위험 → `lifecycle { ignore_changes = [password] }`로 terraform이 비번을 안 건드리게. 콘솔 설정값 유지
+- import → 첫 plan 차이 4개:
+  - (실제 기능) `performance_insights_enabled`, `copy_tags_to_snapshot` 둘 다 실제 true인데 코드 기본 false → 코드를 true로(안 그러면 apply 시 기능 꺼짐)
+  - (terraform 메타) `skip_final_snapshot`, `apply_immediately` → state값에 맞춰 noise 제거
+  - 4개 코드에 명시 → No changes
+- 배운 것: plan 차이엔 두 종류 — **실제 라이브 상태**(맞춰야 기능 안 꺼짐)와 **terraform 동작 플래그**(state값에 맞추면 사라지는 noise). 구분해서 다뤄야. 비번 같은 시크릿은 ignore_changes로 분리
+
+### 🎉 4단계 Terraform — 라이브 인프라 100% 코드화 완료 (2026-06-25)
+- 손으로 만든 AWS 인프라 전체를 import 방식으로 Terraform 코드화 (라이브/데이터 무손상, 비용 $0)
+- `terraform/` 파일: provider.tf, s3.tf, cloudfront.tf, ec2.tf, rds.tf
+- 관리 리소스 9개: aws_s3_bucket(+public_access_block, +policy), aws_cloudfront_origin_access_control, aws_cloudfront_distribution, aws_security_group, aws_default_security_group, aws_instance, aws_db_instance
+- **전체 `terraform plan` = No changes** (코드 = 라이브 완전 일치), fmt/validate 통과
+- state는 로컬(`terraform.tfstate`, gitignore). 시크릿(RDS 비번)은 코드에 없음
+- import 핵심 패턴 체득: 실제 설정 조회(describe/get) → 코드화 → import → plan 차이 수렴(보통 태그·메타 등 사소한 것). destroy/replace 뜨면 멈춤
+- 남은 폴리시(선택): ① 하드코딩된 IDS(계정·배포·subnet·ami 등)를 변수/참조로 정리 ② state를 S3 backend로 ③ 키페어 등 미관리 리소스
+- **다음 로드맵: 5단계 GitHub Actions CI/CD (push→자동배포)**. 그 전에 git init(2단계 GitHub 연동 미완) 필요
