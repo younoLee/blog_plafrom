@@ -14,8 +14,12 @@ def send_email(to: str, subject: str, body: str) -> None:
     msg["To"] = to
     msg["Subject"] = subject
     msg.set_content(body)
-    # Mailpit은 인증/TLS 없이 평문 SMTP. (SES로 갈 땐 인증·TLS 추가)
+    # 로컬 Mailpit = 평문/무인증, 프로드 SES = STARTTLS + 로그인 (config로 분기)
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+        if settings.smtp_use_tls:
+            smtp.starttls()
+        if settings.smtp_user:
+            smtp.login(settings.smtp_user, settings.smtp_password)
         smtp.send_message(msg)
 
 
