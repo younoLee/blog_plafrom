@@ -23,3 +23,14 @@ class UserRead(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+# 비밀번호 재설정 요청 (이메일 입력)
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+# 새 비밀번호 설정 (메일 링크의 토큰 + 새 비번)
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str

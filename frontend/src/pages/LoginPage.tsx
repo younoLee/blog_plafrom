@@ -39,7 +39,10 @@ function LoginPage() {
           <button type="submit" className={btnPrimary}>로그인</button>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </form>
-        <p className="mt-5 text-sm text-gray-500 dark:text-gray-400">
+        <p className="mt-4 text-sm">
+          <Link to="/forgot" className="text-gray-500 hover:underline dark:text-gray-400">비밀번호를 잊었어?</Link>
+        </p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           계정이 없어?{' '}
           <Link to="/register" className="font-medium text-[#0071e3] hover:underline dark:text-[#0a84ff]">회원가입</Link>
         </p>

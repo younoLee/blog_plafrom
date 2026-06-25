@@ -32,6 +32,19 @@ def send_verification_email(to: str, link: str) -> None:
     )
 
 
+def send_reset_email(to: str, link: str) -> None:
+    """비밀번호 재설정 링크 발송."""
+    send_email(
+        to=to,
+        subject="[블로그] 비밀번호 재설정",
+        body=(
+            "비밀번호를 재설정하려면 아래 링크를 눌러줘 (1시간 안에):\n\n"
+            f"{link}\n\n"
+            "본인이 요청한 게 아니면 이 메일은 무시하면 돼 (비번은 그대로야)."
+        ),
+    )
+
+
 def notify_new_post(post_id: int, post_title: str) -> None:
     """새 글 작성 시 구독자 전원에게 알림 메일 발송 (백그라운드 실행)."""
     # 백그라운드라 요청 세션과 별개로 자체 세션을 연다

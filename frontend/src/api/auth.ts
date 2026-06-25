@@ -54,6 +54,27 @@ export async function verifyEmail(token: string): Promise<void> {
   if (!res.ok) throw new Error('유효하지 않거나 만료된 인증 링크야')
 }
 
+// 비밀번호 재설정 요청 (재설정 링크 메일 발송)
+export async function forgotPassword(email: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  if (res.status === 429) throw new Error('요청이 너무 많아. 잠시 후 다시 해줘')
+  if (!res.ok) throw new Error('요청에 실패했어')
+}
+
+// 메일 링크의 토큰으로 새 비밀번호 설정
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  })
+  if (!res.ok) throw new Error('유효하지 않거나 만료된 링크야')
+}
+
 export async function login(email: string, password: string): Promise<void> {
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',

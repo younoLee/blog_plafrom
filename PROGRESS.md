@@ -431,3 +431,11 @@ cd frontend && npm run dev                               # :5173
 - 프론트: api/admin.ts deleteUser, AdminPage 빨간 '삭제' 버튼(admin 외 전원) + window.confirm(글·댓글 영구삭제 경고) → 목록에서 제거
 - 검증: curl e2e — 글+댓글 있는 계정 삭제 시 user/post/comment 전부 0(cascade), admin 자기삭제 400. build/lint 통과 + 브라우저 확인
 - 다음: 4단계 비번 재설정(이메일 링크 — security.py 토큰 'reset' purpose·메일 인프라 그대로 재활용)
+
+### 계정 권한제 — 4단계 비밀번호 재설정 (이메일 링크) [완료] (2026-06-25)
+- 이미 만든 토큰(reset purpose, 만료 1h)·메일 인프라 재활용
+- 백엔드(`auth.py`): `POST /auth/forgot-password`(이메일→재설정 링크 메일, 백그라운드) — **가입 여부 노출 안 하려고 없는 이메일도 동일 202**, 차단계정엔 미발송, 레이트 리밋 5/hour. `POST /auth/reset-password`(reset 토큰+새 비번→hashed_password 교체). `services/email.py` send_reset_email, 스키마 ForgotPasswordRequest/ResetPasswordRequest
+- 프론트: `pages/ForgotPasswordPage`(/forgot, 이메일→"메일 확인"), `pages/ResetPasswordPage`(/reset?token=, 새 비번→완료), LoginPage에 "비밀번호를 잊었어?" 링크, App에 /forgot·/reset
+- 검증: curl e2e — forgot 202+메일발송, 없는이메일 202(노출X), reset 토큰→비번교체, 새비번 200·옛비번 401, 가짜토큰 400. build/lint 통과 + 브라우저 전체 흐름 OK
+- 🎉 **계정 시스템 전체 완성**: 가입 승인제 · 관리자(승인/해제/차단/삭제/모든글관리) · 이메일 인증 · 레이트 리밋 · 비번 재설정
+- 남은 것: ① 이 작업들 GitHub push(로컬 4커밋 앞섬) ② 프로드 적용 보류 중(이메일 인증 때문에 SES 필요)

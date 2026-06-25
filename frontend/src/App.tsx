@@ -10,6 +10,8 @@ import StatusPage from './pages/StatusPage'
 import PortalPage from './pages/PortalPage'
 import AdminPage from './pages/AdminPage'
 import VerifyPage from './pages/VerifyPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import './App.css'
 
 function App() {
@@ -34,6 +36,8 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/verify" element={<VerifyPage />} />
+            <Route path="/forgot" element={<ForgotPasswordPage />} />
+            <Route path="/reset" element={<ResetPasswordPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

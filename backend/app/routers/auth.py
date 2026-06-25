@@ -14,8 +14,14 @@ from app.core.security import (
     decode_email_token,
 )
 from app.models.user import User
-from app.schemas.user import UserCreate, UserRead, Token
-from app.services.email import send_verification_email
+from app.schemas.user import (
+    UserCreate,
+    UserRead,
+    Token,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+)
+from app.services.email import send_verification_email, send_reset_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -83,6 +89,38 @@ def login(request: Request, data: UserCreate, db: Session = Depends(get_db)):
         user.role = "admin"
         db.commit()
     return Token(access_token=create_access_token(user.id))
+
+
+@router.post("/forgot-password", status_code=202)
+@limiter.limit("5/hour")  # 메일 폭탄 방지
+def forgot_password(
+    request: Request,
+    data: ForgotPasswordRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    user = db.scalar(select(User).where(User.email == data.email))
+    # 가입돼 있고 차단 안 된 계정에만 실제 발송. 단 응답은 항상 동일(존재 여부 노출 안 함)
+    if user is not None and user.role != "banned":
+        token = create_email_token(user.id, purpose="reset", expire_hours=1)
+        link = f"{settings.frontend_base_url}/reset?token={token}"
+        background.add_task(send_reset_email, user.email, link)
+    return {"message": "재설정 링크를 보냈어 (가입된 이메일이라면)"}
+
+
+@router.post("/reset-password", response_model=UserRead)
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    # reset 목적 토큰만 통과
+    user_id = decode_email_token(data.token, purpose="reset")
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크야")
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없음")
+    user.hashed_password = hash_password(data.new_password)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.get("/me", response_model=UserRead)
