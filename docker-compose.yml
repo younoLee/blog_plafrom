@@ -32,8 +32,6 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/blog
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
-      # 이 이메일로 가입/로그인하면 자동 관리자(admin). 값은 gitignore된 .env에서 주입(깃에 안 올림)
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
     depends_on:
       db:
         condition: service_healthy   # DB 준비될 때까지 대기

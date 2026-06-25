@@ -7,10 +7,6 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@localhost:5432/blog"
     secret_key: str = "change-me-in-production"
 
-    # 이 이메일로 가입/로그인하면 자동으로 admin(승인권자)이 됨. .env에서 지정.
-    # 첫 관리자를 수동 SQL 없이 만드는 부트스트랩 용도. 비밀 아님(이메일일 뿐).
-    admin_email: str = ""
-
     # 메일 링크(이메일 인증·비번 재설정)에 넣을 프론트엔드 주소. 프로드는 CloudFront로 교체
     frontend_base_url: str = "http://localhost:5173"
 
