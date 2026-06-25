@@ -439,3 +439,11 @@ cd frontend && npm run dev                               # :5173
 - 검증: curl e2e — forgot 202+메일발송, 없는이메일 202(노출X), reset 토큰→비번교체, 새비번 200·옛비번 401, 가짜토큰 400. build/lint 통과 + 브라우저 전체 흐름 OK
 - 🎉 **계정 시스템 전체 완성**: 가입 승인제 · 관리자(승인/해제/차단/삭제/모든글관리) · 이메일 인증 · 레이트 리밋 · 비번 재설정
 - 남은 것: ① 이 작업들 GitHub push(로컬 4커밋 앞섬) ② 프로드 적용 보류 중(이메일 인증 때문에 SES 필요)
+
+### ⚠️ 프로드 어긋남 발생 → 프론트 롤백으로 안정화 (2026-06-25)
+- 사건: 계정기능 push(d98a778) 시 **CI/CD가 frontend/** 변경을 감지해 새 프론트를 프로드 S3에 자동배포** → 하지만 **백엔드는 수동배포라 옛버전 그대로** → 프로드가 "새 프론트 + 옛 백엔드"로 어긋남
+  - 증상: 라이브에서 /auth/verify·/auth/forgot-password·/admin/users 전부 404(옛 백엔드엔 없음) → 회원가입·관리자·비번찾기 깨짐. 단 공개글 읽기·옛 로그인은 동작
+- 조치: **프론트 롤백** — 커밋 359dc8f(계정기능 전, 애플리디자인 버전)를 `git worktree`로 꺼내 `VITE_API_BASE=프로드` 빌드 → `aws s3 sync --delete` → CloudFront 무효화(ICCL5E6KB8RH9QVFV0O3NOP6P9). 라이브 JS가 index-BN2XwMld.js로 복귀 확인, forgot-password 흔적 없음, /api/posts·/ 200
+- **현재 상태**: 코드/기능은 GitHub·로컬에 안전(완성). **프로드 라이브 = 계정기능 전 버전으로 일관**(읽기 정상)
+- 🔴 **다음에 프로드에 계정시스템 올리려면**(한 번에): ① EC2 백엔드 재배포(tar→scp→`docker compose -f docker-compose.prod.yml up -d --build`, prod compose 시작 시 alembic upgrade 자동 → role·email_verified 마이그레이션 적용) ② SES 셋업(이메일 인증/비번재설정 메일) + prod .env에 `FRONTEND_BASE_URL=CloudFront`, `ADMIN_EMAIL`, `SMTP_*`=SES ③ 그 다음 프론트 재배포(CI 또는 수동)
+- 🔴 **CI/CD 함정**: deploy.yml이 frontend/** push마다 자동배포 → 백엔드+SES 준비 전에 frontend 또 push하면 프로드 다시 어긋남. 프로드 풀배포 전까진 frontend push 주의(또는 워크플로 일시중단 고려)
