@@ -1,10 +1,19 @@
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 const TOKEN_KEY = 'token'
 
+// 권한: pending(승인 대기) / writer(글쓰기 가능) / admin(관리자) / banned(차단)
+export type Role = 'pending' | 'writer' | 'admin' | 'banned'
+
 export interface User {
   id: number
   email: string
+  role: Role
   created_at: string
+}
+
+// 글쓰기 가능한 권한인지 (writer나 admin)
+export function canWrite(user: User | null): boolean {
+  return user?.role === 'writer' || user?.role === 'admin'
 }
 
 // --- 토큰 저장/조회 (localStorage) ---

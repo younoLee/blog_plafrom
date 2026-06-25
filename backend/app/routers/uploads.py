@@ -1,9 +1,11 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, HTTPException
 
 from app.core.config import settings
+from app.core.deps import require_writer
+from app.models.user import User
 
 # POST는 /upload(단수), 저장된 파일 서빙은 /uploads/<파일>(StaticFiles)로 분리
 router = APIRouter(prefix="/upload", tags=["uploads"])
@@ -16,7 +18,8 @@ ALLOWED = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
 @router.post("")
-async def upload_image(file: UploadFile):
+async def upload_image(file: UploadFile, user: User = Depends(require_writer)):
+    # 승인된 사람(writer/admin)만 — 글쓰기 부속이라 같이 잠금
     # 이미지 종류만 허용
     if file.content_type not in ALLOWED:
         raise HTTPException(status_code=400, detail="이미지 파일만 업로드 가능")

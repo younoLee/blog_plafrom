@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@localhost:5432/blog"
     secret_key: str = "change-me-in-production"
 
+    # 이 이메일로 가입/로그인하면 자동으로 admin(승인권자)이 됨. .env에서 지정.
+    # 첫 관리자를 수동 SQL 없이 만드는 부트스트랩 용도. 비밀 아님(이메일일 뿐).
+    admin_email: str = ""
+
     # 메일 발송 설정 (로컬 기본값은 Mailpit. 나중에 AWS SES 주소로 교체)
     smtp_host: str = "localhost"
     smtp_port: int = 1025

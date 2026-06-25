@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai
+from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin
 from app.services.status import run_checks, get_history, start_recorder
 
 
@@ -34,6 +34,7 @@ app.include_router(comments.router, prefix="/api")
 app.include_router(subscriptions.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 
 # 업로드된 이미지 파일 서빙: GET /uploads/<파일명> → uploads/ 폴더
 # (이미지 URL은 public_base_url 기준. CloudFront에서 /uploads/* 도 EC2로 넘김)

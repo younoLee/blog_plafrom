@@ -21,6 +21,9 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="유효하지 않은 사용자")
+    # 차단된 계정은 토큰이 있어도 막음
+    if user.role == "banned":
+        raise HTTPException(status_code=403, detail="차단된 계정이야")
     return user
 
 
@@ -33,4 +36,23 @@ def get_current_user_optional(
     user_id = decode_access_token(token)
     if user_id is None:
         return None
-    return db.get(User, user_id)
+    user = db.get(User, user_id)
+    # 차단된 계정은 비로그인 취급
+    if user is not None and user.role == "banned":
+        return None
+    return user
+
+
+def require_writer(user: User = Depends(get_current_user)) -> User:
+    """글쓰기 권한 검사: 승인된 사람(writer)이나 관리자(admin)만 통과.
+    pending(승인 대기)이면 403."""
+    if user.role not in ("writer", "admin"):
+        raise HTTPException(status_code=403, detail="글쓰기 권한이 없어 (승인 대기 중)")
+    return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """관리자 전용 (승인 처리 등). admin만 통과."""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="관리자 전용")
+    return user

@@ -8,6 +8,7 @@ import RegisterPage from './pages/RegisterPage'
 import WritePostPage from './pages/WritePostPage'
 import StatusPage from './pages/StatusPage'
 import PortalPage from './pages/PortalPage'
+import AdminPage from './pages/AdminPage'
 import './App.css'
 
 function App() {
@@ -26,6 +27,8 @@ function App() {
             <Route path="/blog/posts/:id/edit" element={<WritePostPage />} />
             {/* 상태정보 */}
             <Route path="/status" element={<StatusPage />} />
+            {/* 관리자 (페이지 안에서 admin 아니면 /blog로 리다이렉트) */}
+            <Route path="/admin" element={<AdminPage />} />
             {/* 인증 (루트 유지) */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />

@@ -370,3 +370,45 @@ cd frontend && npm run dev                               # :5173
 - 검증: `npm run build`(tsc+vite) 매 단계 통과, 이모지 전수검사 0
 - **CI/CD 첫 실전**: commit(359dc8f)+push → GitHub Actions 자동 빌드→S3→무효화 초록 → 교차검증(S3 06:16 UTC 갱신, 무효화 Completed, 라이브 200). 손으로 s3 sync 안 침 = 5단계가 실제로 작동
 - 한계: 더 끌어올리려면 실제 콘텐츠(글 썸네일·실제 글 다수)가 필요. 디자인만으론 여기까지
+
+### 계정 권한제(가입 승인제) — 1단계 백엔드 권한 잠금 [완료] (2026-06-25)
+- 문제의식: "아무나 가입하면 같은 블로그에 글 쓰는 공용 블로그"가 돼버림 → 개인 블로그 의도와 어긋남
+- 결정한 모델: **가입은 누구나 가능하지만 가입 직후 `pending`(승인 대기) → 관리자가 승인해야 `writer`(글쓰기 가능)**. 읽기는 누구나. 관리자=`admin`
+- 백엔드:
+  - `users.role` 컬럼 추가(pending/writer/admin, server_default 'pending') → 마이그레이션 `1336504cc438`
+  - `core/deps.py`: `require_writer`(writer·admin만, 아니면 403) + `require_admin`(admin만) 추가
+  - 글 작성/수정/삭제(`posts.py`), 이미지 업로드(`uploads.py`, 원래 인증 자체가 없었음), AI 초안(`ai.py`)을 전부 `require_writer`로 잠금
+  - **첫 관리자 부트스트랩**: `.env`의 `ADMIN_EMAIL`과 일치하는 이메일로 가입/로그인하면 자동 admin(수동 SQL 불필요). 비밀 아님
+  - `schemas/user.py` UserRead에 `role` 포함(프론트가 권한 알게)
+- 환경: 로컬 백엔드는 docker 컨테이너로 실행 중 → `.env`는 venv용, **docker는 compose `environment:`에도 `ADMIN_EMAIL` 넣어야 함**(둘 다 등록함). env 변경은 `docker compose up -d backend`로 컨테이너 재생성해야 반영
+- 검증: curl e2e — 가입→role=pending, pending 글쓰기 403, DB로 writer 승격 후 201, 정리 완료. 브라우저에서 admin(es2646526@gmail.com) 가입→자동 admin→글쓰기 성공 확인
+- 막혔던 것: docker 프론트엔드가 3일 전(2026-06-22) 빌드라 `/api` 경로 통일(06-24)·오늘 리디자인 반영 안 됨 → 옛 프론트가 `localhost:8000/auth/...`(/api 없음) 호출해 가입 실패 → `docker compose up -d --build frontend`로 재빌드 해결
+- 다음: 2단계 관리자 승인 API(`/admin/users` 목록 + 승인/해제) → 3단계 프론트 권한 UI → 4단계 비번 재설정(이메일 링크)
+
+### 계정 권한제 — 2단계 관리자 승인 API + 관리자 글 관리 [완료] (2026-06-25)
+- `routers/admin.py` 신설(라우터 전체 `dependencies=[require_admin]` → admin 외 전부 403):
+  - `GET /api/admin/users` 가입자 전원 목록(id·email·role)
+  - `POST /api/admin/users/{id}/approve` pending→writer, `POST .../revoke` writer→pending
+  - 관리자 계정 대상은 변경 거부(400) 가드
+- 관리자 글 관리(`posts.py`): admin은 ① 모든 글 조회(`can_view`에 admin 예외) ② 목록에 비공개 포함(`list_posts` admin은 `true()` 조건=전체) ③ 남의 글 수정·삭제 가능(owner 체크에 `or user.role=='admin'`). `sqlalchemy.true()` 사용
+- 검증: curl e2e(임시 admin/writer/대상자 계정) — 목록조회 200, approve→writer, revoke→pending, 비관리자 admin API 403, admin이 남 비공개글 조회 200·목록포함·수정 200·삭제 204. 전부 통과, 임시계정 정리
+- 다음: 3단계 프론트 권한 UI(`/admin` 페이지 + pending 글쓰기 숨김 + admin 메뉴) → 4단계 비번 재설정
+
+### 계정 권한제 — 3단계 프론트 권한 UI [완료] (2026-06-25)
+- `api/auth.ts`: `User`에 `role` 필드 + `canWrite()` 헬퍼(writer·admin). `Role` 타입(pending/writer/admin)
+- `api/admin.ts`(새): listUsers/approveUser/revokeUser (authHeaders 첨부)
+- `pages/AdminPage.tsx`(새): 가입자 목록 + role 한글 뱃지(승인대기/글쓰기가능/관리자) + pending엔 "승인", writer엔 "승인 취소" 버튼. admin 아니면 `<Navigate to=/blog>`. 초기 로드는 .then 패턴(effect 동기 setState 룰 회피)
+- `App.tsx`: `/admin` 라우트. `Layout.tsx`: admin만 "관리자" 메뉴, `canWrite`만 글쓰기 버튼(pending 숨김). `WritePostPage.tsx`: pending이 /blog/new 직접 접근 시 /blog로
+- **버그/수정**: 업로드에 require_writer 걸었더니 `api/uploads.ts`가 토큰 미첨부라 업로드 실패(401) → authHeaders 첨부 + 401/403 메시지 추가. (`api/ai.ts`는 이미 토큰 보내고 있었음)
+- 검증: npm run build(tsc+vite) + lint 통과, docker 프론트 재빌드 후 브라우저 e2e — admin "관리자"메뉴→/admin 목록, kim 승인→writer, kim 로그인 시 글쓰기 버튼 생김, lee(pending) 글쓰기 버튼 없음, 이미지 업로드 정상
+- 환경 메모: 프론트 코드 바꾸면 `docker compose up -d --build frontend` + 브라우저 Ctrl+Shift+R(캐시)
+- 추가: admin 글관리 UI — HomePage 수정·삭제 버튼을 본인 글뿐 아니라 `user.role==='admin'`이면 노출(백엔드는 이미 허용)
+- 다음: 4단계 비번 재설정(이메일 링크 방식, Mailpit 재활용)
+
+### 계정 권한제 — 블랙리스트(계정 차단/밴) [완료] (2026-06-25)
+- 요청: 가입자를 차단하는 블랙리스트. 댓글이 로그인 기반이 아니라(이름 직접입력) **계정 차단(밴)** 방식으로 결정
+- 설계: `role`에 `banned` 값 추가(문자열 칸이라 **마이그레이션 불필요**). 차단 해제 시 `pending`으로(재승인 필요)
+- 백엔드: `auth.py` 로그인에서 banned 403, `deps.py` get_current_user에서 banned 403(이미 받은 토큰도 무효화) + get_current_user_optional은 banned를 None(비로그인) 취급. `admin.py`에 `POST /admin/users/{id}/ban`·`/unban`(admin 대상 차단 거부 가드)
+- 프론트: `Role`에 banned, `api/admin.ts` banUser/unbanUser, AdminPage에 '차단됨' 빨강 뱃지 + pending/writer엔 '차단' 버튼, banned엔 '차단 해제' 버튼(ACTIONS 맵으로 핸들러 일반화)
+- 검증: curl e2e — 차단→role=banned, 차단계정 로그인 403, 차단 전 받은 토큰 글쓰기 403, 해제→pending, 해제 후 로그인 200, 임시계정 정리. build/lint 통과 + 브라우저 확인
+- 다음 결정: 가입 폭탄(봇 대량가입) 방어 = **이메일 인증**으로 결정(미인증=목록에 안 뜸·로그인 불가). CAPTCHA는 풀이농장/ML로 뚫려 만능 아님 → 개인블로그엔 이메일인증+가벼운 레이트리밋이면 충분. 4단계 비번재설정과 메일·토큰 인프라 공유 예정

@@ -1,5 +1,6 @@
 import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
+import { canWrite } from '../api/auth'
 import { useTheme } from '../theme'
 import { ui } from '../ui'
 import { IconMoon, IconSun, IconPencil } from './icons'
@@ -30,9 +31,16 @@ function Layout() {
             {user ? (
               <>
                 <span className="hidden text-sm text-gray-500 dark:text-gray-400 sm:inline">{user.email}</span>
-                <Link to="/blog/new" className={ui.btnPrimary}>
-                  <IconPencil className="h-4 w-4" />글쓰기
-                </Link>
+                {/* 관리자만 보이는 메뉴 */}
+                {user.role === 'admin' && (
+                  <Link to="/admin" className={ui.btnGhost}>관리자</Link>
+                )}
+                {/* 글쓰기는 승인된 사람(writer/admin)만 — pending은 버튼 자체가 안 보임 */}
+                {canWrite(user) && (
+                  <Link to="/blog/new" className={ui.btnPrimary}>
+                    <IconPencil className="h-4 w-4" />글쓰기
+                  </Link>
+                )}
                 <button type="button" onClick={logout} className={ui.btnGhost}>로그아웃</button>
               </>
             ) : (

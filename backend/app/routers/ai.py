@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.deps import get_current_user
+from app.core.deps import require_writer
 from app.models.user import User
 from app.schemas.ai import DraftRequest, DraftResponse
 from app.services.ai import generate_draft, AIKeyMissingError
@@ -9,8 +9,8 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 @router.post("/draft", response_model=DraftResponse)
-def create_draft(body: DraftRequest, user: User = Depends(get_current_user)):
-    # 로그인 필수(get_current_user) — 아무나 호출해서 비용 나가는 걸 막음
+def create_draft(body: DraftRequest, user: User = Depends(require_writer)):
+    # 승인된 사람(writer/admin)만 — 아무나 호출해서 비용 나가는 걸 막음
     try:
         markdown = generate_draft(body.memo)
     except AIKeyMissingError:

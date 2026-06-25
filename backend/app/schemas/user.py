@@ -14,6 +14,7 @@ class UserRead(BaseModel):
 
     id: int
     email: EmailStr
+    role: str  # pending / writer / admin
     created_at: datetime
 
 

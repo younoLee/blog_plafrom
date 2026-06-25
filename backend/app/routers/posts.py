@@ -1,9 +1,9 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, true
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_current_user_optional
+from app.core.deps import get_current_user_optional, require_writer
 from app.models.post import Post
 from app.models.user import User
 from app.models.author_subscription import AuthorSubscription
@@ -39,6 +39,9 @@ def can_view(post: Post, user: User | None, subs: set[int]) -> bool:
         return True
     if user is None:
         return False
+    # 관리자는 비공개글 포함 모든 글을 볼 수 있음
+    if user.role == "admin":
+        return True
     return post.owner_id == user.id or post.owner_id in subs
 
 
@@ -47,7 +50,10 @@ def list_posts(
     db: Session = Depends(get_db), user: User | None = Depends(get_current_user_optional)
 ):
     # 공개글 + (로그인 시) 내 비공개글 + 내가 구독한 글쓴이의 비공개글
-    if user is None:
+    # 관리자는 모든 글(조건 없음)
+    if user is not None and user.role == "admin":
+        condition = true()  # 전체 (항상 참)
+    elif user is None:
         condition = Post.visibility == "public"
     else:
         allowed_authors = subscribed_author_ids(user, db) | {user.id}
@@ -64,7 +70,7 @@ def create_post(
     data: PostCreate,
     background: BackgroundTasks,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),  # 로그인 필수
+    user: User = Depends(require_writer),  # 승인된 사람(writer/admin)만
 ):
     post = Post(
         title=data.title,
@@ -99,10 +105,11 @@ def update_post(
     post_id: int,
     data: PostUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_writer),
 ):
     post = get_post_or_404(post_id, db)
-    if post.owner_id != user.id:
+    # 본인 글이거나 관리자면 수정 가능
+    if post.owner_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="내 글만 수정할 수 있어")
     post.title = data.title
     post.content = data.content
@@ -116,10 +123,11 @@ def update_post(
 def delete_post(
     post_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_writer),
 ):
     post = get_post_or_404(post_id, db)
-    if post.owner_id != user.id:
+    # 본인 글이거나 관리자면 삭제 가능
+    if post.owner_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="내 글만 삭제할 수 있어")
     db.delete(post)
     db.commit()

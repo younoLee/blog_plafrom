@@ -103,7 +103,8 @@ function HomePage() {
             </Link>
             <div className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
               <time className="text-xs text-gray-400 dark:text-gray-500">{new Date(post.created_at).toLocaleDateString()}</time>
-              {user && post.owner_id === user.id && (
+              {/* 본인 글이거나 관리자면 수정·삭제 버튼 노출 */}
+              {user && (post.owner_id === user.id || user.role === 'admin') && (
                 <div className="flex gap-3 text-sm">
                   <Link to={`/blog/posts/${post.id}/edit`} className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">수정</Link>
                   <button type="button" onClick={() => handleDelete(post.id)} className="text-red-500 hover:underline">삭제</button>

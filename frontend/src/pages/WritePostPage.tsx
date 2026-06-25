@@ -5,6 +5,7 @@ import { getPost, createPost, updatePost } from '../api/posts'
 import { uploadImage } from '../api/uploads'
 import { generateDraft } from '../api/ai'
 import { useAuth } from '../auth/auth-context'
+import { canWrite } from '../api/auth'
 import { ui } from '../ui'
 import { IconArrowLeft, IconSparkles, IconImage, IconLock } from '../components/icons'
 
@@ -26,9 +27,10 @@ function WritePostPage() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState('')
 
-  // 로그인 안 했으면 로그인 페이지로
+  // 로그인 안 했으면 로그인 페이지로, 로그인했지만 승인 안 된 pending이면 블로그로
   useEffect(() => {
     if (!user) navigate('/login')
+    else if (!canWrite(user)) navigate('/blog')
   }, [user, navigate])
 
   // 수정 모드면 기존 글 불러와 폼에 채움
