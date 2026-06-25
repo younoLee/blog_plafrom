@@ -464,3 +464,9 @@ cd frontend && npm run dev                               # :5173
 - **앞으로 관리자 승격은 DB에서만**: `ssh ec2 → sudo docker compose -f docker-compose.prod.yml exec backend python` 또는 psql로 `UPDATE users SET role='admin' WHERE email='...'`
 - 프로드 재배포(tar→scp→up --build) 완료, 배포코드 `_is_admin_email` 0개 확인, es2646526 admin 유지 확인. prod .env의 ADMIN_EMAIL은 이제 코드가 안 읽음(무해, 지워도 됨)
 - 로컬/원격 git: 로컬 다수 커밋 앞섬 → 외부터미널 `git push origin main` 필요
+
+### 🏁 오늘(2026-06-25) 마무리
+- 한 일 요약: 계정 권한제(role pending/writer/admin/banned) → 관리자 승인·차단·삭제·모든글관리 → 이메일 인증 + 레이트 리밋 → 비번 재설정 → AWS 프로드 풀배포(SES 포함) → 보안 강화(ADMIN_EMAIL 부트스트랩 제거) → SES 프로덕션 액세스 신청
+- 커밋: b6d9392, d80002a, 5358993, d98a778, f59dea3, 717d77e, 4363542, 1aa1714 (전부 GitHub push 완료)
+- 개발일지 Word 생성: `scripts/make_devlog_20260625.py` → `블로그_개발일지_2026-06-25.docx` (WSL + Windows Documents 양쪽 저장)
+- 대기 중: SES 프로덕션 액세스 심사(~24h). 승인되면 라이브에서 아무 이메일로나 공개 가입 가능
