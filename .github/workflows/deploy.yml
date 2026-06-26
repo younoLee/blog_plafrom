@@ -41,7 +41,8 @@ jobs:
 
       - name: S3 업로드
         working-directory: frontend
-        run: aws s3 sync dist/ s3://blogplafromops --delete
+        # uploads/* 는 사용자가 올린 이미지 → --delete가 지우지 않게 제외 (같은 버킷 공유)
+        run: aws s3 sync dist/ s3://blogplafromops --delete --exclude "uploads/*"
 
       - name: CloudFront 캐시 무효화
         run: aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"

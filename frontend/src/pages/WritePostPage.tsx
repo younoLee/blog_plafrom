@@ -14,7 +14,7 @@ const { input, btnPrimary, btnGhost } = ui
 function WritePostPage() {
   const { id } = useParams<{ id: string }>()
   const editingId = id ? Number(id) : null // id 있으면 수정 모드
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const navigate = useNavigate()
 
   const [title, setTitle] = useState('')
@@ -28,10 +28,12 @@ function WritePostPage() {
   const [aiError, setAiError] = useState('')
 
   // 로그인 안 했으면 로그인 페이지로, 로그인했지만 승인 안 된 pending이면 블로그로
+  // (새로고침 시 인증 복구가 끝날 때까지 기다림 — loading 중엔 판단 보류, 안 그러면 로그인창으로 튕김)
   useEffect(() => {
+    if (loading) return
     if (!user) navigate('/login')
     else if (!canWrite(user)) navigate('/blog')
-  }, [user, navigate])
+  }, [user, loading, navigate])
 
   // 수정 모드면 기존 글 불러와 폼에 채움
   useEffect(() => {
