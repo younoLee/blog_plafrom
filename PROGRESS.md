@@ -486,3 +486,10 @@ cd frontend && npm run dev                               # :5173
 - **조치**: `terraform/ec2.tf` 8000 ingress를 `0.0.0.0/0` → CloudFront 관리형 prefix list `pl-22a6434b`(com.amazonaws.global.cloudfront.origin-facing)로. plan=in-place 1변경/0파괴, apply 완료. 검증: 직접 IP:8000 전 경로 000(차단), CloudFront 경유 200(정상)
 - mass-assignment 안전(UserCreate는 email/password만 → role/email_verified 주입 불가). 남은 default 시크릿 없음(DB·SMTP는 실값)
 - 🔴 재발 위험: config.py secret_key 기본값 `change-me-in-production` 여전히 코드에 존재 → 다음 배포 때 .env 빠뜨리면 또 뚫림. 코드가 기본값 거부하게 가드 필요(미적용, 다음)
+
+### 🔓→🔒 침투 테스트 2라운드 — 남용/DoS [완료] (커밋 1698b9a)
+- 로컬 재현(안전): 댓글 도배(무인증·무제한 6/6) / 과대입력 500(제목250·author60 → DB제약 미검증 500 = "글 길게 쓰면 안 써짐"의 정체) / 본문 2MB 201(무제한) / 글 10연타 무제한 / 업로드 용량무제한(메모리·디스크 폭탄). 본문 XSS는 react-markdown 기본(rehype-raw 없음)이라 차단됨
+- 수정: ① 스키마 길이검증(post 제목200·본문50k, comment author50·content2k) → 과대입력 500→422 ② 댓글 20/hour·글 30/hour 레이트리밋(slowapi, Request 인자) ③ 업로드 5MB 상한(read(MAX+1)로 메모리 보호, 413)
+- 로컬 재공격 검증: 제목250→422, author60→422, 본문2MB→422, 업로드6MB→413, 댓글25연타→20통과 후 429. 프로드 재배포 후 과대댓글→422 확인
+- 남은 권장: ①SECRET_KEY 기본값 코드가드(재발방지) ②비번 최소길이 ③JWT 만료단축/무효화 ④프론트 422/413/429 에러 메시지 친절화(UX)
+- git: 로컬 다수 커밋 앞섬 → push 필요
