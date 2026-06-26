@@ -560,3 +560,9 @@ cd frontend && npm run dev                               # :5173
   - alg=none 위조 → 이미 거부됨(PyJWT algorithms 고정) 확인
 - 프로드 라이브 검증: /subscribers 무인증 401
 - 잔여 저위험: 구독 double opt-in 없음(레이트리밋만), 댓글 작성자명 사칭(익명 설계), CSP 헤더 없음(HSTS/nosniff/frame은 있음), 비번재설정 토큰 1h 재사용(단 이제 access로는 못 씀)
+
+### 🔒 보안검사 5차 — 1회용토큰·댓글모더레이션·CSP시도 (2026-06-27)
+- ① **비번재설정 토큰 1회용화** [완료/배포/검증]: reset 토큰에 token_version 임베드, 재설정 시 +1 → 같은 토큰 재사용 시 ver 불일치로 400. (1차 200·2차 400)
+- ② **댓글 모더레이션** [완료/배포]: DELETE /posts/{id}/comments/{cid} (글 작성자·관리자만, 남 403·주인 204), 프론트 댓글 삭제 버튼(권한자에게만)
+- ③ **CSP 헤더** [보류]: 커스텀 응답헤더 정책으로 CSP 넣으려다 **CloudFront Free 요금제가 커스텀 정책 거부**("Free pricing plan can't have Custom response headers policy"). 관리형 SecurityHeadersPolicy(HSTS·nosniff·frame·referrer·xss)는 유지. CSP는 플랜 업그레이드 또는 CloudFront Functions(viewer-response) 필요 → 보류. orphan 정책 삭제 정리, terraform No changes
+  - 참고: 주 XSS 방어(react-markdown 기본=raw HTML 미렌더 + nosniff)는 이미 있음 → CSP는 추가 방어층(우선순위 낮음)

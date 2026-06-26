@@ -8,6 +8,10 @@ resource "aws_cloudfront_origin_access_control" "s3" {
   signing_protocol                  = "sigv4"
 }
 
+# 메모: CSP를 커스텀 응답헤더 정책으로 넣으려 했으나 CloudFront Free 요금제가 커스텀 정책을
+# 거부함("Free pricing plan can't have Custom response headers policy"). 관리형 SecurityHeadersPolicy
+# (HSTS·nosniff·frame-options·referrer·xss)는 유지. CSP는 플랜 업그레이드/Functions 필요 → 보류.
+
 # CloudFront 배포 본체. 정적 화면은 S3, /api·/uploads는 EC2 백엔드로 보낸다.
 resource "aws_cloudfront_distribution" "main" {
   enabled             = true
@@ -50,7 +54,7 @@ resource "aws_cloudfront_distribution" "main" {
     cached_methods             = ["GET", "HEAD"]
     compress                   = true
     cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy (HSTS·nosniff·frame-options 등)
+    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
   }
 
   # /api/* → EC2 (CachingDisabled + AllViewerExceptHostHeader)
