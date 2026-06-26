@@ -33,8 +33,23 @@ async def upload_image(file: UploadFile, user: User = Depends(require_writer)):
     # 원본 확장자 유지 + 충돌 없는 고유 이름 (uuid)
     ext = Path(file.filename or "").suffix.lower()
     name = f"{uuid.uuid4().hex}{ext}"
-    dest = UPLOAD_DIR / name
-    dest.write_bytes(content)
 
-    # 마크다운에 넣을 수 있는 절대 URL 반환
+    if settings.s3_bucket:
+        # 프로드: S3에 업로드 (EC2 인스턴스 역할로 인증, 키 불필요).
+        # CloudFront가 /uploads/* 를 이 버킷에서 서빙 → 인스턴스 교체에도 안전
+        import boto3
+
+        s3 = boto3.client("s3", region_name=settings.aws_region)
+        s3.put_object(
+            Bucket=settings.s3_bucket,
+            Key=f"uploads/{name}",
+            Body=content,
+            ContentType=file.content_type,
+        )
+    else:
+        # 로컬 개발: 디스크에 저장
+        dest = UPLOAD_DIR / name
+        dest.write_bytes(content)
+
+    # 마크다운에 넣을 수 있는 절대 URL 반환 (둘 다 /uploads/<name>)
     return {"url": f"{settings.public_base_url}/uploads/{name}"}

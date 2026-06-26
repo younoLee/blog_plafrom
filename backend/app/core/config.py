@@ -19,8 +19,11 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_use_tls: bool = False  # SES는 True (587 STARTTLS)
 
-    # 업로드 이미지 URL의 베이스 (나중에 S3/CloudFront 주소로 교체)
+    # 업로드 이미지 URL의 베이스 (프로드는 CloudFront 주소)
     public_base_url: str = "http://localhost:8000"
+    # 이미지 저장소: s3_bucket 설정 시 S3에 업로드, 비어있으면 로컬 디스크(로컬 개발)
+    s3_bucket: str = ""
+    aws_region: str = "ap-northeast-2"
 
     # AI 글 초안 생성 (Claude API). 키는 .env에만 — 코드/커밋 금지
     anthropic_api_key: str = ""

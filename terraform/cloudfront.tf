@@ -66,17 +66,7 @@ resource "aws_cloudfront_distribution" "main" {
     response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
   }
 
-  # /uploads/* → EC2 (이미지, CachingOptimized)
-  ordered_cache_behavior {
-    path_pattern               = "/uploads/*"
-    target_origin_id           = "ec2-backend"
-    viewer_protocol_policy     = "redirect-to-https"
-    allowed_methods            = ["GET", "HEAD"]
-    cached_methods             = ["GET", "HEAD"]
-    compress                   = true
-    cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
-  }
+  # /uploads/* 는 이제 S3에 저장 → 기본 동작(S3 오리진)이 서빙하므로 별도 behavior 불필요
 
   # SPA 라우팅 폴백: 403 → index.html 을 200으로
   custom_error_response {
