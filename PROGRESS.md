@@ -552,3 +552,11 @@ cd frontend && npm run dev                               # :5173
   - (2차에서) 알림메일 제목 HTML 인젝션 → html.escape
 - 저위험/수용: 가입 시 409로 이메일 존재 노출(rate limit로 완화), 댓글 삭제(모더레이션) 엔드포인트 없음(스팸시 DB로), 비번재설정 토큰 1h내 재사용 가능, 업로드 매직바이트 미검증(allowlist+nosniff로 충분), CloudFront→EC2 오리진은 HTTP(AWS 내부망+오리진 잠금)
 - 결론: 치명 0. 이번 심층검사로 IDOR 1건(중)·비용 1건 추가 수정. 잔여는 저위험·수용 가능 수준
+
+### 🔒 보안검사 4차 — 토큰혼동·PII노출 [완료] (2026-06-26)
+- **발견·수정**:
+  - 🔴 **구독자 이메일 전수 노출**: GET /subscribers가 무인증 → 모든 구독자 이메일(PII) 공개. → require_admin. POST /subscribers는 레이트리밋 추가(남 이메일 무단등록 방지)
+  - 🟠 **토큰 혼동**: verify/reset 토큰(이메일용)이 로그인 토큰으로 그대로 통함(/auth/me 200) → reset 링크 유출 시 계정 전체 접근. → decode_access_token이 purpose 있는 토큰 거부. 검증: verify토큰 /auth/me 401, 정상 로그인 200 유지, /auth/verify 정상
+  - alg=none 위조 → 이미 거부됨(PyJWT algorithms 고정) 확인
+- 프로드 라이브 검증: /subscribers 무인증 401
+- 잔여 저위험: 구독 double opt-in 없음(레이트리밋만), 댓글 작성자명 사칭(익명 설계), CSP 헤더 없음(HSTS/nosniff/frame은 있음), 비번재설정 토큰 1h 재사용(단 이제 access로는 못 씀)
