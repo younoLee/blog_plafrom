@@ -470,3 +470,19 @@ cd frontend && npm run dev                               # :5173
 - 커밋: b6d9392, d80002a, 5358993, d98a778, f59dea3, 717d77e, 4363542, 1aa1714 (전부 GitHub push 완료)
 - 개발일지 Word 생성: `scripts/make_devlog_20260625.py` → `블로그_개발일지_2026-06-25.docx` (WSL + Windows Documents 양쪽 저장)
 - 대기 중: SES 프로덕션 액세스 심사(~24h). 승인되면 라이브에서 아무 이메일로나 공개 가입 가능
+
+## 2026-06-26
+
+### 🔴 보안: 프로드 SECRET_KEY 기본값 → 강력 랜덤으로 교체 [완료]
+- 발견: 프로드 .env에 SECRET_KEY 없음 → config 기본값 `change-me-in-production`(코드에 공개) 사용 중 → **누구나 JWT 위조해 admin 탈취 가능**(치명적)
+- 조치: EC2에서 `openssl rand -hex 32`로 생성(값은 화면에 안 남김) → ~/blog/.env에 SECRET_KEY 추가 → `docker compose -f docker-compose.prod.yml up -d --force-recreate`. 기존 토큰 전부 무효화(재로그인 필요), health 200 확인
+- 보안 점검표 작성: 튼튼(bcrypt·HTTPS·ORM·서버측 권한·계정 비노출·글쓰기 승인제·SECRET_KEY) / 약함 우선순위(①기본키 재발방지 코드가드 ②비번 강도규칙 ③로컬 SECRET_KEY ④JWT 무효화 ⑤보안헤더·미인증정리)
+- 다음 결정 대기: ①②③(쉬운 고가치) 또는 ④까지 하드닝할지
+
+### 🔓→🔒 권한받은 침투 테스트(자기 사이트) + 2차 구멍 차단 [완료]
+- 공격1: 공개 기본키로 admin(id3) JWT 위조 → 라이브 /auth/me·/admin/users **401 거부**(SECRET_KEY 교체 효과 입증). 이게 "10초 털이"의 정체(위조 토큰 admin화 + 비번재설정 토큰 위조로 임의계정 탈취까지 가능했음)
+- 공격2: 무인증 /admin/users → 401(접근제어 정상)
+- **공격3 발견🔴**: EC2가 `http://15.164.102.25:8000` 인터넷 직접 노출 — /docs·/openapi.json 200 = WAF·HTTPS 우회 + 평문 + API 지도 노출. 원인 SG 8000=0.0.0.0/0
+- **조치**: `terraform/ec2.tf` 8000 ingress를 `0.0.0.0/0` → CloudFront 관리형 prefix list `pl-22a6434b`(com.amazonaws.global.cloudfront.origin-facing)로. plan=in-place 1변경/0파괴, apply 완료. 검증: 직접 IP:8000 전 경로 000(차단), CloudFront 경유 200(정상)
+- mass-assignment 안전(UserCreate는 email/password만 → role/email_verified 주입 불가). 남은 default 시크릿 없음(DB·SMTP는 실값)
+- 🔴 재발 위험: config.py secret_key 기본값 `change-me-in-production` 여전히 코드에 존재 → 다음 배포 때 .env 빠뜨리면 또 뚫림. 코드가 기본값 거부하게 가드 필요(미적용, 다음)

@@ -23,18 +23,19 @@ resource "aws_instance" "backend" {
   }
 }
 
-# EC2 백엔드 보안그룹. SSH(22)는 내 IP만, API(8000)는 전체 개방.
+# EC2 백엔드 보안그룹. SSH(22)는 내 IP만, API(8000)는 CloudFront만.
 resource "aws_security_group" "ec2" {
   name        = "launch-wizard-1"
   description = "launch-wizard-1 created 2026-06-24T05:31:53.556Z"
   vpc_id      = "vpc-0326229237c590a90"
 
-  # API 포트 (전체 개방)
+  # API 포트 — CloudFront(origin-facing) 관리형 prefix list만 허용.
+  # 직접 IP:8000 노출 차단 → WAF·HTTPS 우회 + /docs 노출 + 평문 전송 방지.
   ingress {
-    from_port   = 8000
-    to_port     = 8000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    prefix_list_ids = ["pl-22a6434b"] # com.amazonaws.global.cloudfront.origin-facing
   }
 
   # SSH (내 IP만)
