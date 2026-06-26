@@ -515,3 +515,13 @@ cd frontend && npm run dev                               # :5173
   - 조치: docker-compose.prod.yml에 `volumes: ./uploads:/app/uploads` 추가 + `mkdir uploads` → 호스트 디스크 영구저장. 검증: 호스트 파일이 컨테이너에 보이고 --build 재빌드 후에도 생존. prod compose를 저장소에도 추가(이전엔 EC2에만)
   - ⚠️ 이미 사라진 기존 이미지는 복구 불가 → 재업로드 필요. 장기적으론 S3 업로드가 정석(인스턴스 교체에도 안전)
 - SES: youno3249@gmail.com 발신ID 등록(verify 대기, 사용자가 메일 링크 클릭 필요). jinukkim0305@naver.com은 사용자 것 아님(프로드 계정 삭제함, SES ID는 남아있음)
+
+### 🖼 이미지 업로드 S3 이전 [완료] (2026-06-26)
+- 동기: 볼륨 방식은 재배포엔 안전하나 인스턴스 교체엔 취약 → S3로 영구화(정석)
+- IAM: `aws iam create-role blog-ec2-role`(트러스트 ec2) + inline정책(s3:PutObject on `blogplafromops/uploads/*`) + 인스턴스 프로파일 `blog-ec2-profile` 생성·역할추가·EC2 연결. **CLI로 생성(Terraform 미관리 = 드리프트, 나중에 ec2.tf에 iam_instance_profile 반영 권장)**
+- 백엔드: config s3_bucket/aws_region 추가, requirements boto3, uploads.py가 s3_bucket 있으면 boto3 put_object(키 없이 인스턴스 역할 IMDS 인증), 없으면 로컬 디스크. URL은 동일 `{public_base_url}/uploads/<name>`
+- CloudFront(`cloudfront.tf`): `/uploads/*`→EC2 ordered behavior 제거 → 기본 S3 오리진이 이미지 서빙(객체키 `uploads/<name>`). apply in-place 0파괴
+- prod .env: S3_BUCKET=blogplafromops, AWS_REGION=ap-northeast-2
+- 검증: 컨테이너 boto3로 S3 put 성공(인스턴스 역할 작동) + CloudFront /uploads/_roletest.png 200·image/png. 테스트객체 삭제
+- 결과: 새 업로드는 S3에 저장→CloudFront 서빙→인스턴스 교체에도 안전. (볼륨 마운트는 폴백으로 남겨둠, 무해)
+- ②글쓰기: youno3249·jinukkim·ppap 모두 이미 writer 상태(사용자가 /admin서 승인했거나). ①SES youno3249 verified 완료
