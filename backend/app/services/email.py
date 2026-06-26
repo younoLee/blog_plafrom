@@ -1,5 +1,6 @@
 import smtplib
 from email.message import EmailMessage
+from html import escape as html_escape
 
 from sqlalchemy import select
 
@@ -81,7 +82,9 @@ def notify_new_post(post_id: int, post_title: str) -> None:
     # 절대 URL + 실제 라우트(/blog/posts/{id})로 (예전엔 상대경로 /posts/{id}라 링크가 깨졌음)
     link = f"{settings.frontend_base_url}/blog/posts/{post_id}"
     text = f"새 글이 올라왔어!\n\n제목: {post_title}\n\n읽으러 가기:\n{link}"
-    html = _action_html(f"새 글이 올라왔어: <b>{post_title}</b>", link, "글 보러 가기")
+    # 제목은 사용자 입력 → HTML 이스케이프(메일 HTML 인젝션 방지)
+    safe_title = html_escape(post_title)
+    html = _action_html(f"새 글이 올라왔어: <b>{safe_title}</b>", link, "글 보러 가기")
     for email in emails:
         try:
             send_email(
