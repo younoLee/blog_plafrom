@@ -535,3 +535,11 @@ cd frontend && npm run dev                               # :5173
 - 근본원인: "글쓴이 구독" 버튼이 **글 상세에만** 있는데, 일부공개 글은 구독 전 못 열어(404) → 공개글 없는 작성자는 **구독 입구가 없어** 영영 구독 불가(막다른 길). 백엔드·구독로직 자체는 정상(로컬 e2e: 구독전 404→구독→200·목록반영)
 - 해결(개인블로그형): `GET /api/blog-owner`(admin id 반환) + 홈에 **"이 블로그 구독"** 버튼 → 주인장 구독 → loadPosts로 일부공개 글 즉시 반영. 라벨 "일부공개(나만)"→"일부공개(구독자에게만)" 모순 수정. (메일구독=새글알림 / 블로그구독=일부공개열람, 둘 다 홈에)
 - 검증: blog-owner 프로드 {id:3,es2646526}, build/lint 통과, 라이브 반영
+
+### 🔒 보안검사 2차 (신규 기능 포함 전수) [완료] (2026-06-26)
+- 권한받은 재점검(자동공격+코드리뷰). 기존 방어 전부 유지 확인:
+  - SECRET_KEY 위조토큰→401, EC2 :8000 직접→차단(000), **IMDSv2 required**(SSRF로 인스턴스 역할키 탈취 방어 — 새 boto3 S3업로드 땜에 핵심), S3 퍼블릭차단 4종 true·익명GET 403, IAM 역할 최소권한(uploads/* PutObject만)
+- 신규표면 점검: /api/subscriptions/detail 인증게이트(401), /api/blog-owner 공개(admin id·이름 노출=설계상 허용, 작성자는 공개), 업로드는 content-type 허용목록+nosniff+image/*서빙+서버 uuid키+IAM uploads/*스코프 → 스토어드XSS/임의키 쓰기 차단
+- **발견·수정🟠**: 새 글 알림메일에 글 제목이 HTML 이스케이프 없이 들어감 → 악성 제목(`<img onerror>`)이 구독자 메일에 HTML 인젝션 가능 → `html.escape` 적용(로컬서 &lt;img 무력화 확인, 배포)
+- 저위험/수용: blog-owner의 admin username 노출(블로그 작성자는 공개라 OK), POST /subscriptions 레이트리밋 없음(영향 적음), 업로드 매직바이트 미검증(allowlist+nosniff로 충분)
+- 결론: 치명/고위험 0건. 발견된 1건(메일 인젝션) 수정 완료. 전반 양호
