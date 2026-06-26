@@ -13,6 +13,17 @@ export async function fetchBlogOwner(): Promise<BlogOwner> {
   return res.json()
 }
 
+// 내가 구독 중인 글쓴이 (id + 이름) — '구독 중인 블로그' 목록용
+export interface SubscribedAuthor {
+  id: number
+  name: string
+}
+export async function fetchMySubscriptionsDetail(): Promise<SubscribedAuthor[]> {
+  const res = await fetch(`${BASE}/subscriptions/detail`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
 // 내가 구독 중인 글쓴이 id 목록
 export async function fetchMySubscriptions(): Promise<number[]> {
   const res = await fetch(`${BASE}/subscriptions`, { headers: authHeaders() })

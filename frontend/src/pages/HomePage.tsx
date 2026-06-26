@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import type { Post } from '../types/post'
 import { fetchPosts, deletePost } from '../api/posts'
 import { subscribe } from '../api/subscribers'
-import { fetchBlogOwner, fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
+import { fetchBlogOwner, fetchMySubscriptionsDetail, subscribeAuthor, unsubscribeAuthor, type SubscribedAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconLock } from '../components/icons'
@@ -16,9 +16,10 @@ function HomePage() {
   const [error, setError] = useState('')
   const [email, setEmail] = useState('')
   const [subMsg, setSubMsg] = useState('')
-  // '이 블로그 구독'(주인장 구독) — 구독하면 주인장의 일부공개 글이 보임
+  // '이 블로그 구독'(주인장 구독) + 내가 구독 중인 블로그 목록
   const [ownerId, setOwnerId] = useState<number | null>(null)
-  const [subToOwner, setSubToOwner] = useState(false)
+  const [subs, setSubs] = useState<SubscribedAuthor[]>([])
+  const subToOwner = ownerId != null && subs.some((s) => s.id === ownerId)
 
   async function loadPosts() {
     try {
@@ -41,21 +42,30 @@ function HomePage() {
       .catch(() => {})
   }, [])
 
-  // 내가 주인을 구독 중인지 (비로그인은 자동 [] → false)
+  // 내가 구독 중인 블로그 목록 (비로그인은 자동 [] )
   useEffect(() => {
-    if (ownerId == null) return
-    fetchMySubscriptions()
-      .then((ids) => setSubToOwner(ids.includes(ownerId)))
-      .catch(() => setSubToOwner(false))
-  }, [user, ownerId])
+    fetchMySubscriptionsDetail()
+      .then(setSubs)
+      .catch(() => setSubs([]))
+  }, [user])
 
   async function toggleBlogSub() {
     if (ownerId == null) return
     try {
       if (subToOwner) await unsubscribeAuthor(ownerId)
       else await subscribeAuthor(ownerId)
-      setSubToOwner(!subToOwner)
+      setSubs(await fetchMySubscriptionsDetail())
       await loadPosts() // 일부공개 글 반영
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function unsub(id: number) {
+    try {
+      await unsubscribeAuthor(id)
+      setSubs(await fetchMySubscriptionsDetail())
+      await loadPosts()
     } catch (e) {
       setError((e as Error).message)
     }
@@ -107,6 +117,28 @@ function HomePage() {
               {subToOwner ? '✓ 이 블로그 구독중' : '+ 이 블로그 구독'}
             </button>
             <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">구독하면 일부공개 글도 볼 수 있어</p>
+          </div>
+        )}
+        {/* 내가 구독 중인 블로그 목록 (이름 + 구독취소) */}
+        {user && subs.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <span className="text-xs text-gray-400 dark:text-gray-500">구독 중:</span>
+            {subs.map((s) => (
+              <span
+                key={s.id}
+                className="inline-flex items-center gap-1 rounded-full bg-black/[0.05] px-2.5 py-1 text-xs dark:bg-white/10"
+              >
+                {s.name}
+                <button
+                  type="button"
+                  onClick={() => unsub(s.id)}
+                  aria-label={`${s.name} 구독 취소`}
+                  className="text-gray-400 hover:text-red-500"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
           </div>
         )}
       </section>

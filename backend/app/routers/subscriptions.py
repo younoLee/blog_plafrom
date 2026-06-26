@@ -27,6 +27,25 @@ def my_subscriptions(db: Session = Depends(get_db), user: User = Depends(get_cur
     )
 
 
+class SubscriptionOut(BaseModel):
+    id: int
+    name: str
+
+
+@router.get("/detail", response_model=list[SubscriptionOut])
+def my_subscriptions_detail(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    # 내가 구독 중인 글쓴이 (id + 이름) — '구독 중인 블로그' 목록 표시용
+    rows = db.execute(
+        select(User.id, User.email)
+        .join(AuthorSubscription, AuthorSubscription.author_id == User.id)
+        .where(AuthorSubscription.subscriber_id == user.id)
+        .order_by(User.id)
+    ).all()
+    return [{"id": r.id, "name": r.email.split("@")[0]} for r in rows]
+
+
 @router.post("", status_code=201)
 def subscribe(data: SubscribeIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if data.author_id == user.id:
