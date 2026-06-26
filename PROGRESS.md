@@ -493,3 +493,12 @@ cd frontend && npm run dev                               # :5173
 - 로컬 재공격 검증: 제목250→422, author60→422, 본문2MB→422, 업로드6MB→413, 댓글25연타→20통과 후 429. 프로드 재배포 후 과대댓글→422 확인
 - 남은 권장: ①SECRET_KEY 기본값 코드가드(재발방지) ②비번 최소길이 ③JWT 만료단축/무효화 ④프론트 422/413/429 에러 메시지 친절화(UX)
 - git: 로컬 다수 커밋 앞섬 → push 필요
+
+### 🔒 보안 하드닝 4종 [완료] (커밋 1698b9a 다음 커밋)
+- **① SECRET_KEY 가드**(main.py lifespan): 기본값/빈값/<16자면 서버 시작 거부(fail-closed) → .env 빠뜨린 채 배포돼도 조용히 안 위험해짐. 로컬 docker compose·루트 .env에 개발용 키 추가(비밀 아님), 프로드는 openssl 키(이미 설정)
+- **② 비번 길이**: 가입/재설정 8~72자(RegisterRequest·ResetPasswordRequest Field), 로그인은 72자 상한(bcrypt 72바이트 초과 에러 방지). 프론트 가입 비번 8자 힌트
+- **③ 토큰 무효화**: User.token_version 추가(마이그레이션 3e99ae1b58c1, 기존 0 백필). JWT에 ver 클레임, get_current_user(_optional)가 user.token_version과 비교→불일치 401/None. 비번 재설정·차단 시 token_version+1로 기존 세션 강제종료. 만료 24h→12h
+- **④ 프론트 에러**: posts/comments 422(길이)·429(레이트), uploads 413(용량), register 422(이메일·비번) 친절 메시지
+- 검증: 로컬 e2e(짧은비번 422, 재설정 후 옛 토큰 401, 새 비번 로그인 200) + 프로드 배포 후(위조토큰 401, 짧은비번 422, health 200=가드 통과, token_version 마이그레이션 로그). 프론트 빌드/lint 통과, 라이브 최신 반영
+- **보안 점검 마무리**: SECRET_KEY(치명)·직접노출·남용/DoS·인증하드닝까지 전부 처리·라이브 적용. 남은 선택(낮음): 보안헤더(HSTS), 미인증 계정 자동정리, SES 프로덕션 액세스(대기중)
+- git: 로컬 다수 커밋 앞섬 → 외부터미널 push 필요
