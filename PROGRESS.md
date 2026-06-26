@@ -525,3 +525,7 @@ cd frontend && npm run dev                               # :5173
 - 검증: 컨테이너 boto3로 S3 put 성공(인스턴스 역할 작동) + CloudFront /uploads/_roletest.png 200·image/png. 테스트객체 삭제
 - 결과: 새 업로드는 S3에 저장→CloudFront 서빙→인스턴스 교체에도 안전. (볼륨 마운트는 폴백으로 남겨둠, 무해)
 - ②글쓰기: youno3249·jinukkim·ppap 모두 이미 writer 상태(사용자가 /admin서 승인했거나). ①SES youno3249 verified 완료
+
+### 🐛 새로고침 로그인튕김 + 이미지삭제 함정 [완료] (2026-06-26)
+- 새로고침 시 /login 튕김: WritePostPage 가드가 인증복구(fetchMe) loading 중 user=null을 보고 즉시 navigate('/login') → `if(loading)return`으로 보류하게 수정(AdminPage 패턴과 동일)
+- ⚠️ 발견한 함정: 이미지를 프론트와 같은 버킷(blogplafromops/uploads/)에 넣었는데 프론트 배포가 `s3 sync --delete` → 다음 배포 때 업로드 이미지 전멸 위험. deploy.yml + 수동배포에 `--exclude "uploads/*"` 추가로 방지. (장기적으론 이미지 전용 버킷 분리가 더 깔끔)
