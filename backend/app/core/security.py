@@ -33,6 +33,9 @@ def decode_access_token(token: str) -> tuple[int, int] | None:
     """유효하면 (user_id, token_version) 반환, 만료/위조면 None."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        # 이메일용 토큰(verify/reset)은 purpose가 있음 → 로그인 토큰으로 못 쓰게 거부(토큰 혼동 방지)
+        if "purpose" in payload:
+            return None
         return int(payload["sub"]), int(payload.get("ver", 0))
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
