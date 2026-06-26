@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.ratelimit import limiter
 from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin
 from app.services.status import run_checks, get_history, start_recorder
+from app.services.cleanup import start_cleanup
 
 # 절대 운영에서 쓰면 안 되는 기본 SECRET_KEY (코드에 공개돼 있어 토큰 위조 가능)
 _INSECURE_SECRET = "change-me-in-production"
@@ -27,6 +28,8 @@ async def lifespan(app: FastAPI):
         )
     # 앱 기동 시 1분 간격 자가 점검 기록 시작 (업타임 집계용)
     start_recorder()
+    # 미인증 계정 1시간 간격 자동 정리 시작
+    start_cleanup()
     yield
 
 
