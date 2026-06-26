@@ -1,14 +1,18 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.ratelimit import limiter
+from app.models.user import User
 from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin
 from app.services.status import run_checks, get_history, start_recorder
 from app.services.cleanup import start_cleanup
@@ -65,6 +69,15 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/blog-owner")
+def blog_owner(db: Session = Depends(get_db)):
+    # 이 블로그의 주인(관리자). 프론트의 '이 블로그 구독' 버튼이 이 id를 구독함.
+    owner = db.scalar(select(User).where(User.role == "admin").order_by(User.id))
+    if owner is None:
+        return {"id": None, "name": None}
+    return {"id": owner.id, "name": owner.email.split("@")[0]}
 
 
 @app.get("/api/status")

@@ -153,7 +153,7 @@ function WritePostPage() {
           </label>
           <label className="flex items-center gap-1">
             <input type="radio" checked={visibility === 'private'} onChange={() => setVisibility('private')} />
-            <IconLock className="h-3.5 w-3.5" /> 일부공개(나만)
+            <IconLock className="h-3.5 w-3.5" /> 일부공개(구독자에게만)
           </label>
         </div>
         <div className="flex gap-2">

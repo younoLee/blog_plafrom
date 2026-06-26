@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { Post } from '../types/post'
 import { fetchPosts, deletePost } from '../api/posts'
 import { subscribe } from '../api/subscribers'
+import { fetchBlogOwner, fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconLock } from '../components/icons'
@@ -15,6 +16,9 @@ function HomePage() {
   const [error, setError] = useState('')
   const [email, setEmail] = useState('')
   const [subMsg, setSubMsg] = useState('')
+  // '이 블로그 구독'(주인장 구독) — 구독하면 주인장의 일부공개 글이 보임
+  const [ownerId, setOwnerId] = useState<number | null>(null)
+  const [subToOwner, setSubToOwner] = useState(false)
 
   async function loadPosts() {
     try {
@@ -29,6 +33,33 @@ function HomePage() {
       .then(setPosts)
       .catch((e) => setError((e as Error).message))
   }, [user])
+
+  // 블로그 주인(admin) id
+  useEffect(() => {
+    fetchBlogOwner()
+      .then((o) => setOwnerId(o.id))
+      .catch(() => {})
+  }, [])
+
+  // 내가 주인을 구독 중인지 (비로그인은 자동 [] → false)
+  useEffect(() => {
+    if (ownerId == null) return
+    fetchMySubscriptions()
+      .then((ids) => setSubToOwner(ids.includes(ownerId)))
+      .catch(() => setSubToOwner(false))
+  }, [user, ownerId])
+
+  async function toggleBlogSub() {
+    if (ownerId == null) return
+    try {
+      if (subToOwner) await unsubscribeAuthor(ownerId)
+      else await subscribeAuthor(ownerId)
+      setSubToOwner(!subToOwner)
+      await loadPosts() // 일부공개 글 반영
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   async function handleDelete(id: number) {
     try {
@@ -69,6 +100,15 @@ function HomePage() {
           <button type="submit" className={`${ui.btnPrimary} shrink-0`}>구독</button>
         </form>
         {subMsg && <p className="mt-2 text-sm text-[#0071e3] dark:text-[#0a84ff]">{subMsg}</p>}
+        {/* 이 블로그 구독: 로그인 + 본인(주인장)이 아닐 때. 구독하면 일부공개 글이 열림 */}
+        {user && ownerId != null && user.id !== ownerId && (
+          <div className="mt-4">
+            <button type="button" onClick={toggleBlogSub} className={subToOwner ? ui.btnGhost : ui.btnPrimary}>
+              {subToOwner ? '✓ 이 블로그 구독중' : '+ 이 블로그 구독'}
+            </button>
+            <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">구독하면 일부공개 글도 볼 수 있어</p>
+          </div>
+        )}
       </section>
 
       {error && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
