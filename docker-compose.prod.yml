@@ -1,0 +1,14 @@
+# 프로덕션(EC2) 백엔드 실행용. EC2 ~/blog/ 에 이 파일이 있고, .env(시크릿)는 깃 미포함.
+# db/mailpit 없음(RDS·SES 사용). 업로드 이미지는 호스트 디스크에 영구 저장.
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    # 업로드 이미지를 호스트 디스크에 영구 저장 → 컨테이너 재빌드해도 안 사라짐
+    volumes:
+      - ./uploads:/app/uploads
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"

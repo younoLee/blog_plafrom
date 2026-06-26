@@ -508,3 +508,10 @@ cd frontend && npm run dev                               # :5173
 - **미인증 정리**(`services/cleanup.py`): 가입 후 24h 지나도 email_verified=false면 1시간 간격 데몬이 삭제(start_cleanup, main lifespan). 미인증은 로그인 불가→글·댓글 없음→안전 삭제(author_subscriptions는 FK CASCADE). 로컬 검증: 25h 미인증 삭제·최근 미인증/인증계정 유지. 프로드 배포·health 200
 - **보안 작업 전부 종료** — 치명/중/낮음 항목 모두 처리·라이브 적용. 남은 건 SES 프로덕션 액세스 심사(대기) 뿐
 - git: 로컬 다수 커밋 앞섬 → push 필요
+
+### 🐛 이미지 업로드 영구화 + 메일 HTML화 [완료] (2026-06-26)
+- **메일 클릭 문제**: 인증/재설정 메일이 순수 텍스트라 일부 클라이언트(네이버)가 링크 자동연결 안 함 → `services/email.py`를 HTML(클릭 버튼+전체 URL 병기)로. send_email에 html 파라미터, _action_html 헬퍼. (발신 도메인 불일치 "주소 다를 수 있음" 경고는 도메인 없을 때의 한계라 남을 수 있음)
+- **이미지 다른 기기서 안 보임**: 원인 = 프로드 compose에 uploads 볼륨이 없어 이미지가 컨테이너 안에만 저장 → 오늘 보안 재배포(--build) 반복으로 매번 uploads 폴더 초기화됨(0개). URL은 정상(PUBLIC_BASE_URL=CloudFront)
+  - 조치: docker-compose.prod.yml에 `volumes: ./uploads:/app/uploads` 추가 + `mkdir uploads` → 호스트 디스크 영구저장. 검증: 호스트 파일이 컨테이너에 보이고 --build 재빌드 후에도 생존. prod compose를 저장소에도 추가(이전엔 EC2에만)
+  - ⚠️ 이미 사라진 기존 이미지는 복구 불가 → 재업로드 필요. 장기적으론 S3 업로드가 정석(인스턴스 교체에도 안전)
+- SES: youno3249@gmail.com 발신ID 등록(verify 대기, 사용자가 메일 링크 클릭 필요). jinukkim0305@naver.com은 사용자 것 아님(프로드 계정 삭제함, SES ID는 남아있음)
