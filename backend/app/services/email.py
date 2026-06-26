@@ -78,9 +78,18 @@ def notify_new_post(post_id: int, post_title: str) -> None:
     finally:
         db.close()
 
+    # 절대 URL + 실제 라우트(/blog/posts/{id})로 (예전엔 상대경로 /posts/{id}라 링크가 깨졌음)
+    link = f"{settings.frontend_base_url}/blog/posts/{post_id}"
+    text = f"새 글이 올라왔어!\n\n제목: {post_title}\n\n읽으러 가기:\n{link}"
+    html = _action_html(f"새 글이 올라왔어: <b>{post_title}</b>", link, "글 보러 가기")
     for email in emails:
-        send_email(
-            to=email,
-            subject=f"[블로그] 새 글: {post_title}",
-            body=f"새 글이 올라왔어!\n\n제목: {post_title}\n\n읽으러 가기: /posts/{post_id}",
-        )
+        try:
+            send_email(
+                to=email,
+                subject=f"[블로그] 새 글: {post_title}",
+                body=text,
+                html=html,
+            )
+        except Exception:
+            # 한 수신자 실패(예: SES 미인증 주소)가 나머지 발송을 막지 않게
+            continue
