@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, DateTime, Boolean, func
+from sqlalchemy import String, DateTime, Boolean, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
@@ -17,6 +17,8 @@ class User(Base):
     # 이메일 인증 여부. 가입 직후 False → 확인메일 링크 클릭하면 True (봇 대량가입 차단)
     # 기존 계정은 마이그레이션에서 True로 백필 (잠기지 않게)
     email_verified: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # 토큰 버전. 비번 재설정·차단 시 +1 → 그 이전에 발급된 JWT는 즉시 무효(세션 강제 종료)
+    token_version: Mapped[int] = mapped_column(Integer, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

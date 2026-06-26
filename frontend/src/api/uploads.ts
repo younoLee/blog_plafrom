@@ -14,6 +14,7 @@ export async function uploadImage(file: File): Promise<string> {
   })
   if (res.status === 400) throw new Error('이미지 파일만 올릴 수 있어')
   if (res.status === 401 || res.status === 403) throw new Error('업로드 권한이 없어 (승인 필요)')
+  if (res.status === 413) throw new Error('이미지가 너무 커 (최대 5MB)')
   if (!res.ok) throw new Error('업로드 실패')
   const data = await res.json()
   return data.url as string

@@ -1,11 +1,21 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+# bcrypt는 72바이트 초과 비번에서 에러 → 상한 72. 가입/재설정은 최소 8자 요구.
+PW_MIN = 8
+PW_MAX = 72
 
 
-# 회원가입/로그인 시 받는 데이터
+# 로그인 시 받는 데이터 (기존 계정 호환 위해 최소길이 강제 안 함, 상한만)
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=PW_MAX)
+
+
+# 회원가입 시 받는 데이터 (새 비번이라 최소 길이 강제)
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=PW_MIN, max_length=PW_MAX)
 
 
 # 응답으로 돌려주는 사용자 정보 (비밀번호는 절대 포함 안 함)
@@ -33,4 +43,4 @@ class ForgotPasswordRequest(BaseModel):
 # 새 비밀번호 설정 (메일 링크의 토큰 + 새 비번)
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(min_length=PW_MIN, max_length=PW_MAX)

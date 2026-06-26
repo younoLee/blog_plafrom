@@ -16,6 +16,7 @@ from app.core.security import (
 from app.models.user import User
 from app.schemas.user import (
     UserCreate,
+    RegisterRequest,
     UserRead,
     Token,
     ForgotPasswordRequest,
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserRead, status_code=201)
 @limiter.limit("5/hour")  # 한 IP당 시간당 5번까지만 가입 (대량가입 속도 차단)
-def register(request: Request, data: UserCreate, background: BackgroundTasks, db: Session = Depends(get_db)):
+def register(request: Request, data: RegisterRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
     exists = db.scalar(select(User).where(User.email == data.email))
     if exists:
         raise HTTPException(status_code=409, detail="이미 가입된 이메일")
@@ -77,7 +78,7 @@ def login(request: Request, data: UserCreate, db: Session = Depends(get_db)):
     # 이메일 미인증이면 로그인 불가 (봇 대량가입 차단)
     if not user.email_verified:
         raise HTTPException(status_code=403, detail="이메일 인증이 필요해 (메일함 확인)")
-    return Token(access_token=create_access_token(user.id))
+    return Token(access_token=create_access_token(user.id, user.token_version))
 
 
 @router.post("/forgot-password", status_code=202)
@@ -107,6 +108,7 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     if user is None:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없음")
     user.hashed_password = hash_password(data.new_password)
+    user.token_version += 1  # 비번 바뀌면 기존에 발급된 모든 토큰 무효화
     db.commit()
     db.refresh(user)
     return user

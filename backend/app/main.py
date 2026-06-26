@@ -7,13 +7,24 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.core.config import settings
 from app.core.ratelimit import limiter
 from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin
 from app.services.status import run_checks, get_history, start_recorder
 
+# 절대 운영에서 쓰면 안 되는 기본 SECRET_KEY (코드에 공개돼 있어 토큰 위조 가능)
+_INSECURE_SECRET = "change-me-in-production"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 보안 가드: SECRET_KEY가 기본값이거나 너무 약하면 서버를 아예 띄우지 않음(fail-closed).
+    # 이게 없으면 .env에 키를 빠뜨린 채 배포돼도 조용히 위험해짐(실제로 한 번 그랬음).
+    if settings.secret_key in ("", _INSECURE_SECRET) or len(settings.secret_key) < 16:
+        raise RuntimeError(
+            "SECRET_KEY가 없거나 너무 약함. .env에 강력한 임의값을 설정해줘 "
+            "(예: openssl rand -hex 32)."
+        )
     # 앱 기동 시 1분 간격 자가 점검 기록 시작 (업타임 집계용)
     start_recorder()
     yield

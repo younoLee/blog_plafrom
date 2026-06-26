@@ -30,6 +30,8 @@ services:
     # 컨테이너 안에선 localhost가 아니라 서비스 이름으로 접속 (db, mailpit)
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/blog
+      # 로컬 개발용 키 (비밀 아님). 프로드는 .env에 강력한 임의값 사용.
+      SECRET_KEY: local-dev-secret-key-not-for-production
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
     depends_on:

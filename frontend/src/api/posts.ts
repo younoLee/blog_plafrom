@@ -31,6 +31,9 @@ export async function createPost(
     body: JSON.stringify({ title, content, visibility }),
   })
   if (res.status === 401) throw new Error('로그인이 필요해')
+  if (res.status === 403) throw new Error('글쓰기 권한이 없어 (관리자 승인 필요)')
+  if (res.status === 422) throw new Error('제목(200자)·내용(5만자) 길이를 확인해줘. 빈칸은 안 돼')
+  if (res.status === 429) throw new Error('글 작성이 너무 잦아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('작성 실패')
   return res.json()
 }
@@ -48,6 +51,8 @@ export async function updatePost(
     body: JSON.stringify({ title, content, visibility }),
   })
   if (res.status === 403) throw new Error('내 글만 수정할 수 있어')
+  if (res.status === 422) throw new Error('제목(200자)·내용(5만자) 길이를 확인해줘. 빈칸은 안 돼')
+  if (res.status === 429) throw new Error('수정이 너무 잦아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('수정 실패')
   return res.json()
 }

@@ -58,6 +58,7 @@ def ban_user(user_id: int, db: Session = Depends(get_db)):
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 차단할 수 없어")
     user.role = "banned"
+    user.token_version += 1  # 차단 즉시 기존 토큰 무효화
     db.commit()
     db.refresh(user)
     return user

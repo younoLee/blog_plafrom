@@ -50,7 +50,7 @@ function RegisterPage() {
             <h1 className={`mb-6 text-3xl font-semibold tracking-tight ${ui.gradientText}`}>회원가입</h1>
             <form onSubmit={handleSubmit} className="grid gap-3">
               <input type="email" placeholder="이메일" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
-              <input type="password" placeholder="비밀번호" value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
+              <input type="password" placeholder="비밀번호 (8자 이상)" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
               <button type="submit" className={btnPrimary}>회원가입</button>
               {error && <p className="text-sm text-red-600">{error}</p>}
             </form>

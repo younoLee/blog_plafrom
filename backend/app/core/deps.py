@@ -15,12 +15,16 @@ oauth2_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 def get_current_user(
     token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ) -> User:
-    user_id = decode_access_token(token)
-    if user_id is None:
+    decoded = decode_access_token(token)
+    if decoded is None:
         raise HTTPException(status_code=401, detail="로그인이 필요해")
+    user_id, ver = decoded
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="유효하지 않은 사용자")
+    # 비번 재설정·차단 이후 발급 전 토큰이면 버전 불일치 → 무효
+    if user.token_version != ver:
+        raise HTTPException(status_code=401, detail="세션이 만료됐어 (다시 로그인)")
     # 차단된 계정은 토큰이 있어도 막음
     if user.role == "banned":
         raise HTTPException(status_code=403, detail="차단된 계정이야")
@@ -33,12 +37,15 @@ def get_current_user_optional(
     """로그인했으면 User, 아니면 None (에러 안 냄)."""
     if not token:
         return None
-    user_id = decode_access_token(token)
-    if user_id is None:
+    decoded = decode_access_token(token)
+    if decoded is None:
         return None
+    user_id, ver = decoded
     user = db.get(User, user_id)
+    if user is None or user.token_version != ver:
+        return None
     # 차단된 계정은 비로그인 취급
-    if user is not None and user.role == "banned":
+    if user.role == "banned":
         return None
     return user
 

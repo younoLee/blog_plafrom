@@ -6,7 +6,7 @@ import jwt
 from app.core.config import settings
 
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_HOURS = 24
+TOKEN_EXPIRE_HOURS = 12  # 노출 시간 축소 (예전 24h)
 
 
 # --- 비밀번호 해싱 ---
@@ -20,19 +20,20 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # --- JWT 토큰 ---
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, token_version: int) -> str:
     payload = {
         "sub": str(user_id),  # 토큰 주인(사용자 id)
+        "ver": token_version,  # 사용자 token_version 스냅샷 (재설정/차단 시 불일치→무효)
         "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> int | None:
-    """유효하면 user_id 반환, 만료/위조면 None."""
+def decode_access_token(token: str) -> tuple[int, int] | None:
+    """유효하면 (user_id, token_version) 반환, 만료/위조면 None."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
-        return int(payload["sub"])
+        return int(payload["sub"]), int(payload.get("ver", 0))
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
 

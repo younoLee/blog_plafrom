@@ -41,7 +41,7 @@ export async function register(email: string, password: string): Promise<void> {
     body: JSON.stringify({ email, password }),
   })
   if (res.status === 409) throw new Error('이미 가입된 이메일이야')
-  if (res.status === 422) throw new Error('이메일 형식이 올바르지 않아')
+  if (res.status === 422) throw new Error('이메일 형식·비밀번호(8~72자)를 확인해줘')
   if (res.status === 429) throw new Error('가입 시도가 너무 많아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('회원가입 실패')
 }
