@@ -1,8 +1,9 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select, or_, true
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.ratelimit import limiter
 from app.core.deps import get_current_user_optional, require_writer
 from app.models.post import Post
 from app.models.user import User
@@ -66,7 +67,9 @@ def list_posts(
 
 
 @router.post("", response_model=PostRead, status_code=201)
+@limiter.limit("30/hour")  # 글 도배·자동화 방지 (writer라도 시간당 30개 상한)
 def create_post(
+    request: Request,
     data: PostCreate,
     background: BackgroundTasks,
     db: Session = Depends(get_db),

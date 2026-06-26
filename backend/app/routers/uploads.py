@@ -15,6 +15,7 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 ALLOWED = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+MAX_BYTES = 5 * 1024 * 1024  # 5MB — 디스크/메모리 폭탄 방지
 
 
 @router.post("")
@@ -24,13 +25,15 @@ async def upload_image(file: UploadFile, user: User = Depends(require_writer)):
     if file.content_type not in ALLOWED:
         raise HTTPException(status_code=400, detail="이미지 파일만 업로드 가능")
 
+    # 최대 MAX_BYTES까지만 읽음(+1바이트로 초과 감지) → 거대 파일이 메모리를 다 먹기 전에 차단
+    content = await file.read(MAX_BYTES + 1)
+    if len(content) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="파일이 너무 커 (최대 5MB)")
+
     # 원본 확장자 유지 + 충돌 없는 고유 이름 (uuid)
     ext = Path(file.filename or "").suffix.lower()
     name = f"{uuid.uuid4().hex}{ext}"
     dest = UPLOAD_DIR / name
-
-    # 파일 저장
-    content = await file.read()
     dest.write_bytes(content)
 
     # 마크다운에 넣을 수 있는 절대 URL 반환

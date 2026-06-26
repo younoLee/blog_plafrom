@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.ratelimit import limiter
 from app.models.post import Post
 from app.models.comment import Comment
 from app.schemas.comment import CommentCreate, CommentRead
@@ -26,7 +27,10 @@ def list_comments(post_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=CommentRead, status_code=201)
-def create_comment(post_id: int, data: CommentCreate, db: Session = Depends(get_db)):
+@limiter.limit("20/hour")  # 익명 댓글 도배(스팸) 방지 — IP당 시간당 20개
+def create_comment(
+    request: Request, post_id: int, data: CommentCreate, db: Session = Depends(get_db)
+):
     ensure_post_exists(post_id, db)
     comment = Comment(post_id=post_id, author=data.author, content=data.content)
     db.add(comment)
