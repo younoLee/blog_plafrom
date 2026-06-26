@@ -43,21 +43,26 @@ def decode_access_token(token: str) -> tuple[int, int] | None:
 
 # --- 이메일 링크용 토큰 (이메일 인증 / 비밀번호 재설정 공용) ---
 # 로그인 토큰과 구분하려고 purpose("verify"/"reset")를 넣음 → 용도 섞어쓰기 방지
-def create_email_token(user_id: int, purpose: str, expire_hours: int = 24) -> str:
+# ver: 발급 시점의 user.token_version 스냅샷. 재설정 토큰을 1회용으로 만드는 데 씀
+# (재설정하면 token_version이 +1 → 같은 토큰을 다시 쓰면 ver 불일치로 거부)
+def create_email_token(
+    user_id: int, purpose: str, expire_hours: int = 24, ver: int = 0
+) -> str:
     payload = {
         "sub": str(user_id),
         "purpose": purpose,
+        "ver": ver,
         "exp": datetime.now(timezone.utc) + timedelta(hours=expire_hours),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
-def decode_email_token(token: str, purpose: str) -> int | None:
-    """purpose가 일치하고 유효하면 user_id, 아니면 None (만료·위조·용도불일치)."""
+def decode_email_token(token: str, purpose: str) -> tuple[int, int] | None:
+    """purpose 일치+유효하면 (user_id, ver), 아니면 None (만료·위조·용도불일치)."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
         if payload.get("purpose") != purpose:
             return None
-        return int(payload["sub"])
+        return int(payload["sub"]), int(payload.get("ver", 0))
     except (jwt.PyJWTError, KeyError, ValueError):
         return None

@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user_optional
+from app.core.deps import get_current_user, get_current_user_optional
 from app.core.ratelimit import limiter
 from app.models.post import Post
 from app.models.comment import Comment
@@ -52,3 +52,21 @@ def create_comment(
     db.commit()
     db.refresh(comment)
     return comment
+
+
+@router.delete("/{comment_id}", status_code=204)
+def delete_comment(
+    post_id: int,
+    comment_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 댓글 삭제(모더레이션): 글 작성자 본인 또는 관리자만
+    post = get_post_or_404(post_id, db)
+    comment = db.get(Comment, comment_id)
+    if comment is None or comment.post_id != post_id:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없음")
+    if post.owner_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="댓글 삭제 권한이 없어")
+    db.delete(comment)
+    db.commit()

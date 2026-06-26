@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import type { Post } from '../types/post'
 import type { Comment } from '../types/comment'
 import { getPost } from '../api/posts'
-import { fetchComments, addComment } from '../api/comments'
+import { fetchComments, addComment, deleteComment } from '../api/comments'
 import { fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
@@ -59,6 +59,18 @@ function PostDetailPage() {
     try {
       await addComment(postId, author, text)
       setText('')
+      setComments(await fetchComments(postId))
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  // 글 작성자 본인 또는 관리자면 댓글 삭제(모더레이션) 가능
+  const canModerate = !!user && !!post && (user.role === 'admin' || post.owner_id === user.id)
+
+  async function handleDeleteComment(commentId: number) {
+    try {
+      await deleteComment(postId, commentId)
       setComments(await fetchComments(postId))
     } catch (e) {
       setError((e as Error).message)
@@ -120,6 +132,16 @@ function PostDetailPage() {
               <div className="flex items-baseline gap-2">
                 <strong className="text-gray-800 dark:text-gray-100">{c.author}</strong>
                 <time className="text-xs text-gray-500 dark:text-gray-400">{new Date(c.created_at).toLocaleString()}</time>
+                {canModerate && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteComment(c.id)}
+                    className="ml-auto text-xs text-gray-400 hover:text-red-500"
+                    aria-label="댓글 삭제"
+                  >
+                    삭제
+                  </button>
+                )}
               </div>
               <p className="mt-1 whitespace-pre-wrap text-gray-700 dark:text-gray-300">{c.content}</p>
             </div>

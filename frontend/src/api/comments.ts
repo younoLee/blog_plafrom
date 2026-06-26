@@ -1,4 +1,5 @@
 import type { Comment } from '../types/comment'
+import { authHeaders } from './auth'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -24,4 +25,13 @@ export async function addComment(
   if (res.status === 429) throw new Error('댓글이 너무 잦아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('댓글 작성 실패')
   return res.json()
+}
+
+// 댓글 삭제 (글 작성자 본인 또는 관리자만 — 모더레이션)
+export async function deleteComment(postId: number, commentId: number): Promise<void> {
+  const res = await fetch(`${BASE}/posts/${postId}/comments/${commentId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('댓글 삭제 실패')
 }
