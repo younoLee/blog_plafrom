@@ -502,3 +502,9 @@ cd frontend && npm run dev                               # :5173
 - 검증: 로컬 e2e(짧은비번 422, 재설정 후 옛 토큰 401, 새 비번 로그인 200) + 프로드 배포 후(위조토큰 401, 짧은비번 422, health 200=가드 통과, token_version 마이그레이션 로그). 프론트 빌드/lint 통과, 라이브 최신 반영
 - **보안 점검 마무리**: SECRET_KEY(치명)·직접노출·남용/DoS·인증하드닝까지 전부 처리·라이브 적용. 남은 선택(낮음): 보안헤더(HSTS), 미인증 계정 자동정리, SES 프로덕션 액세스(대기중)
 - git: 로컬 다수 커밋 앞섬 → 외부터미널 push 필요
+
+### 🔒 보안 헤더 + 미인증 계정 자동정리 [완료]
+- **보안 헤더**(`cloudfront.tf`): 3개 behavior(default S3·/api·/uploads)에 AWS Managed-SecurityHeadersPolicy(`67f7725c-...`) 부착 → terraform apply(in-place, 0파괴, 50s). 라이브 검증: HSTS(max-age=31536000)·x-content-type-options:nosniff·x-frame-options:SAMEORIGIN·referrer-policy·x-xss-protection 전부 SPA·API 양쪽에 적용됨
+- **미인증 정리**(`services/cleanup.py`): 가입 후 24h 지나도 email_verified=false면 1시간 간격 데몬이 삭제(start_cleanup, main lifespan). 미인증은 로그인 불가→글·댓글 없음→안전 삭제(author_subscriptions는 FK CASCADE). 로컬 검증: 25h 미인증 삭제·최근 미인증/인증계정 유지. 프로드 배포·health 200
+- **보안 작업 전부 종료** — 치명/중/낮음 항목 모두 처리·라이브 적용. 남은 건 SES 프로덕션 액세스 심사(대기) 뿐
+- git: 로컬 다수 커밋 앞섬 → push 필요
