@@ -543,3 +543,12 @@ cd frontend && npm run dev                               # :5173
 - **발견·수정🟠**: 새 글 알림메일에 글 제목이 HTML 이스케이프 없이 들어감 → 악성 제목(`<img onerror>`)이 구독자 메일에 HTML 인젝션 가능 → `html.escape` 적용(로컬서 &lt;img 무력화 확인, 배포)
 - 저위험/수용: blog-owner의 admin username 노출(블로그 작성자는 공개라 OK), POST /subscriptions 레이트리밋 없음(영향 적음), 업로드 매직바이트 미검증(allowlist+nosniff로 충분)
 - 결론: 치명/고위험 0건. 발견된 1건(메일 인젝션) 수정 완료. 전반 양호
+
+### 🔒 보안검사 3차 — 심층(IDOR·비용·인젝션) [완료] (2026-06-26)
+- 깊게 판 영역: JWT(alg 고정 HS256·purpose 분리·exp), IDOR/접근제어, mass-assignment(role 주입 불가), SQLi(ORM), SSRF(없음+IMDSv2), CORS(Bearer라 무관), CSRF(헤더토큰이라 무관), 업로드 경로/매직바이트, 레이트리밋 공백, 정보노출, 에러 누출, 계정 enumeration, 전송
+- **발견·수정**:
+  - 🟠 **비공개 글 댓글 IDOR**: GET/POST /posts/{id}/comments가 can_view 미확인 → 글 못 봐도 댓글은 누구나 읽기/쓰기(글id 순번이라 전수 수집 가능). → posts.can_view 재사용해 볼 권한 있는 사람만(404). 프로드 검증: 비공개 8·9 댓글 404, 공개 2 댓글 200
+  - 🟡 **/ai/draft 레이트리밋 없음**: writer가 AI 무한호출→비용폭탄 → 10/hour 추가
+  - (2차에서) 알림메일 제목 HTML 인젝션 → html.escape
+- 저위험/수용: 가입 시 409로 이메일 존재 노출(rate limit로 완화), 댓글 삭제(모더레이션) 엔드포인트 없음(스팸시 DB로), 비번재설정 토큰 1h내 재사용 가능, 업로드 매직바이트 미검증(allowlist+nosniff로 충분), CloudFront→EC2 오리진은 HTTP(AWS 내부망+오리진 잠금)
+- 결론: 치명 0. 이번 심층검사로 IDOR 1건(중)·비용 1건 추가 수정. 잔여는 저위험·수용 가능 수준
