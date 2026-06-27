@@ -4,6 +4,16 @@
 /* 다크모드를 .dark 클래스로 제어 (기본은 OS 설정 따름이라 수동 토글용으로 바꿈) */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* color-scheme를 테마와 동기화. 이게 없으면 .dark 클래스만 켜져도 브라우저는
+   color-scheme를 light로 둬서 <select> 옵션 팝업·스크롤바 같은 '네이티브' UI가
+   밝게 그려진다 → 다크모드에서 드롭다운이 안 보이는 원인. */
+:root {
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
+}
+
 /* 애플풍 폰트 스택: 영문은 SF, 한글은 Pretendard(글리프 단위로 자동 폴백) */
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
