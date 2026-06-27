@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser } from '../api/admin'
+import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser } from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 
@@ -14,7 +14,7 @@ const ROLE_META: Record<Role, { label: string; badge: string }> = {
 }
 
 // 액션 → 호출할 API 함수
-const ACTIONS = { approve: approveUser, revoke: revokeUser, ban: banUser, unban: unbanUser }
+const ACTIONS = { approve: approveUser, revoke: revokeUser, ban: banUser, unban: unbanUser, pro: toggleProUser }
 
 function AdminPage() {
   const { user, loading } = useAuth()
@@ -69,9 +69,14 @@ function AdminPage() {
             <li key={u.id} className={`${ui.card} flex items-center justify-between gap-3`}>
               <div className="min-w-0">
                 <p className="truncate font-medium">{u.email}</p>
-                <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${meta.badge}`}>
+                <span className={`mt-1 mr-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${meta.badge}`}>
                   {meta.label}
                 </span>
+                {u.is_pro && (
+                  <span className="mt-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                    유료(Opus)
+                  </span>
+                )}
               </div>
               {/* admin은 변경 불가. pending=승인+차단, writer=해제+차단, banned=해제 */}
               <div className="flex shrink-0 gap-2">
@@ -97,6 +102,12 @@ function AdminPage() {
                 {u.role === 'banned' && (
                   <button type="button" onClick={() => handle(u.id, 'unban')} className={ui.btnPrimary}>
                     차단 해제
+                  </button>
+                )}
+                {/* admin은 이미 전 모델 사용 가능 → 그 외 계정에만 유료 토글 */}
+                {u.role !== 'admin' && (
+                  <button type="button" onClick={() => handle(u.id, 'pro')} className={ui.btnGhost}>
+                    {u.is_pro ? '유료 회수' : '유료 부여'}
                   </button>
                 )}
                 {/* admin 외 모든 계정에 영구 삭제 버튼 */}

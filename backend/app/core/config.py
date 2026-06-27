@@ -27,8 +27,11 @@ class Settings(BaseSettings):
 
     # AI 글 초안 생성 (Claude API). 키는 .env에만 — 코드/커밋 금지
     anthropic_api_key: str = ""
-    # 모델명: .env에서 바꾸면 바로 교체됨 (예: claude-haiku-4-5 로 저비용)
-    ai_model: str = "claude-opus-4-8"
+    # 모델명: 이제 /ai/draft가 요청마다 모델을 받으므로 사실상 미사용(하위호환용 기본값)
+    ai_model: str = "claude-sonnet-4-6"
+    # BYOK용 암호화 키(Fernet). 사용자가 맡긴 GPT/Gemini 키를 이걸로 암호화해 DB 저장.
+    # 비어 있으면 BYOK 비활성(키 저장 불가). 생성: python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
+    llm_encryption_key: str = ""
 
 
 settings = Settings()

@@ -26,6 +26,7 @@ class UserRead(BaseModel):
     email: EmailStr
     role: str  # pending / writer / admin / banned
     email_verified: bool
+    is_pro: bool  # 유료(고급 AI 모델 해금) 여부
     created_at: datetime
 
 

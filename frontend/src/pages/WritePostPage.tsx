@@ -3,11 +3,25 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Visibility } from '../types/post'
 import { getPost, createPost, updatePost } from '../api/posts'
 import { uploadImage } from '../api/uploads'
-import { generateDraft } from '../api/ai'
+import { generateDraft, fetchAiModels, fetchKeys, type AiModel } from '../api/ai'
+
+// BYOK provider → 직접입력 옵션에 보일 이름
+const PROVIDER_LABEL: Record<string, string> = {
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  compatible: 'OpenAI 호환',
+  anthropic: 'Anthropic(내 키)',
+  cohere: 'Cohere',
+}
+
+// 드롭다운 optgroup(카탈로그 모델) 묶음 라벨
+const GROUP_LABEL: Record<string, string> = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini' }
 import { useAuth } from '../auth/auth-context'
 import { canWrite } from '../api/auth'
 import { ui } from '../ui'
-import { IconArrowLeft, IconSparkles, IconImage, IconLock } from '../components/icons'
+import { IconArrowLeft, IconSparkles, IconImage, IconLock, IconChevronDown, IconSpinner, IconCheck } from '../components/icons'
+
+const MEMO_MAX = 5000
 
 const { input, btnPrimary, btnGhost } = ui
 
@@ -26,6 +40,12 @@ function WritePostPage() {
   const [memo, setMemo] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState('')
+  const [aiDone, setAiDone] = useState('') // 생성 완료 확인줄
+  // 고를 수 있는 AI 모델(티어에 따라 다름) + 현재 선택
+  const [models, setModels] = useState<AiModel[]>([])
+  const [model, setModel] = useState('')
+  const [customModel, setCustomModel] = useState('') // 직접 입력 모드의 모델 ID
+  const [byokProviders, setByokProviders] = useState<string[]>([]) // 내가 키 등록한 provider
 
   // 로그인 안 했으면 로그인 페이지로, 로그인했지만 승인 안 된 pending이면 블로그로
   // (새로고침 시 인증 복구가 끝날 때까지 기다림 — loading 중엔 판단 보류, 안 그러면 로그인창으로 튕김)
@@ -34,6 +54,21 @@ function WritePostPage() {
     if (!user) navigate('/login')
     else if (!canWrite(user)) navigate('/blog')
   }, [user, loading, navigate])
+
+  // 쓸 수 있는 AI 모델 목록 가져오기 (티어 게이팅 — 일반=소넷, 결제=+Opus, 관리자=전부)
+  useEffect(() => {
+    if (loading || !canWrite(user)) return
+    fetchAiModels()
+      .then(({ models, default: def }) => {
+        setModels(models)
+        setModel(def)
+      })
+      .catch(() => {})
+    // 직접입력 가능한 provider(=키 등록된 것) 목록
+    fetchKeys()
+      .then((ks) => setByokProviders(ks.filter((k) => k.has_key).map((k) => k.provider)))
+      .catch(() => {})
+  }, [user, loading])
 
   // 수정 모드면 기존 글 불러와 폼에 채움
   useEffect(() => {
@@ -63,10 +98,22 @@ function WritePostPage() {
   // 메모 → AI 초안. 결과의 첫 '# 제목' 줄은 제목 칸으로 빼고 나머지는 본문에
   async function handleGenerate() {
     if (!memo.trim()) return
+    // 직접 입력 모드(custom:openai / custom:gemini)면 provider+커스텀 모델ID로 호출
+    let useModel = model
+    let useProvider: string | undefined
+    if (model.startsWith('custom:')) {
+      useProvider = model.slice('custom:'.length)
+      useModel = customModel.trim()
+      if (!useModel) {
+        setAiError('모델 ID를 입력해줘 (예: gpt-4o, o3, gemini-2.5-pro)')
+        return
+      }
+    }
     setAiError('')
+    setAiDone('')
     setAiLoading(true)
     try {
-      const md = await generateDraft(memo)
+      const md = await generateDraft(memo, useModel || undefined, useProvider)
       const lines = md.split('\n')
       const i = lines.findIndex((l) => l.startsWith('# '))
       if (i !== -1 && !title.trim()) {
@@ -76,6 +123,8 @@ function WritePostPage() {
       } else {
         setContent(md)
       }
+      const label = model.startsWith('custom:') ? useModel : models.find((m) => m.id === model)?.label ?? useModel
+      setAiDone(`'${label}'로 초안을 채웠어`)
     } catch (err) {
       setAiError((err as Error).message)
     } finally {
@@ -106,30 +155,98 @@ function WritePostPage() {
       </h1>
 
       {/* AI 초안 잡기: 거친 메모 → 정돈된 글 구조를 제목·본문에 채움 */}
-      <div className="mb-6 rounded-2xl border border-[#0071e3]/20 bg-[#0071e3]/[0.06] p-4 dark:border-[#0a84ff]/25 dark:bg-[#0a84ff]/[0.08]">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-[#0071e3] dark:text-[#0a84ff]">
-          <IconSparkles className="h-4 w-4" />AI로 초안 잡기
-        </p>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+      <div className="mb-6 rounded-2xl border border-[#0071e3]/15 bg-[#0071e3]/[0.05] p-5 dark:border-[#0a84ff]/20 dark:bg-[#0a84ff]/[0.07]">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#0071e3]/10 text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+            <IconSparkles className="h-4 w-4" />
+          </span>
+          <p className="text-sm font-medium text-[#0071e3] dark:text-[#0a84ff]">AI로 초안 잡기</p>
+        </div>
+        <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           떠오르는 메모를 대충 적고 누르면 제목·소제목·초안으로 정리해줘. (제목/본문을 덮어써)
         </p>
         <textarea
           placeholder="예: 오늘 AWS Summit 갔다왔는데 EKS 세션이 인상깊었음. 비용 얘기도 나왔고…"
           rows={3}
+          maxLength={MEMO_MAX}
           value={memo}
           onChange={(e) => setMemo(e.target.value)}
           className={`${input} mt-3`}
         />
-        <div className="mt-2 flex items-center gap-3">
+        {memo.length > 0 && (
+          <p className="mt-1 text-right text-xs text-gray-400 dark:text-gray-500">{memo.length}/{MEMO_MAX}</p>
+        )}
+        {/* 모델 선택 (애플풍 드롭다운, provider별 그룹) + 직접입력 칸 */}
+        {models.length > 0 && (
+          <div className="mt-4 grid gap-2 sm:max-w-sm">
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">모델</label>
+            <div className="relative">
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className={ui.select}
+                aria-label="AI 모델 선택"
+              >
+                {/* 카탈로그 모델을 provider별 그룹으로 */}
+                {(['claude', 'openai', 'gemini'] as const).map((prov) => {
+                  const group = models.filter((m) => m.provider === prov)
+                  if (group.length === 0) return null
+                  return (
+                    <optgroup key={prov} label={GROUP_LABEL[prov]}>
+                      {group.map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </optgroup>
+                  )
+                })}
+                {/* 내가 키를 등록한 BYOK provider — '직접 입력' 그룹 */}
+                {byokProviders.length > 0 && (
+                  <optgroup label="직접 입력 (내 키)">
+                    {byokProviders.map((prov) => (
+                      <option key={`custom:${prov}`} value={`custom:${prov}`}>
+                        {PROVIDER_LABEL[prov] ?? prov} — 모델 직접 입력
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <IconChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            </div>
+            {/* 직접 입력 모드면 모델 ID 입력 칸 */}
+            {model.startsWith('custom:') && (
+              <input
+                placeholder="모델 ID (예: gpt-4o, gemini-2.5-pro, command-r-plus)"
+                value={customModel}
+                onChange={(e) => setCustomModel(e.target.value)}
+                className={input}
+                aria-label="커스텀 모델 ID"
+              />
+            )}
+            {/* Opus가 목록에 없으면(=비유료) 결제 안내 */}
+            {!models.some((m) => m.id === 'claude-opus-4-8') && (
+              <p className="text-xs text-gray-400 dark:text-gray-500">Opus(고품질)는 결제 후 쓸 수 있어.</p>
+            )}
+          </div>
+        )}
+
+        {/* 생성 버튼 + 에러 */}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={handleGenerate}
             disabled={aiLoading || !memo.trim()}
             className={`${btnPrimary} disabled:opacity-50`}
           >
-            {aiLoading ? '생성 중…' : <><IconSparkles className="h-4 w-4" />초안 생성</>}
+            {aiLoading
+              ? <><IconSpinner className="h-4 w-4 animate-spin" />생성 중…</>
+              : <><IconSparkles className="h-4 w-4" />초안 생성</>}
           </button>
           {aiError && <span className="text-sm text-red-600">{aiError}</span>}
+          {aiDone && !aiError && (
+            <span className="inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
+              <IconCheck className="h-4 w-4" />{aiDone}
+            </span>
+          )}
         </div>
       </div>
 
@@ -146,14 +263,17 @@ function WritePostPage() {
           <IconImage className="h-4 w-4" />이미지 첨부:
           <input type="file" accept="image/*" onChange={handleImagePick} className="text-sm" />
         </label>
-        <div className="flex gap-4 text-sm text-gray-700 dark:text-gray-300">
+        <div className="flex flex-wrap gap-4 text-sm text-gray-700 dark:text-gray-300">
           <span>공개범위:</span>
           <label className="flex items-center gap-1">
             <input type="radio" checked={visibility === 'public'} onChange={() => setVisibility('public')} /> 전체공개
           </label>
           <label className="flex items-center gap-1">
+            <input type="radio" checked={visibility === 'subscribers'} onChange={() => setVisibility('subscribers')} /> 구독자공개
+          </label>
+          <label className="flex items-center gap-1">
             <input type="radio" checked={visibility === 'private'} onChange={() => setVisibility('private')} />
-            <IconLock className="h-3.5 w-3.5" /> 일부공개(구독자에게만)
+            <IconLock className="h-3.5 w-3.5" /> 비공개(나만)
           </label>
         </div>
         <div className="flex gap-2">

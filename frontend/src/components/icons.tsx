@@ -117,3 +117,17 @@ export const IconArrowLeft = (p: IconProps) => (
     <path d="M11 5l-7 7 7 7" />
   </Base>
 )
+
+// 아래 꺾쇠 (드롭다운용)
+export const IconChevronDown = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M6 9l6 6 6-6" />
+  </Base>
+)
+
+// 로딩 스피너 (270° 호) — 쓸 때 className에 animate-spin 붙임
+export const IconSpinner = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+  </Base>
+)

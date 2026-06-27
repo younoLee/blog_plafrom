@@ -34,6 +34,11 @@ services:
       SECRET_KEY: local-dev-secret-key-not-for-production
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
+      # AI 키: 값이 아니라 '참조'만 둠. 실제 값은 compose 파일 옆 .env(gitignore됨)에서 치환.
+      # .env에 없으면 빈 값 → 라우터가 503으로 안내(서버는 정상 기동).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # BYOK(사용자 GPT/Gemini 키) 암호화용. .env의 LLM_ENCRYPTION_KEY 치환.
+      LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:-}
     depends_on:
       db:
         condition: service_healthy   # DB 준비될 때까지 대기

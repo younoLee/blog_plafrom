@@ -19,6 +19,9 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, server_default="false")
     # 토큰 버전. 비번 재설정·차단 시 +1 → 그 이전에 발급된 JWT는 즉시 무효(세션 강제 종료)
     token_version: Mapped[int] = mapped_column(Integer, server_default="0")
+    # 유료(pro) 여부. AI 초안에서 Opus 같은 고급 모델 해금. 지금은 admin이 수동 토글,
+    # 나중에 Stripe 결제 성공 시 자동으로 True가 됨(C단계)
+    is_pro: Mapped[bool] = mapped_column(Boolean, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

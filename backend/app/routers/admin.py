@@ -76,6 +76,17 @@ def unban_user(user_id: int, db: Session = Depends(get_db)):
     return user
 
 
+@router.post("/users/{user_id}/toggle-pro", response_model=UserRead)
+def toggle_pro(user_id: int, db: Session = Depends(get_db)):
+    # 유료(pro) 토글: AI 초안에서 Opus 등 상위 모델 해금/회수.
+    # 지금은 admin이 수동으로. 나중에 Stripe 결제가 이 플래그를 대신 켜줌(C단계).
+    user = _get_user_or_404(user_id, db)
+    user.is_pro = not user.is_pro
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: Session = Depends(get_db)):
     # 영구 삭제(되돌리기 불가). admin은 삭제 불가

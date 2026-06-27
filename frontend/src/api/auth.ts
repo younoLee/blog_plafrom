@@ -8,6 +8,7 @@ export interface User {
   id: number
   email: string
   role: Role
+  is_pro: boolean // 유료(고급 AI 모델 해금) 여부
   created_at: string
 }
 
