@@ -57,6 +57,21 @@ export async function updatePost(
   return res.json()
 }
 
+// 공개범위만 변경 (작성 후 빠른 전환, 소유자/관리자만)
+export async function changeVisibility(
+  id: number,
+  visibility: Visibility,
+): Promise<Post> {
+  const res = await fetch(`${BASE}/posts/${id}/visibility`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ visibility }),
+  })
+  if (res.status === 403) throw new Error('내 글만 공개범위를 바꿀 수 있어')
+  if (!res.ok) throw new Error('공개범위 변경 실패')
+  return res.json()
+}
+
 // 글 삭제 (소유자만, 성공 시 204)
 export async function deletePost(id: number): Promise<void> {
   const res = await fetch(`${BASE}/posts/${id}`, {

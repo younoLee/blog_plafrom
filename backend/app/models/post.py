@@ -14,8 +14,9 @@ class Post(Base):
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
-    # 공개범위: 'public'(전체공개) | 'private'(작성자만). 기존 글은 public
-    visibility: Mapped[str] = mapped_column(String(10), server_default="public")
+    # 공개범위: 'public'(전체공개) | 'subscribers'(구독자공개) | 'private'(나만 보기)
+    # 'subscribers'가 11자라 varchar(20)으로 둠. 기존 글은 public
+    visibility: Mapped[str] = mapped_column(String(20), server_default="public")
     # server_default=func.now(): DB가 INSERT 시 현재 시각을 채움
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

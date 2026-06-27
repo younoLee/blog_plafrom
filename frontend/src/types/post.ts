@@ -1,4 +1,5 @@
-export type Visibility = 'public' | 'private'
+// public: 전체공개 / subscribers: 구독자공개 / private: 나만 보기
+export type Visibility = 'public' | 'subscribers' | 'private'
 
 // 백엔드 PostRead 스키마와 같은 모양
 export interface Post {

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import type { Post } from '../types/post'
+import type { Post, Visibility } from '../types/post'
 import type { Comment } from '../types/comment'
-import { getPost } from '../api/posts'
+import { getPost, changeVisibility } from '../api/posts'
 import { fetchComments, addComment, deleteComment } from '../api/comments'
 import { fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
@@ -65,8 +65,19 @@ function PostDetailPage() {
     }
   }
 
-  // 글 작성자 본인 또는 관리자면 댓글 삭제(모더레이션) 가능
+  // 글 작성자 본인 또는 관리자면 댓글 삭제(모더레이션) + 공개범위 변경 가능
   const canModerate = !!user && !!post && (user.role === 'admin' || post.owner_id === user.id)
+
+  // 작성 후 공개범위 빠른 전환 (본인/관리자만)
+  async function handleChangeVisibility(v: Visibility) {
+    if (!post) return
+    try {
+      const updated = await changeVisibility(post.id, v)
+      setPost(updated)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   async function handleDeleteComment(commentId: number) {
     try {
@@ -95,6 +106,11 @@ function PostDetailPage() {
                 <IconLock className="h-3.5 w-3.5" />비공개
               </span>
             )}
+            {post.visibility === 'subscribers' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-sm text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+                구독자공개
+              </span>
+            )}
           </h1>
           <div className="mt-2 flex items-center gap-3">
             <time className="text-sm text-gray-500 dark:text-gray-400">
@@ -105,6 +121,22 @@ function PostDetailPage() {
               <button type="button" onClick={toggleSubscribe} className={subscribed ? btnGhost : btnPrimary}>
                 {subscribed ? <><IconCheck className="h-4 w-4" />구독중</> : '+ 글쓴이 구독'}
               </button>
+            )}
+            {/* 본인/관리자: 작성 후에도 공개범위를 여기서 바로 바꿀 수 있음 */}
+            {canModerate && (
+              <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+                공개범위:
+                <select
+                  value={post.visibility}
+                  onChange={(e) => handleChangeVisibility(e.target.value as Visibility)}
+                  className="rounded-lg border border-black/10 bg-white px-2 py-1 text-sm text-gray-700 dark:border-white/15 dark:bg-[#1c1c1e] dark:text-gray-200"
+                  aria-label="공개범위 변경"
+                >
+                  <option value="public">전체공개</option>
+                  <option value="subscribers">구독자공개</option>
+                  <option value="private">비공개(나만)</option>
+                </select>
+              </label>
             )}
           </div>
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}

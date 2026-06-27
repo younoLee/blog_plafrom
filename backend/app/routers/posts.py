@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from sqlalchemy import select, or_, true
+from sqlalchemy import select, or_, and_, true
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -8,7 +8,7 @@ from app.core.deps import get_current_user_optional, require_writer
 from app.models.post import Post
 from app.models.user import User
 from app.models.author_subscription import AuthorSubscription
-from app.schemas.post import PostCreate, PostUpdate, PostRead
+from app.schemas.post import PostCreate, PostUpdate, PostRead, PostVisibilityUpdate
 from app.services.email import notify_new_post
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -35,31 +35,38 @@ def subscribed_author_ids(user: User | None, db: Session) -> set[int]:
 
 
 def can_view(post: Post, user: User | None, subs: set[int]) -> bool:
-    # 공개글은 누구나. 비공개글은 작성자 본인 또는 그 작성자를 구독한 사람
+    # public: 누구나
     if post.visibility == "public":
         return True
     if user is None:
         return False
-    # 관리자는 비공개글 포함 모든 글을 볼 수 있음
-    if user.role == "admin":
+    # 관리자는 전부, 작성자 본인은 자기 글 전부(공개범위 무관)
+    if user.role == "admin" or post.owner_id == user.id:
         return True
-    return post.owner_id == user.id or post.owner_id in subs
+    # subscribers(구독자공개): 그 작성자를 구독한 사람만
+    if post.visibility == "subscribers":
+        return post.owner_id in subs
+    # private(나만 보기): 위(본인/관리자) 외에는 불가
+    return False
 
 
 @router.get("", response_model=list[PostRead])
 def list_posts(
     db: Session = Depends(get_db), user: User | None = Depends(get_current_user_optional)
 ):
-    # 공개글 + (로그인 시) 내 비공개글 + 내가 구독한 글쓴이의 비공개글
+    # 공개글 + (로그인 시) 내 글 전부 + 내가 구독한 글쓴이의 '구독자공개' 글
     # 관리자는 모든 글(조건 없음)
     if user is not None and user.role == "admin":
         condition = true()  # 전체 (항상 참)
     elif user is None:
         condition = Post.visibility == "public"
     else:
-        allowed_authors = subscribed_author_ids(user, db) | {user.id}
+        subs = subscribed_author_ids(user, db)
         condition = or_(
-            Post.visibility == "public", Post.owner_id.in_(allowed_authors)
+            Post.visibility == "public",
+            Post.owner_id == user.id,  # 내 글은 공개범위 무관 전부
+            # 구독자공개 글은 내가 그 작성자를 구독한 경우만 (private은 여기 안 걸림)
+            and_(Post.visibility == "subscribers", Post.owner_id.in_(subs)),
         )
     return db.scalars(
         select(Post).where(condition).order_by(Post.created_at.desc())
@@ -116,6 +123,23 @@ def update_post(
         raise HTTPException(status_code=403, detail="내 글만 수정할 수 있어")
     post.title = data.title
     post.content = data.content
+    post.visibility = data.visibility
+    db.commit()
+    db.refresh(post)
+    return post
+
+
+@router.patch("/{post_id}/visibility", response_model=PostRead)
+def change_visibility(
+    post_id: int,
+    data: PostVisibilityUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_writer),
+):
+    # 작성 후에도 공개범위만 빠르게 전환 (본인 글 또는 관리자)
+    post = get_post_or_404(post_id, db)
+    if post.owner_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="내 글만 공개범위를 바꿀 수 있어")
     post.visibility = data.visibility
     db.commit()
     db.refresh(post)
