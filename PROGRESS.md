@@ -650,3 +650,15 @@ cd frontend && npm run dev                               # :5173
 - 한계(수용): 신규는 bcrypt 해싱이 있어 미세한 타이밍 차이는 남음(forgot-password와 동일 수준) — 경미해서 미대응
 - **보안 잔여과제 #2~#6 전부 처리 완료** (#2 SSRF 기배포·#3 더블옵트인·#4 업로드·#5 가입·#6 댓글)
 - **미반영**: git push, 프로드 배포
+
+### 🔒 보안검사 7차 — AI 초안 강화 (A·B·C·D) [완료/로컬검증] (2026-06-27)
+AI 초안 surface 전체 검토. 기본기(require_writer·키 Fernet 암호화·SSRF·티어 게이팅)는 이미 탄탄 → 추가 강화 4건:
+- **A. 레이트리밋 우회(XFF 스푸핑) 차단** 🔴: `ratelimit.py client_ip`가 X-Forwarded-For **맨 앞**을 클라 IP로 써서, 클라가 맨 앞을 위조하면 요청마다 다른 IP인 척 → 모든 레이트리밋(=AI 비용캡 포함) 무력화 가능했음. CloudFront는 진짜 IP를 **맨 뒤**에 붙이므로 맨 뒤를 쓰게 수정. 단위검증(다중 XFF→맨뒤·XFF없음→peer) PASS
+  - ⚠️ 인프라 보강 필요(너): EC2 SG의 8000을 **CloudFront에만 허용**해야 직접접근(:8000) 위조까지 막힘
+- **B. LLM 호출 타임아웃** 🟠: compatible(사용자 지정 엔드포인트)이 응답을 끌어 워커를 묶는 DoS 방지. 모든 SDK 클라이언트에 timeout 60s + max_retries 1. anthropic/gemini/cohere 생성자 PASS
+- **C. base_url SSRF 사용시점 재검증** 🟡: 저장 시점만 검증하던 걸 호출 직전 한 번 더 `validate_base_url`(DNS rebinding 창 축소). 최종 방어선은 IMDSv2
+- **D. 유저별 일일 캡** 🟡: 서버키(Claude) 호출에 일일 상한(config `ai_daily_cap`=20, BYOK 제외). 새 테이블 `ai_usage`(마이그레이션 a6b7c8d9e0f1, env.py 등록), 서비스 count/increment_today(UTC), 라우터에서 호출 전 체크(429)·성공 후 증가. 캡 가득→429 단락(Claude 호출 전·비용 0) PASS
+- 프론트: `api/ai.ts` 429에서 서버 detail surface(캡 메시지 노출, 레이트리밋은 기본문구 폴백)
+- 검증: alembic check green, 무인증 401 게이트 유지, build/lint green, 테스트데이터 정리
+- 🐛 **부수 발견→해결(기능버그)**: `openai==1.54.3` + `httpx 0.28.1` 불일치(`proxies` 인자) → OpenAI 클라이언트 생성 자체가 깨져 openai/compatible BYOK가 런타임 502였음. **`openai==1.55.3`으로 bump + 백엔드 이미지 재빌드** → OpenAI(+base_url·timeout) 생성 성공·타 SDK(anthropic/gemini/cohere) 회귀 없음·health 200 검증. BYOK openai/compatible 경로 복구
+- **미반영**: git push, 프로드 배포(이미지 재배포 시 openai 1.55.3 반영 + RDS에 ai_usage 마이그레이션 적용), EC2 SG 8000을 CloudFront만 허용(A 인프라 보강)

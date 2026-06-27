@@ -66,6 +66,9 @@ SYSTEM_PROMPT = """너는 기술 블로그 글쓰기를 돕는 편집자야.
 """
 
 MAX_TOKENS = 4000  # 초안 1개에 충분하면서 비용 상한 역할
+# 외부 LLM 호출 타임아웃(초). 특히 사용자가 base_url을 정하는 compatible 엔드포인트가
+# 응답을 질질 끌어 워커를 묶는 것(DoS) 방지. 재시도도 1회로 축소.
+REQUEST_TIMEOUT = 60
 
 
 class AIKeyMissingError(RuntimeError):
@@ -77,7 +80,7 @@ def _claude(memo: str, model: str, api_key: str | None = None) -> str:
     key = api_key or settings.anthropic_api_key
     if not key:
         raise AIKeyMissingError("Claude 키 없음")
-    client = anthropic.Anthropic(api_key=key)
+    client = anthropic.Anthropic(api_key=key, timeout=REQUEST_TIMEOUT, max_retries=1)
     resp = client.messages.create(
         model=model,
         max_tokens=MAX_TOKENS,
@@ -91,7 +94,10 @@ def _openai(memo: str, model: str, api_key: str, base_url: str | None = None) ->
     from openai import OpenAI
 
     # base_url 지정 시 OpenAI 호환 엔드포인트(Grok/DeepSeek/OpenRouter/로컬 등)
-    client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+    kwargs = {"api_key": api_key, "timeout": REQUEST_TIMEOUT, "max_retries": 1}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = OpenAI(**kwargs)
     resp = client.chat.completions.create(
         model=model,
         max_tokens=MAX_TOKENS,
@@ -107,7 +113,11 @@ def _gemini(memo: str, model: str, api_key: str) -> str:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    # timeout은 밀리초 단위 (http_options)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT * 1000),
+    )
     resp = client.models.generate_content(
         model=model,
         contents=memo,
@@ -122,7 +132,7 @@ def _gemini(memo: str, model: str, api_key: str) -> str:
 def _cohere(memo: str, model: str, api_key: str) -> str:
     import cohere
 
-    client = cohere.ClientV2(api_key=api_key)
+    client = cohere.ClientV2(api_key=api_key, timeout=REQUEST_TIMEOUT)
     resp = client.chat(
         model=model,
         max_tokens=MAX_TOKENS,

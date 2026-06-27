@@ -65,7 +65,11 @@ export async function generateDraft(memo: string, model?: string, provider?: str
   })
   if (res.status === 401) throw new Error('로그인이 필요해')
   if (res.status === 403) throw new Error('이 모델을 쓸 권한이 없어 (결제 필요)')
-  if (res.status === 429) throw new Error('AI 호출이 너무 잦아. 잠시 후 다시 해줘')
+  if (res.status === 429) {
+    // 일일 캡(서버 detail) vs 레이트리밋(detail 없음 → 기본 문구) 구분해서 안내
+    const d = await res.json().catch(() => null)
+    throw new Error(d?.detail ?? 'AI 호출이 너무 잦아. 잠시 후 다시 해줘')
+  }
   if (res.status === 503) throw new Error('AI 기능이 아직 설정 안 됐어 (서버에 API 키 필요)')
   if (!res.ok) throw new Error('AI 초안 생성에 실패했어')
   const data = await res.json()

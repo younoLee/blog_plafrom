@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_writer
 from app.core.ratelimit import limiter
@@ -22,7 +23,7 @@ from app.services.ai import (
     DEFAULT_MODEL,
     MODELS,
 )
-from app.services import llm_keys
+from app.services import llm_keys, ai_usage
 from app.services.llm_keys import (
     BYOK_PROVIDERS,
     NEEDS_BASE_URL,
@@ -117,6 +118,13 @@ def create_draft(
         if provider not in pk:
             raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
 
+    # 서버키(Claude) 호출은 유저별 '일일 캡'으로 비용 폭주 방지 (BYOK는 본인 비용이라 제외)
+    if provider == "claude" and ai_usage.count_today(db, user.id) >= settings.ai_daily_cap:
+        raise HTTPException(
+            status_code=429,
+            detail=f"오늘 AI 초안 한도({settings.ai_daily_cap}회)를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
+        )
+
     # BYOK provider는 사용자 키를 복호화해서 사용 (서버 claude만 서버 키)
     user_key = None
     base_url = None
@@ -128,6 +136,12 @@ def create_draft(
         if cred is None:
             raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
         user_key, base_url = cred
+        # SSRF 심층방어: 저장 후 DNS가 바뀌었을 수 있어(rebinding) 호출 직전 다시 검증
+        if base_url:
+            try:
+                llm_keys.validate_base_url(base_url)
+            except InvalidBaseURLError as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
     try:
         markdown = generate_draft(body.memo, model, provider, user_key, base_url)
@@ -135,4 +149,8 @@ def create_draft(
         raise HTTPException(status_code=503, detail="AI 기능이 아직 설정되지 않았어 (서버 키 필요)")
     except Exception:
         raise HTTPException(status_code=502, detail="AI 초안 생성에 실패했어 (키/모델명 확인 후 다시 시도)")
+
+    # 성공한 서버키 호출만 일일 카운트에 반영 (실패·BYOK는 안 셈)
+    if provider == "claude":
+        ai_usage.increment_today(db, user.id)
     return DraftResponse(markdown=markdown, model=model)
