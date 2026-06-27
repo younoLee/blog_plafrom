@@ -12,6 +12,7 @@ import AdminPage from './pages/AdminPage'
 import SettingsPage from './pages/SettingsPage'
 import SubscriptionsPage from './pages/SubscriptionsPage'
 import VerifyPage from './pages/VerifyPage'
+import SubscribeConfirmPage from './pages/SubscribeConfirmPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import './App.css'
@@ -42,6 +43,7 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/verify" element={<VerifyPage />} />
+            <Route path="/subscribe/confirm" element={<SubscribeConfirmPage />} />
             <Route path="/forgot" element={<ForgotPasswordPage />} />
             <Route path="/reset" element={<ResetPasswordPage />} />
           </Route>

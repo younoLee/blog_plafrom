@@ -70,12 +70,34 @@ def send_reset_email(to: str, link: str) -> None:
     )
 
 
+def send_subscribe_confirm_email(to: str, link: str) -> None:
+    """구독 더블옵트인: 본인이 직접 신청했는지 확인하는 링크 발송."""
+    send_email(
+        to=to,
+        subject="[블로그] 구독 확인",
+        body=(
+            "이 블로그 새 글 알림을 구독하려면 아래 링크를 열어줘 (24시간 안에):\n\n"
+            f"{link}\n\n"
+            "본인이 신청한 게 아니면 이 메일은 무시하면 돼 (구독은 진행되지 않아)."
+        ),
+        html=_action_html(
+            "이 블로그 새 글 알림을 구독하려면 아래 버튼을 눌러줘 (24시간 안에).",
+            link,
+            "구독 확인하기",
+        ),
+    )
+
+
 def notify_new_post(post_id: int, post_title: str) -> None:
-    """새 글 작성 시 구독자 전원에게 알림 메일 발송 (백그라운드 실행)."""
+    """새 글 작성 시 '확인된' 구독자에게만 알림 메일 발송 (백그라운드 실행)."""
     # 백그라운드라 요청 세션과 별개로 자체 세션을 연다
     db = SessionLocal()
     try:
-        emails = db.scalars(select(Subscriber.email)).all()
+        # confirmed=True인 구독자만 → 더블옵트인 핵심 방어선
+        # (남이 무단등록한 미확인 이메일에는 절대 발송 안 됨)
+        emails = db.scalars(
+            select(Subscriber.email).where(Subscriber.confirmed.is_(True))
+        ).all()
     finally:
         db.close()
 

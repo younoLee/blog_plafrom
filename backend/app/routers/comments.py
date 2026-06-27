@@ -47,7 +47,10 @@ def create_comment(
     user: User | None = Depends(get_current_user_optional),
 ):
     _viewable_post_or_404(post_id, db, user)
-    comment = Comment(post_id=post_id, author=data.author, content=data.content)
+    # 로그인 사용자는 작성자명을 계정(이메일 로컬파트)으로 고정 → 남의 이름 사칭 방지.
+    # 비로그인(익명)만 자유 입력 author를 그대로 사용.
+    author = user.email.split("@")[0] if user is not None else data.author
+    comment = Comment(post_id=post_id, author=author, content=data.content)
     db.add(comment)
     db.commit()
     db.refresh(comment)

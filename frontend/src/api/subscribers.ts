@@ -6,19 +6,30 @@ const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 export interface SubscriberRow {
   id: number
   email: string
+  confirmed: boolean // 더블옵트인 확인 여부 (false면 '확인 대기')
   created_at: string
 }
 
-// 구독 등록. 성공 시 등록된 구독자 반환, 실패 시 상태별 메시지로 에러
+// 구독 신청 → 서버가 '확인 메일'을 보냄(더블옵트인). 링크를 눌러야 구독 완료.
+// 응답은 신규/기존 구분 없이 동일 → 그 이메일의 구독 여부가 노출되지 않음.
 export async function subscribe(email: string): Promise<void> {
   const res = await fetch(`${BASE}/subscribers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   })
-  if (res.status === 409) throw new Error('이미 구독 중인 이메일이야')
   if (res.status === 422) throw new Error('이메일 형식이 올바르지 않아')
+  if (res.status === 429) throw new Error('요청이 너무 잦아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('구독 실패')
+}
+
+// 확인메일 링크의 토큰으로 구독 확정
+export async function confirmSubscription(token: string): Promise<void> {
+  const res = await fetch(
+    `${BASE}/subscribers/confirm?token=${encodeURIComponent(token)}`,
+    { method: 'POST' },
+  )
+  if (!res.ok) throw new Error('구독 확인 실패')
 }
 
 // 이메일로 구독 취소 (누구나, 본인확인 없이). 존재 여부는 서버가 노출 안 함

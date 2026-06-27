@@ -13,4 +13,5 @@ class SubscriberRead(BaseModel):
 
     id: int
     email: EmailStr
+    confirmed: bool  # 더블옵트인 확인 여부 (관리자 목록에서 '확인 대기' 구분용)
     created_at: datetime

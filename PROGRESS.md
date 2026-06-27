@@ -619,3 +619,24 @@ cd frontend && npm run dev                               # :5173
 - 라이브 검증: authors 목록·삭제 권한(admin 204/비admin 403)·이메일 등록/취소/재등록
 
 - **다음**: 프론트 컨테이너 재빌드 후 화면 확인, 프로드 배포(EC2 `.env` 키·IMDSv2 강제 확인)
+
+### 🔒 보안검사 6차 — 구독 더블옵트인(#3) [완료/로컬검증] (2026-06-27)
+- 문제: POST `/subscribers`가 남의 이메일을 동의 없이 등록 → 그 사람에게 새 글 알림이 감(레이트리밋만 있었음). **SES 발신평판 악용**(원치 않는 메일→스팸신고→평판하락/계정정지) 위험.
+- 해결 = **더블옵트인**: 등록 즉시 구독 X, '확인 메일'만 발송 → 본인이 링크 눌러 `confirmed=True`가 된 사람에게만 알림.
+  - DB: `subscribers.confirmed` 컬럼(마이그레이션 **f5a6b7c8d9e0**). 기존 구독자는 `server_default=true`로 백필(정책 이전 가입자 유지) 후 서버기본값 제거 → 신규는 앱 기본 False
+  - 백엔드: `POST /subscribers`는 신규/기존 구분 없이 **동일 메시지** 응답(구독여부 enumeration도 같이 제거), 미확인이면 확인메일(재)발송·확인된건 무발송. `POST /subscribers/confirm?token=`(purpose=subscribe JWT, `create_email_token` 재사용). **`notify_new_post`가 `confirmed=True`만 발송 = 핵심 방어선**
+  - 프론트: 구독폼 메시지 '확인 메일 보냈어'로, `SubscribeConfirmPage`(`/subscribe/confirm`) 추가, 관리자 목록에 '확인 대기' 뱃지
+- **곁다리 버그 수정**: `alembic/env.py`에 `llm_credential` 모델 import 누락 → autogenerate가 그 테이블(BYOK 키)을 drop하려 했음(데이터 유실 위험). 1줄 import 추가로 `alembic check` 완전 green 복구
+- 자가검증(전부 PASS): 마이그레이션 백필 확인, e2e(구독→확인메일 토큰추출→confirm→confirmed 전환), `notify_new_post` 직접호출로 **confirmed만 수신/미확인 제외 PASS**, 잘못된 토큰 400·형식 422·무인증 목록 401, 빌드/lint green, 테스트데이터 정리
+- **미반영**: git push, 프로드 배포(마이그레이션은 다음 배포 때 RDS 적용 — `docker compose -f docker-compose.prod.yml ... up`이 `alembic upgrade head` 수행)
+- 남은 보안 잔여과제: #4 업로드 확장자/타입 정규화(라이브는 안전, 로컬만), #6 댓글 로그인 사용자 작성자 고정, #5 가입 enumeration(보류 검토)
+
+### 🔒 보안검사 6차 (이어서) — 업로드(#4)·댓글 사칭(#6) [완료/로컬검증] (2026-06-27)
+- **#4 업로드 — 클라 입력 신뢰 제거**: 예전엔 `file.content_type`(클라가 보냄)과 파일명 확장자를 그대로 믿어서 `.html`/`.svg`가 저장될 수 있었음(라이브는 S3 ContentType이 이미지라 실행은 안 됐지만 로컬 StaticFiles는 위험).
+  - 해결: `_sniff_image`로 **매직바이트(파일 앞부분)로 실제 이미지 종류만 판별** → content_type·확장자 둘 다 거기서 도출. 사용자 파일명은 아예 안 씀(경로조작·실행확장자 차단). PNG/JPEG/GIF/WebP만 통과, 그 외(HTML·SVG 포함) 400.
+  - 검증: sniff 단위테스트(6종), e2e — [공격] PNG내용+`evil.html`+`text/html` → `.png`로 정규화·`image/png` 서빙(무력화), [공격] HTML내용+`image/png` → 400, 무인증 401
+- **#6 댓글 작성자 사칭**: 로그인해도 `author`가 자유입력이라 '남 이름'으로 댓글 가능했음.
+  - 해결: **로그인 사용자는 author를 계정(이메일 로컬파트, 앱 전역 `email.split("@")[0]` 규칙)으로 강제** — 클라가 보낸 author 무시. 익명만 자유입력 유지(익명 댓글 설계상 불가피, 사회공학 범주). 프론트도 로그인 시 입력칸 숨기고 고정이름 표시.
+  - 검증: 로그인 kim이 `author=admin` 시도 → DB에 `kim` 저장, 익명 `randomguy`는 그대로
+- 빌드/lint green, 테스트 데이터 정리. **#5(가입 enumeration)는 UX 트레이드오프로 보류** — 필요 시 응답 일반화+메일안내로 전환 가능
+- **미반영**: git push, 프로드 배포

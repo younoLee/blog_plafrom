@@ -39,7 +39,8 @@ function SubscriptionsPage() {
   // 이메일 구독자 목록은 관리자만
   useEffect(() => {
     if (user?.role !== 'admin') {
-      setSubscribers([])
+      // 비관리자는 목록 없음. effect 안 '동기' setState 금지 룰 → 마이크로태스크로 미룸
+      Promise.resolve().then(() => setSubscribers([]))
       return
     }
     fetchSubscribers().then(setSubscribers).catch(() => setSubscribers([]))
@@ -67,7 +68,7 @@ function SubscriptionsPage() {
     try {
       await subscribeEmail(v)
       setEmail('')
-      setMsg('이메일 구독을 등록했어')
+      setMsg('확인 메일을 보냈어. 메일함에서 구독 확인을 눌러줘.')
       if (user?.role === 'admin') setSubscribers(await fetchSubscribers())
     } catch (e) {
       setError((e as Error).message)
@@ -150,7 +151,7 @@ function SubscriptionsPage() {
       <section className={`${ui.card} mt-4`}>
         <h2 className="text-lg font-semibold tracking-tight">새 글 이메일 구독</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          이메일을 등록하면 새 공개글이 올라올 때 알림을 보내.
+          이메일을 등록하면 <b>확인 메일</b>이 가. 그 링크를 눌러야 구독이 완료되고, 그때부터 새 공개글 알림을 받아.
         </p>
         <form onSubmit={handleEmailSubscribe} className="mt-4 flex flex-wrap gap-2">
           <input
@@ -183,7 +184,14 @@ function SubscriptionsPage() {
               <ul className="mt-2 divide-y divide-black/5 dark:divide-white/10">
                 {subscribers.map((s) => (
                   <li key={s.id} className="flex items-center justify-between py-2 text-sm">
-                    <span className="text-gray-700 dark:text-gray-200">{s.email}</span>
+                    <span className="text-gray-700 dark:text-gray-200">
+                      {s.email}
+                      {!s.confirmed && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+                          확인 대기
+                        </span>
+                      )}
+                    </span>
                     <button
                       type="button"
                       onClick={() => handleDeleteSubscriber(s.id)}

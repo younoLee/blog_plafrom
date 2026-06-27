@@ -55,9 +55,12 @@ function PostDetailPage() {
 
   async function handleAddComment(e: React.FormEvent) {
     e.preventDefault()
-    if (!author.trim() || !text.trim()) return
+    // 로그인 사용자는 계정 이름(이메일 로컬파트)으로 고정 — 서버도 동일하게 강제(사칭 방지).
+    // 익명만 입력칸의 author 사용.
+    const name = user ? user.email.split('@')[0] : author.trim()
+    if (!name || !text.trim()) return
     try {
-      await addComment(postId, author, text)
+      await addComment(postId, name, text)
       setText('')
       setComments(await fetchComments(postId))
     } catch (e) {
@@ -181,7 +184,13 @@ function PostDetailPage() {
         </div>
 
         <form onSubmit={handleAddComment} className="mt-5 grid gap-2">
-          <input placeholder="이름" value={author} onChange={(e) => setAuthor(e.target.value)} className={`${input} max-w-xs`} />
+          {user ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              작성자: <strong className="text-gray-700 dark:text-gray-200">{user.email.split('@')[0]}</strong>
+            </p>
+          ) : (
+            <input placeholder="이름" value={author} onChange={(e) => setAuthor(e.target.value)} className={`${input} max-w-xs`} />
+          )}
           <textarea placeholder="댓글 내용" rows={3} value={text} onChange={(e) => setText(e.target.value)} className={input} />
           <button type="submit" className={`${btnPrimary} justify-self-start`}>댓글 작성</button>
         </form>
