@@ -566,3 +566,56 @@ cd frontend && npm run dev                               # :5173
 - ② **댓글 모더레이션** [완료/배포]: DELETE /posts/{id}/comments/{cid} (글 작성자·관리자만, 남 403·주인 204), 프론트 댓글 삭제 버튼(권한자에게만)
 - ③ **CSP 헤더** [보류]: 커스텀 응답헤더 정책으로 CSP 넣으려다 **CloudFront Free 요금제가 커스텀 정책 거부**("Free pricing plan can't have Custom response headers policy"). 관리형 SecurityHeadersPolicy(HSTS·nosniff·frame·referrer·xss)는 유지. CSP는 플랜 업그레이드 또는 CloudFront Functions(viewer-response) 필요 → 보류. orphan 정책 삭제 정리, terraform No changes
   - 참고: 주 XSS 방어(react-markdown 기본=raw HTML 미렌더 + nosniff)는 이미 있음 → CSP는 추가 방어층(우선순위 낮음)
+
+### 🤖 6단계 AI — 키 주입 + 모델 티어(A단계) [완료/로컬검증] (2026-06-27)
+- **AI 초안 활성화**: ANTHROPIC_API_KEY를 .env(gitignore)에 넣고 docker-compose는 `${ANTHROPIC_API_KEY}` 참조만. 컨테이너에서 generate_draft 실제 Claude 호출 성공(opus-4-8, 마크다운 구조+플레이스홀더 정상)
+- **A단계 — 모델 선택 + Claude 티어 골격**:
+  - User에 `is_pro` 컬럼 추가(마이그레이션 a1b2c3d4e5f6)
+  - 티어 게이팅: 일반 writer=Sonnet+Haiku(Opus만 잠금) / is_pro·admin=전부(3개). 기본=Sonnet. (Haiku는 저렴해서 누구나)
+  - `GET /ai/models`(허용 모델만), `/ai/draft`에 model 파라미터+검증(미허용 403)
+  - admin `POST /users/{id}/toggle-pro`(수동 유료 부여, 나중에 Stripe가 대체)
+  - 프론트: 글쓰기 모델 드롭다운(허용된 것만), AdminPage 유료 뱃지+토글
+  - 자가검증: 마이그레이션 적용, 티어로직 3종 확인, /ai/models 401, 소넷 생성 OK, 프론트 빌드 통과
+- **다음**: B단계(BYOK — GPT·Gemini 자기키 암호화 저장+라우팅) → C단계(Stripe 결제→is_pro 자동)
+- 미반영: 프론트 docker 재빌드(화면 확인용), git push, 프로드 배포(EC2 .env에 키)
+
+### 🤖 6단계 AI — BYOK 멀티 프로바이더(B단계) [완료/로컬검증] (2026-06-27)
+- **B1 백엔드**:
+  - 새 테이블 `llm_credentials`(user_id, provider, encrypted_key) — 마이그레이션 b2c3d4e5f6a7
+  - 사용자 키 Fernet 암호화 저장(`LLM_ENCRYPTION_KEY` .env, docker-compose 참조 추가). 복호화는 호출 순간만, 응답/로그 노출 금지
+  - 의존성 추가: cryptography·openai·google-genai (백엔드 이미지 재빌드)
+  - 모델 카탈로그에 provider 부착(claude/openai/gemini). `generate_draft` provider 분기: claude=서버키, openai/gemini=사용자키
+  - 엔드포인트: GET/PUT/DELETE `/ai/keys/{provider}`(자기 키, 마스킹), `/ai/models`·`/ai/draft`가 BYOK 반영(키 있을 때만 노출/사용)
+  - 자가검증: Fernet roundtrip OK, allowed_models가 키 유무로 GPT/Gemini 토글, 라우트 401
+- **B2 프론트**: `/settings` 페이지(키 등록/교체/삭제, 등록여부만 표시), 네비 '설정' 링크(writer만), 글쓰기 드롭다운은 /ai/models로 자동 반영. 빌드 통과
+- 미검증(키 필요): GPT/Gemini 실제 호출은 사용자 키 넣고 확인. 모델ID(gpt-4o/4o-mini, gemini-2.5-flash/pro)는 카탈로그에서 조정 가능
+- **다음**: C단계(Stripe 결제 → is_pro 자동) 또는 프로드 배포
+
+- **B 보강 — BYOK 커스텀 모델 직접입력**: 카탈로그에 없는 모델 ID도 사용 가능(BYOK 전용). DraftRequest에 provider 추가, /ai/draft가 커스텀 모델이면 provider+키등록 확인 후 호출. 프론트 글쓰기 드롭다운에 "직접 입력 — OpenAI/Gemini" 옵션 + 모델ID 입력칸. (하이엔드 사용자가 자기 계정 지원 최상위 모델 직접 지정)
+
+- **B 보강2 — OpenAI 호환 범용(compatible)**: provider 'compatible' 추가. llm_credentials에 base_url 컬럼(마이그레이션 c3d4e5f6a7b8). OpenAI SDK에 base_url 주입 → Grok·DeepSeek·OpenRouter·Groq·로컬(Ollama) 등 OpenAI 호환 엔드포인트 전부 사용 가능(주소+키+모델ID). 설정 페이지에 'OpenAI 호환' 칸(주소+키), 글쓰기 직접입력 옵션은 등록키 기준(GET /ai/keys)으로 노출. 빌드·마이그레이션·import 검증 완료
+
+- **B 보강3 — 비호환 제공자 Anthropic·Cohere 추가**: BYOK_PROVIDERS에 anthropic(자기 Claude 키, 서버키·티어와 별개로 Opus 등 직접)·cohere(command 모델). _claude에 api_key 오버라이드, _cohere 추가(cohere==5.13.3). 둘 다 base_url 없는 직접입력형 — 설정 페이지 항목 추가, 글쓰기 직접입력 옵션은 등록키 기준 자동 노출. 검증: import/분기/빌드 OK
+
+## 2026-06-27 (이어서) — 다크모드·보안·공개범위·구독 관리
+
+### 🎨 다크모드 드롭다운 [완료/배포]
+- AI 모델 select 옵션 팝업이 다크모드에서 안 보이던 문제: `.dark` 클래스만 켜고 color-scheme는 light라 네이티브 팝업이 밝게 떴음 → `index.css`에 color-scheme를 테마와 동기화. 라이브 CSS 반영 확인
+- 배운 것: 네이티브 폼 컨트롤(select 옵션·스크롤바)은 CSS가 아니라 color-scheme로 명암이 정해짐
+
+### 🔒 BYOK SSRF 방어 [완료/로컬검증]
+- compatible provider의 base_url을 서버가 그대로 호출 → 내부망·메타데이터(169.254.169.254) SSRF 가능했음. `validate_base_url`로 https만 허용 + 호스트가 푸는 모든 IP가 공인 대역이어야 통과(사설/loopback/링크로컬 차단). DraftRequest.model 길이 상한도 추가
+- 한계: DNS rebinding은 못 막음 → 인프라(EC2 IMDSv2 강제)가 최종 방어선. SECRET_KEY는 main.py lifespan fail-closed로 이미 방어 중
+
+### 👁 공개범위 3단계 [완료/로컬검증]
+- 2단계(public/private, 사실상 '구독자공개')를 3단계로 분리: public(전체)·subscribers(구독자공개)·private(나만)
+- 핵심 보안 수정: 예전엔 '구독'만 하면 비공개글이 보였음(누구나 회원가입→구독→열람). 이제 private은 작성자/관리자만, subscribers만 구독자 게이팅
+- `posts.visibility` varchar(10)→(20) 마이그레이션 e4f5a6b7c8d9 + 기존 private→subscribers 자동 이관(의미 보존). PATCH `/posts/{id}/visibility`로 작성 후 변경. 프론트 작성 라디오 3개 + 상세 인라인 드롭다운
+- can_view 진리표 12/12, 구독자 가시성 라이브 검증
+
+### 🔔 구독 관리 [완료/로컬검증]
+- 계정 구독을 전용 페이지 `/subscriptions`로 분리(계정 늘어도 안 난잡). GET `/subscriptions/authors`로 구독 가능 글쓴이 목록 → 계정별 토글 구독/해제
+- 새 글 이메일 구독: 누구나 self-unsubscribe(POST `/subscribers/unsubscribe`, 존재 비노출) + 관리자 목록/삭제(DELETE `/subscribers/{id}`). 홈에선 이메일 폼 제거하고 링크만
+- 라이브 검증: authors 목록·삭제 권한(admin 204/비admin 403)·이메일 등록/취소/재등록
+
+- **다음**: 프론트 컨테이너 재빌드 후 화면 확인, 프로드 배포(EC2 `.env` 키·IMDSv2 강제 확인)
