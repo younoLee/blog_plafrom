@@ -56,6 +56,26 @@ def send_verification_email(to: str, link: str) -> None:
     )
 
 
+def send_already_registered_email(to: str, login_link: str) -> None:
+    """이미 가입·인증된 이메일로 또 가입 시도가 들어왔을 때 안내.
+    계정 존재 여부를 HTTP 응답으로는 노출하지 않으려고 '메일로만' 알린다."""
+    send_email(
+        to=to,
+        subject="[블로그] 이미 가입된 계정이야",
+        body=(
+            "이 이메일로 회원가입 시도가 있었는데, 이미 가입된 계정이야.\n\n"
+            "본인이라면 로그인하거나, 비밀번호를 잊었으면 '비밀번호 찾기'를 이용해줘:\n"
+            f"{login_link}\n\n"
+            "본인이 한 게 아니면 이 메일은 무시해도 돼 (계정은 안전해)."
+        ),
+        html=_action_html(
+            "이 이메일로 회원가입을 시도했는데, 이미 가입된 계정이야. 로그인하거나 비밀번호 찾기를 이용해줘.",
+            login_link,
+            "로그인하러 가기",
+        ),
+    )
+
+
 def send_reset_email(to: str, link: str) -> None:
     """비밀번호 재설정 링크 발송."""
     send_email(

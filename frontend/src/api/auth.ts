@@ -41,7 +41,8 @@ export async function register(email: string, password: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
-  if (res.status === 409) throw new Error('이미 가입된 이메일이야')
+  // 기존 이메일도 409로 안 흘림(enumeration 방지) → 신규/기존 모두 동일하게 성공 화면.
+  // 실제 안내(인증/이미가입)는 메일로만 감.
   if (res.status === 422) throw new Error('이메일 형식·비밀번호(8~72자)를 확인해줘')
   if (res.status === 429) throw new Error('가입 시도가 너무 많아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('회원가입 실패')

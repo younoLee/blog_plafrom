@@ -22,32 +22,48 @@ from app.schemas.user import (
     ForgotPasswordRequest,
     ResetPasswordRequest,
 )
-from app.services.email import send_verification_email, send_reset_email
+from app.services.email import (
+    send_verification_email,
+    send_reset_email,
+    send_already_registered_email,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserRead, status_code=201)
+@router.post("/register", status_code=202)
 @limiter.limit("5/hour")  # 한 IP당 시간당 5번까지만 가입 (대량가입 속도 차단)
 def register(request: Request, data: RegisterRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
-    exists = db.scalar(select(User).where(User.email == data.email))
-    if exists:
-        raise HTTPException(status_code=409, detail="이미 가입된 이메일")
-    # 모든 가입자는 pending + 미인증으로 시작 (관리자 승격은 DB에서만)
-    user = User(
-        email=data.email,
-        hashed_password=hash_password(data.password),
-        role="pending",
-        email_verified=False,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    # 확인메일 발송 (응답 후 백그라운드로)
-    token = create_email_token(user.id, purpose="verify")
-    link = f"{settings.frontend_base_url}/verify?token={token}"
-    background.add_task(send_verification_email, user.email, link)
-    return user
+    # 계정 존재 여부를 HTTP 응답으로 노출하지 않으려고 신규/기존 구분 없이 동일한 202 응답.
+    # 실제 안내는 '메일로만' 간다 (forgot-password와 같은 패턴) → 이메일 enumeration 방지.
+    existing = db.scalar(select(User).where(User.email == data.email))
+    if existing is None:
+        # 신규: pending + 미인증으로 생성 후 인증메일 (관리자 승격은 DB에서만)
+        user = User(
+            email=data.email,
+            hashed_password=hash_password(data.password),
+            role="pending",
+            email_verified=False,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        token = create_email_token(user.id, purpose="verify")
+        link = f"{settings.frontend_base_url}/verify?token={token}"
+        background.add_task(send_verification_email, user.email, link)
+    elif not existing.email_verified:
+        # 기존이지만 아직 미인증: 인증메일 재발송 (가입 완료 못 한 사람 도움)
+        token = create_email_token(existing.id, purpose="verify")
+        link = f"{settings.frontend_base_url}/verify?token={token}"
+        background.add_task(send_verification_email, existing.email, link)
+    else:
+        # 기존 + 인증완료: '이미 가입됨' 안내메일 (HTTP 응답으로는 노출 안 함)
+        background.add_task(
+            send_already_registered_email,
+            existing.email,
+            f"{settings.frontend_base_url}/login",
+        )
+    return {"message": "확인 메일을 보냈어. 메일함을 확인해줘."}
 
 
 @router.post("/verify", response_model=UserRead)
