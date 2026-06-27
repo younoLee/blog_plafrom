@@ -46,6 +46,19 @@ def my_subscriptions_detail(
     return [{"id": r.id, "name": r.email.split("@")[0]} for r in rows]
 
 
+@router.get("/authors", response_model=list[SubscriptionOut])
+def subscribable_authors(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    # 구독할 수 있는 글쓴이(writer/admin) 목록 — 자기 자신은 제외
+    rows = db.execute(
+        select(User.id, User.email)
+        .where(User.role.in_(("writer", "admin")), User.id != user.id)
+        .order_by(User.id)
+    ).all()
+    return [{"id": r.id, "name": r.email.split("@")[0]} for r in rows]
+
+
 @router.post("", status_code=201)
 def subscribe(data: SubscribeIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if data.author_id == user.id:

@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Post } from '../types/post'
 import { fetchPosts, deletePost } from '../api/posts'
-import { subscribe } from '../api/subscribers'
-import { fetchBlogOwner, fetchMySubscriptionsDetail, subscribeAuthor, unsubscribeAuthor, type SubscribedAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconLock } from '../components/icons'
@@ -14,12 +12,6 @@ function HomePage() {
 
   const [posts, setPosts] = useState<Post[]>([])
   const [error, setError] = useState('')
-  const [email, setEmail] = useState('')
-  const [subMsg, setSubMsg] = useState('')
-  // '이 블로그 구독'(주인장 구독) + 내가 구독 중인 블로그 목록
-  const [ownerId, setOwnerId] = useState<number | null>(null)
-  const [subs, setSubs] = useState<SubscribedAuthor[]>([])
-  const subToOwner = ownerId != null && subs.some((s) => s.id === ownerId)
 
   async function loadPosts() {
     try {
@@ -35,60 +27,12 @@ function HomePage() {
       .catch((e) => setError((e as Error).message))
   }, [user])
 
-  // 블로그 주인(admin) id
-  useEffect(() => {
-    fetchBlogOwner()
-      .then((o) => setOwnerId(o.id))
-      .catch(() => {})
-  }, [])
-
-  // 내가 구독 중인 블로그 목록 (비로그인은 자동 [] )
-  useEffect(() => {
-    fetchMySubscriptionsDetail()
-      .then(setSubs)
-      .catch(() => setSubs([]))
-  }, [user])
-
-  async function toggleBlogSub() {
-    if (ownerId == null) return
-    try {
-      if (subToOwner) await unsubscribeAuthor(ownerId)
-      else await subscribeAuthor(ownerId)
-      setSubs(await fetchMySubscriptionsDetail())
-      await loadPosts() // 일부공개 글 반영
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-
-  async function unsub(id: number) {
-    try {
-      await unsubscribeAuthor(id)
-      setSubs(await fetchMySubscriptionsDetail())
-      await loadPosts()
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-
   async function handleDelete(id: number) {
     try {
       await deletePost(id)
       await loadPosts()
     } catch (e) {
       setError((e as Error).message)
-    }
-  }
-
-  async function handleSubscribe(e: React.FormEvent) {
-    e.preventDefault()
-    if (!email.trim()) return
-    try {
-      await subscribe(email)
-      setEmail('')
-      setSubMsg('구독 완료! 새 글 알림을 받게 돼.')
-    } catch (e) {
-      setSubMsg((e as Error).message)
     }
   }
 
@@ -104,43 +48,14 @@ function HomePage() {
           최근 <span className={ui.gradientText}>이야기</span>
         </h1>
         <p className="mt-3 text-lg text-gray-500 dark:text-gray-400">인프라를 직접 만들며 배운 것을 남깁니다.</p>
-        {/* 구독 */}
-        <form onSubmit={handleSubscribe} className="mx-auto mt-7 flex max-w-md gap-2">
-          <input type="email" placeholder="이메일로 새 글 구독하기" value={email} onChange={(e) => setEmail(e.target.value)} className={ui.input} />
-          <button type="submit" className={`${ui.btnPrimary} shrink-0`}>구독</button>
-        </form>
-        {subMsg && <p className="mt-2 text-sm text-[#0071e3] dark:text-[#0a84ff]">{subMsg}</p>}
-        {/* 이 블로그 구독: 로그인 + 본인(주인장)이 아닐 때. 구독하면 일부공개 글이 열림 */}
-        {user && ownerId != null && user.id !== ownerId && (
-          <div className="mt-4">
-            <button type="button" onClick={toggleBlogSub} className={subToOwner ? ui.btnGhost : ui.btnPrimary}>
-              {subToOwner ? '✓ 이 블로그 구독중' : '+ 이 블로그 구독'}
-            </button>
-            <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">구독하면 일부공개 글도 볼 수 있어</p>
-          </div>
-        )}
-        {/* 내가 구독 중인 블로그 목록 (이름 + 구독취소) */}
-        {user && subs.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-            <span className="text-xs text-gray-400 dark:text-gray-500">구독 중:</span>
-            {subs.map((s) => (
-              <span
-                key={s.id}
-                className="inline-flex items-center gap-1 rounded-full bg-black/[0.05] px-2.5 py-1 text-xs dark:bg-white/10"
-              >
-                {s.name}
-                <button
-                  type="button"
-                  onClick={() => unsub(s.id)}
-                  aria-label={`${s.name} 구독 취소`}
-                  className="text-gray-400 hover:text-red-500"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+        {/* 새 글 이메일 구독·계정 구독은 전용 페이지에서 */}
+        <p className="mx-auto mt-7 max-w-md text-sm text-gray-500 dark:text-gray-400">
+          새 글 이메일 구독·계정 구독은{' '}
+          <Link to="/subscriptions" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+            구독 관리
+          </Link>
+          에서 할 수 있어.
+        </p>
       </section>
 
       {error && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
@@ -165,6 +80,11 @@ function HomePage() {
               {post.visibility === 'private' && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-white/10 dark:text-gray-400">
                   <IconLock className="h-3 w-3" />비공개
+                </span>
+              )}
+              {post.visibility === 'subscribers' && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+                  구독자공개
                 </span>
               )}
             </h3>

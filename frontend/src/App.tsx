@@ -9,6 +9,8 @@ import WritePostPage from './pages/WritePostPage'
 import StatusPage from './pages/StatusPage'
 import PortalPage from './pages/PortalPage'
 import AdminPage from './pages/AdminPage'
+import SettingsPage from './pages/SettingsPage'
+import SubscriptionsPage from './pages/SubscriptionsPage'
 import VerifyPage from './pages/VerifyPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
@@ -32,6 +34,10 @@ function App() {
             <Route path="/status" element={<StatusPage />} />
             {/* 관리자 (페이지 안에서 admin 아니면 /blog로 리다이렉트) */}
             <Route path="/admin" element={<AdminPage />} />
+            {/* 설정 (페이지 안에서 writer 아니면 /blog로 리다이렉트) */}
+            <Route path="/settings" element={<SettingsPage />} />
+            {/* 구독 관리 (계정 구독 + 이메일 구독) */}
+            <Route path="/subscriptions" element={<SubscriptionsPage />} />
             {/* 인증 (루트 유지) */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />

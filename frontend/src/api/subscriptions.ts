@@ -24,6 +24,13 @@ export async function fetchMySubscriptionsDetail(): Promise<SubscribedAuthor[]> 
   return res.json()
 }
 
+// 구독할 수 있는 글쓴이 목록 (writer/admin, 나 제외)
+export async function fetchAuthors(): Promise<SubscribedAuthor[]> {
+  const res = await fetch(`${BASE}/subscriptions/authors`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
 // 내가 구독 중인 글쓴이 id 목록
 export async function fetchMySubscriptions(): Promise<number[]> {
   const res = await fetch(`${BASE}/subscriptions`, { headers: authHeaders() })
