@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Visibility } from '../types/post'
 import { getPost, createPost, updatePost } from '../api/posts'
 import { uploadImage } from '../api/uploads'
-import { generateDraft, fetchAiModels, fetchKeys, type AiModel } from '../api/ai'
+import { generateDraft, fetchAiModels, fetchKeys, fetchUsage, type AiModel, type AiUsage } from '../api/ai'
 
 // BYOK provider → 직접입력 옵션에 보일 이름
 const PROVIDER_LABEL: Record<string, string> = {
@@ -46,6 +46,7 @@ function WritePostPage() {
   const [model, setModel] = useState('')
   const [customModel, setCustomModel] = useState('') // 직접 입력 모드의 모델 ID
   const [byokProviders, setByokProviders] = useState<string[]>([]) // 내가 키 등록한 provider
+  const [usage, setUsage] = useState<AiUsage | null>(null) // 서버 모델(Claude) 남은 횟수
 
   // 로그인 안 했으면 로그인 페이지로, 로그인했지만 승인 안 된 pending이면 블로그로
   // (새로고침 시 인증 복구가 끝날 때까지 기다림 — loading 중엔 판단 보류, 안 그러면 로그인창으로 튕김)
@@ -67,6 +68,10 @@ function WritePostPage() {
     // 직접입력 가능한 provider(=키 등록된 것) 목록
     fetchKeys()
       .then((ks) => setByokProviders(ks.filter((k) => k.has_key).map((k) => k.provider)))
+      .catch(() => {})
+    // 서버 모델 남은 횟수
+    fetchUsage()
+      .then(setUsage)
       .catch(() => {})
   }, [user, loading])
 
@@ -125,6 +130,8 @@ function WritePostPage() {
       }
       const label = model.startsWith('custom:') ? useModel : models.find((m) => m.id === model)?.label ?? useModel
       setAiDone(`'${label}'로 초안을 채웠어`)
+      // 서버 모델(Claude)을 썼으면 남은 횟수 갱신 (BYOK는 캡 없음)
+      fetchUsage().then(setUsage).catch(() => {})
     } catch (err) {
       setAiError((err as Error).message)
     } finally {
@@ -165,6 +172,18 @@ function WritePostPage() {
         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           떠오르는 메모를 대충 적고 누르면 제목·소제목·초안으로 정리해줘. (제목/본문을 덮어써)
         </p>
+        {/* 서버 모델(Claude) 남은 횟수. BYOK(내 키)는 한도 없음 */}
+        {usage && (
+          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            서버 모델 남은 횟수 · 오늘{' '}
+            <span className={usage.daily_used >= usage.daily_cap ? 'font-medium text-red-500' : ''}>
+              {Math.max(0, usage.daily_cap - usage.daily_used)}/{usage.daily_cap}
+            </span>{' · '}이번 달{' '}
+            <span className={usage.monthly_used >= usage.monthly_cap ? 'font-medium text-red-500' : ''}>
+              {Math.max(0, usage.monthly_cap - usage.monthly_used)}/{usage.monthly_cap}
+            </span>
+          </p>
+        )}
         <textarea
           placeholder="예: 오늘 AWS Summit 갔다왔는데 EKS 세션이 인상깊었음. 비용 얘기도 나왔고…"
           rows={3}

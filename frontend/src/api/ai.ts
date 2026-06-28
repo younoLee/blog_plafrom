@@ -21,6 +21,20 @@ export async function fetchAiModels(): Promise<{ models: AiModel[]; default: str
   return res.json()
 }
 
+export interface AiUsage {
+  daily_used: number
+  daily_cap: number
+  monthly_used: number
+  monthly_cap: number
+}
+
+// 서버 모델(Claude) 사용량 — 오늘/이번 달 남은 횟수 표시용 (BYOK는 무제한이라 제외)
+export async function fetchUsage(): Promise<AiUsage> {
+  const res = await fetch(`${BASE}/ai/usage`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('사용량을 불러오지 못했어')
+  return res.json()
+}
+
 // 내 BYOK 키 등록 현황 (값은 안 내려옴 — 있다/없다만)
 export async function fetchKeys(): Promise<KeyStatus[]> {
   const res = await fetch(`${BASE}/ai/keys`, { headers: authHeaders() })

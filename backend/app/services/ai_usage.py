@@ -6,7 +6,7 @@
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.ai_usage import AiUsage
@@ -22,6 +22,17 @@ def count_today(db: Session, user_id: int) -> int:
         select(AiUsage).where(AiUsage.user_id == user_id, AiUsage.day == _today())
     )
     return row.count if row else 0
+
+
+def count_month(db: Session, user_id: int) -> int:
+    # 이번 달(UTC) 1일부터 오늘까지 일별 count 합. 별도 테이블 없이 일일 기록을 재활용.
+    first = _today().replace(day=1)
+    total = db.scalar(
+        select(func.coalesce(func.sum(AiUsage.count), 0)).where(
+            AiUsage.user_id == user_id, AiUsage.day >= first
+        )
+    )
+    return int(total or 0)
 
 
 def increment_today(db: Session, user_id: int) -> None:

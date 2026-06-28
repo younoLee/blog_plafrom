@@ -1,11 +1,12 @@
 // 앱 전체에서 공유하는 스타일 토큰 (애플풍: 알약 버튼·애플 블루·은은한 그림자)
 export const ui = {
-  // 기본 버튼: 애플 블루 알약(pill)
+  // 기본 버튼: 애플 블루 알약(pill). px는 모바일에서 좁게(px-3.5), sm↑에서 넉넉히(px-5)
+  // — 헤더에 버튼이 많아 좁은 화면에서 넘치는 걸 막기 위함
   btnPrimary:
-    'inline-flex items-center justify-center gap-1.5 rounded-full bg-[#0071e3] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#0077ed] active:scale-[0.98] dark:bg-[#0a84ff] dark:hover:bg-[#3898ff]',
+    'inline-flex items-center justify-center gap-1.5 rounded-full bg-[#0071e3] px-3.5 py-2 text-sm font-medium text-white transition hover:bg-[#0077ed] active:scale-[0.98] sm:px-5 sm:py-2.5 dark:bg-[#0a84ff] dark:hover:bg-[#3898ff]',
   // 보조 버튼: 연한 회색 알약
   btnGhost:
-    'inline-flex items-center justify-center gap-1.5 rounded-full bg-black/[0.06] px-5 py-2.5 text-sm font-medium text-gray-800 transition hover:bg-black/[0.1] active:scale-[0.98] dark:bg-white/10 dark:text-gray-100 dark:hover:bg-white/20',
+    'inline-flex items-center justify-center gap-1.5 rounded-full bg-black/[0.06] px-3.5 py-2 text-sm font-medium text-gray-800 transition hover:bg-black/[0.1] active:scale-[0.98] sm:px-5 sm:py-2.5 dark:bg-white/10 dark:text-gray-100 dark:hover:bg-white/20',
   input:
     'w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm transition placeholder:text-gray-400 focus:border-[#0071e3] focus:outline-none focus:ring-4 focus:ring-[#0071e3]/15 dark:border-white/15 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500',
   // 드롭다운: input과 같은 톤. 기본 화살표를 숨기고(appearance-none) 오른쪽에 직접 그린 꺾쇠를 얹음.

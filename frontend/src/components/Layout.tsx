@@ -13,12 +13,13 @@ function Layout() {
     <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] dark:bg-black dark:text-[#f5f5f7]">
       {/* 상단 고정 헤더 (모든 페이지 공통) — 애플풍 프로스티드 바 */}
       <header className="sticky top-0 z-10 border-b border-black/5 bg-[#f5f5f7]/70 backdrop-blur-xl dark:border-white/10 dark:bg-black/60">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
+          <Link to="/" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight">
             <img src="/favicon.svg" alt="" className="h-6 w-6" />
             <span>DEV 블로그</span>
           </Link>
-          <nav className="flex items-center gap-1.5">
+          {/* 버튼이 많아 좁은 화면에선 넘침 → flex-wrap으로 다음 줄로 자연스럽게 줄바꿈 */}
+          <nav className="flex flex-wrap items-center justify-end gap-1.5">
             {/* 테마 토글 — 동그란 아이콘 버튼 */}
             <button
               type="button"

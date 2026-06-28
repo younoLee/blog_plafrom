@@ -14,6 +14,7 @@ from app.schemas.ai import (
     KeyStatus,
     KeysResponse,
     SetKeyRequest,
+    UsageResponse,
 )
 from app.services.ai import (
     generate_draft,
@@ -42,6 +43,17 @@ def list_models(user: User = Depends(require_writer), db: Session = Depends(get_
     return AiModelsResponse(
         models=[AiModelInfo(id=m, label=MODELS[m][0], provider=MODELS[m][1]) for m in allowed],
         default=DEFAULT_MODEL,
+    )
+
+
+@router.get("/usage", response_model=UsageResponse)
+def get_usage(user: User = Depends(require_writer), db: Session = Depends(get_db)):
+    # 서버키(Claude) 호출의 오늘/이번 달 사용량 + 캡. 프론트가 '남은 횟수' 표시에 사용.
+    return UsageResponse(
+        daily_used=ai_usage.count_today(db, user.id),
+        daily_cap=settings.ai_daily_cap,
+        monthly_used=ai_usage.count_month(db, user.id),
+        monthly_cap=settings.ai_monthly_cap,
     )
 
 
@@ -118,12 +130,18 @@ def create_draft(
         if provider not in pk:
             raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
 
-    # 서버키(Claude) 호출은 유저별 '일일 캡'으로 비용 폭주 방지 (BYOK는 본인 비용이라 제외)
-    if provider == "claude" and ai_usage.count_today(db, user.id) >= settings.ai_daily_cap:
-        raise HTTPException(
-            status_code=429,
-            detail=f"오늘 AI 초안 한도({settings.ai_daily_cap}회)를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
-        )
+    # 서버키(Claude) 호출은 유저별 '일일 캡' + '월간 캡'으로 비용 폭주 방지 (BYOK는 본인 비용이라 제외)
+    if provider == "claude":
+        if ai_usage.count_today(db, user.id) >= settings.ai_daily_cap:
+            raise HTTPException(
+                status_code=429,
+                detail=f"오늘 AI 초안 한도({settings.ai_daily_cap}회)를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
+            )
+        if ai_usage.count_month(db, user.id) >= settings.ai_monthly_cap:
+            raise HTTPException(
+                status_code=429,
+                detail=f"이번 달 AI 초안 한도({settings.ai_monthly_cap}회)를 다 썼어. 다음 달에 다시 하거나 본인 키(BYOK)를 등록해줘",
+            )
 
     # BYOK provider는 사용자 키를 복호화해서 사용 (서버 claude만 서버 키)
     user_key = None

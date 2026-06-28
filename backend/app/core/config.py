@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     ai_model: str = "claude-sonnet-4-6"
     # 유저별 '일일' 서버키(Claude) AI 초안 호출 상한 (비용 폭주 방지). BYOK 호출은 제외.
     ai_daily_cap: int = 20
+    # 유저별 '월간' 서버키 호출 상한. 일일 캡과 별개의 2차 방어선(매일 조금씩 누적되는 비용 방지).
+    ai_monthly_cap: int = 200
     # BYOK용 암호화 키(Fernet). 사용자가 맡긴 GPT/Gemini 키를 이걸로 암호화해 DB 저장.
     # 비어 있으면 BYOK 비활성(키 저장 불가). 생성: python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
     llm_encryption_key: str = ""

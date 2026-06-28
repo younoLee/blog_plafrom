@@ -17,6 +17,14 @@ class DraftResponse(BaseModel):
     model: str  # 실제로 어떤 모델로 생성했는지 (프론트 표시용)
 
 
+# 서버키(Claude) 사용량 + 캡 (프론트에 '남은 횟수' 표시용). BYOK는 무제한이라 제외.
+class UsageResponse(BaseModel):
+    daily_used: int
+    daily_cap: int
+    monthly_used: int
+    monthly_cap: int
+
+
 # AI 모델 한 개 정보 (드롭다운용)
 class AiModelInfo(BaseModel):
     id: str
