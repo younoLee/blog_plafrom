@@ -1,8 +1,11 @@
 # RDS PostgreSQL (백엔드 DB). 비공개 — EC2 보안그룹 경유로만 접근.
 resource "aws_db_instance" "blog" {
-  identifier     = "blog-db"
-  engine         = "postgres"
-  engine_version = "16.12"
+  identifier = "blog-db"
+  engine     = "postgres"
+  # AWS가 자동 마이너 업그레이드(auto_minor_version_upgrade 기본 on)로 올려서 현재 라이브는 16.13.
+  # 마이너 다운그레이드는 불가 → terraform이 되돌리려 하면 apply 에러. 그래서 현실값으로 맞추고
+  # 아래 lifecycle에서 engine_version 변경을 무시(AWS 자동 업그레이드에 맡김).
+  engine_version = "16.13"
   instance_class = "db.t3.micro"
 
   allocated_storage = 20
@@ -30,6 +33,7 @@ resource "aws_db_instance" "blog" {
   skip_final_snapshot = true
 
   lifecycle {
-    ignore_changes = [password]
+    # password: 코드/state에 비번 안 둠. engine_version: AWS 자동 마이너 업그레이드 표류 무시.
+    ignore_changes = [password, engine_version]
   }
 }
