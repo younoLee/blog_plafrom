@@ -72,11 +72,25 @@ export async function deleteKey(provider: string): Promise<void> {
 // 거친 메모 → AI가 정돈한 글 구조 마크다운. 로그인 필수(비용 보호).
 // model 생략 시 서버 기본값. 커스텀(카탈로그에 없는) 모델이면 provider도 함께 보냄.
 export async function generateDraft(memo: string, model?: string, provider?: string): Promise<string> {
-  const res = await fetch(`${BASE}/ai/draft`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ memo, model, provider }),
-  })
+  // 생성이 오래 걸려도 무한 대기하지 않게 90초 안전장치 → 명확한 메시지로 끝냄
+  // (인앱 브라우저/네트워크가 응답을 끊고 멈춰버리는 것 방지)
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 90_000)
+  let res: Response
+  try {
+    res = await fetch(`${BASE}/ai/draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ memo, model, provider }),
+      signal: ctrl.signal,
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError')
+      throw new Error('생성이 너무 오래 걸려서 멈췄어. 더 짧은 메모로 다시 하거나 빠른 모델(Haiku)로 해줘')
+    throw new Error('네트워크 문제로 초안 생성에 실패했어')
+  } finally {
+    clearTimeout(timer)
+  }
   if (res.status === 401) throw new Error('로그인이 필요해')
   if (res.status === 403) throw new Error('이 모델을 쓸 권한이 없어 (결제 필요)')
   if (res.status === 429) {

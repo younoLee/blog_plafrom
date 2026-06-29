@@ -172,6 +172,9 @@ function WritePostPage() {
         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           떠오르는 메모를 대충 적고 누르면 제목·소제목·초안으로 정리해줘. (제목/본문을 덮어써)
         </p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+          생성에 길면 1분쯤 걸려. 디스코드·인스타 같은 앱 안 브라우저에선 멈출 수 있으니 크롬 등 일반 브라우저에서 써줘.
+        </p>
         {/* 서버 모델(Claude) 남은 횟수. BYOK(내 키)는 한도 없음 */}
         {usage && (
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">

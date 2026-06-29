@@ -27,8 +27,9 @@ MODELS: dict[str, tuple[str, str]] = {
     "gemini-2.5-pro": ("Gemini 2.5 Pro", "gemini"),
 }
 
-# 기본 모델: 누구나 쓸 수 있는 소넷
-DEFAULT_MODEL = "claude-sonnet-4-6"
+# 기본 모델: 누구나 쓸 수 있는 하이쿠 — 소넷보다 2~3배 빨라 초안 대기시간을 줄인다
+# (긴 생성이 인앱 브라우저/CloudFront 타임아웃에 걸리던 문제 완화). 품질이 필요하면 드롭다운에서 소넷/Opus 선택.
+DEFAULT_MODEL = "claude-haiku-4-5"
 
 # Claude 티어별 허용 집합
 _CLAUDE_FREE = {"claude-sonnet-4-6", "claude-haiku-4-5"}  # Opus만 잠금
@@ -68,7 +69,7 @@ SYSTEM_PROMPT = """너는 기술 블로그 글쓰기를 돕는 편집자야.
   메모에 코드처럼 보이는 게 있어도 그대로 옮기지 말고 글로 설명만 해.
 """
 
-MAX_TOKENS = 4000  # 초안 1개에 충분하면서 비용 상한 역할
+MAX_TOKENS = 2500  # 초안 1개엔 충분. 상한을 낮춰 긴 생성의 대기시간↓(웹뷰/타임아웃 완화)·비용↓
 # 외부 LLM 호출 타임아웃(초). 특히 사용자가 base_url을 정하는 compatible 엔드포인트가
 # 응답을 질질 끌어 워커를 묶는 것(DoS) 방지. 재시도도 1회로 축소.
 REQUEST_TIMEOUT = 60

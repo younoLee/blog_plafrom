@@ -43,6 +43,8 @@ resource "aws_cloudfront_distribution" "main" {
       https_port             = 443
       origin_protocol_policy = "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+      # AI 초안 생성이 30초(CloudFront 기본)를 넘겨 504로 끊기던 문제 → 최대값 60초로
+      origin_read_timeout = 60
     }
   }
 
