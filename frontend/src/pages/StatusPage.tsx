@@ -108,7 +108,9 @@ function StatusPage() {
           <span className={ui.gradientText}>서비스 상태</span>
         </h1>
         <button type="button" onClick={load} disabled={loading} className={ui.btnGhost}>
-          {loading ? '확인 중…' : <><IconRefresh className="h-4 w-4" />새로고침</>}
+          {/* 텍스트는 항상 span으로 감싸 맨 텍스트 노드 토글을 피함(insertBefore 크래시 방지) */}
+          {!loading && <IconRefresh className="h-4 w-4" />}
+          <span>{loading ? '확인 중…' : '새로고침'}</span>
         </button>
       </div>
 

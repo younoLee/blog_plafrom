@@ -259,16 +259,24 @@ function WritePostPage() {
             disabled={aiLoading || !memo.trim()}
             className={`${btnPrimary} disabled:opacity-50`}
           >
-            {aiLoading
-              ? <><IconSpinner className="h-4 w-4 animate-spin" />생성 중…</>
-              : <><IconSparkles className="h-4 w-4" />초안 생성</>}
+            {/* 구조 고정: [아이콘][텍스트span]를 항상 유지하고 내용만 바꿈.
+                fragment로 [아이콘+맨텍스트]를 통째 토글하면, 인앱 브라우저/번역기가
+                맨 텍스트 노드를 감쌌을 때 React 재조정이 insertBefore 에러로 깨진다. */}
+            {aiLoading ? <IconSpinner className="h-4 w-4 animate-spin" /> : <IconSparkles className="h-4 w-4" />}
+            <span>{aiLoading ? '생성 중…' : '초안 생성'}</span>
           </button>
-          {aiError && <span className="text-sm text-red-600">{aiError}</span>}
-          {aiDone && !aiError && (
-            <span className="inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
-              <IconCheck className="h-4 w-4" />{aiDone}
-            </span>
-          )}
+          {/* 상태 메시지: 항상 렌더되는 고정 컨테이너 → 형제 노드가 생겼다 사라지며
+              DOM 트리가 깨지는 것 방지. 안의 내용만 바뀐다. */}
+          <span className="text-sm" aria-live="polite">
+            {aiError ? (
+              <span className="text-red-600">{aiError}</span>
+            ) : aiDone ? (
+              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                <IconCheck className="h-4 w-4" />
+                <span>{aiDone}</span>
+              </span>
+            ) : null}
+          </span>
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import type { Post, Visibility } from '../types/post'
@@ -91,6 +91,19 @@ function PostDetailPage() {
     }
   }
 
+  // 본문 마크다운은 내용이 바뀔 때만 다시 만든다(메모이즈). 댓글·구독·공개범위 등 다른 상태가
+  // 바뀌어 페이지가 재렌더돼도 같은 엘리먼트 참조라 React가 이 큰 서브트리를 재조정하지 않음
+  // → 자동번역으로 텍스트 노드가 바뀐 상태에서의 재조정 크래시를 예방.
+  const body = useMemo(
+    () =>
+      post ? (
+        <ReactMarkdown components={{ img: (props) => <img {...props} className="rounded-lg" /> }}>
+          {post.content}
+        </ReactMarkdown>
+      ) : null,
+    [post?.content],
+  )
+
   return (
     <>
       <Link to="/blog" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
@@ -122,7 +135,9 @@ function PostDetailPage() {
             {/* 로그인 + 남의 글이면 글쓴이 구독 버튼 (구독하면 그 사람 비공개글도 볼 수 있음) */}
             {user && post.owner_id && post.owner_id !== user.id && (
               <button type="button" onClick={toggleSubscribe} className={subscribed ? btnGhost : btnPrimary}>
-                {subscribed ? <><IconCheck className="h-4 w-4" />구독중</> : '+ 글쓴이 구독'}
+                {/* 텍스트는 항상 span으로 감싸 맨 텍스트 노드 토글을 피함(insertBefore 크래시 방지) */}
+                {subscribed && <IconCheck className="h-4 w-4" />}
+                <span>{subscribed ? '구독중' : '+ 글쓴이 구독'}</span>
               </button>
             )}
             {/* 본인/관리자: 작성 후에도 공개범위를 여기서 바로 바꿀 수 있음 */}
@@ -144,13 +159,7 @@ function PostDetailPage() {
           </div>
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}
           <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-[#0071e3] prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert dark:prose-a:text-[#0a84ff]">
-            <ReactMarkdown
-              components={{
-                img: (props) => <img {...props} className="rounded-lg" />,
-              }}
-            >
-              {post.content}
-            </ReactMarkdown>
+            {body}
           </div>
         </article>
         </Reveal>
