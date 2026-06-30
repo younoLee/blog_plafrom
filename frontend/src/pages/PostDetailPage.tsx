@@ -91,17 +91,19 @@ function PostDetailPage() {
     }
   }
 
-  // 본문 마크다운은 내용이 바뀔 때만 다시 만든다(메모이즈). 댓글·구독·공개범위 등 다른 상태가
+  // 본문 마크다운은 '내용'이 바뀔 때만 다시 만든다(메모이즈). 댓글·구독·공개범위 등 다른 상태가
   // 바뀌어 페이지가 재렌더돼도 같은 엘리먼트 참조라 React가 이 큰 서브트리를 재조정하지 않음
   // → 자동번역으로 텍스트 노드가 바뀐 상태에서의 재조정 크래시를 예방.
+  // content만 따로 빼서 의존성으로 둠(post 객체 참조가 아니라 내용 기준 → exhaustive-deps도 충족).
+  const content = post?.content
   const body = useMemo(
     () =>
-      post ? (
+      content != null ? (
         <ReactMarkdown components={{ img: (props) => <img {...props} className="rounded-lg" /> }}>
-          {post.content}
+          {content}
         </ReactMarkdown>
       ) : null,
-    [post?.content],
+    [content],
   )
 
   return (

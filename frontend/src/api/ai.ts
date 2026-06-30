@@ -85,9 +85,10 @@ export async function generateDraft(memo: string, model?: string, provider?: str
       signal: ctrl.signal,
     })
   } catch (e) {
+    // 원본 에러를 cause로 보존해 디버깅 단서를 잃지 않게
     if (e instanceof DOMException && e.name === 'AbortError')
-      throw new Error('생성이 너무 오래 걸려서 멈췄어. 더 짧은 메모로 다시 하거나 빠른 모델(Haiku)로 해줘')
-    throw new Error('네트워크 문제로 초안 생성에 실패했어')
+      throw new Error('생성이 너무 오래 걸려서 멈췄어. 더 짧은 메모로 다시 하거나 빠른 모델(Haiku)로 해줘', { cause: e })
+    throw new Error('네트워크 문제로 초안 생성에 실패했어', { cause: e })
   } finally {
     clearTimeout(timer)
   }
