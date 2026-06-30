@@ -13,7 +13,8 @@ def send_email(to: str, subject: str, body: str, html: str | None = None) -> Non
     msg = EmailMessage()
     msg["From"] = settings.mail_from
     msg["To"] = to
-    msg["Subject"] = subject
+    # 제목엔 사용자 입력(글 제목)이 들어갈 수 있음 → 개행 제거(메일 헤더 인젝션·발송실패 방어)
+    msg["Subject"] = subject.replace("\r", " ").replace("\n", " ")
     msg.set_content(body)  # 평문 폴백
     if html is not None:
         # HTML 버전 추가 → 메일 클라이언트가 클릭 가능한 링크/버튼으로 렌더

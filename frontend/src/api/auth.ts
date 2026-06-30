@@ -99,9 +99,12 @@ export async function fetchMe(): Promise<User | null> {
   const t = getToken()
   if (!t) return null
   const res = await fetch(`${BASE}/auth/me`, { headers: authHeaders() })
-  if (!res.ok) {
-    clearToken() // 만료/위조 토큰이면 정리
+  // 401(만료/위조)일 때만 토큰 정리. 5xx 같은 일시적 서버 오류엔 토큰을 지우지 않음
+  // (안 그러면 서버가 잠깐 흔들릴 때 사용자가 강제 로그아웃돼 재로그인해야 함)
+  if (res.status === 401) {
+    clearToken()
     return null
   }
+  if (!res.ok) return null // 일시 오류: 토큰 유지, 다음 새로고침에 복구
   return res.json()
 }

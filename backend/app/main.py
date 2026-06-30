@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -81,7 +81,8 @@ def blog_owner(db: Session = Depends(get_db)):
 
 
 @app.get("/api/status")
-def status():
+@limiter.limit("30/minute")  # 무인증 + 매 호출 SMTP 소켓(최대 2초) → 남용 시 워커 점유 방지
+def status(request: Request):
     # 지금 이 순간 상태 (상태 페이지가 사용)
     c = run_checks()
     return {

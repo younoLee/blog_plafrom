@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -46,7 +47,13 @@ def register(request: Request, data: RegisterRequest, background: BackgroundTask
             email_verified=False,
         )
         db.add(user)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # 동시 가입 레이스: 그 찰나 다른 요청이 같은 이메일을 만듦(email unique 충돌).
+            # 500 대신 일반 응답 유지(존재 여부 노출 안 함) — 이미 메일은 그쪽 요청이 보냄.
+            db.rollback()
+            return {"message": "확인 메일을 보냈어. 메일함을 확인해줘."}
         db.refresh(user)
         token = create_email_token(user.id, purpose="verify")
         link = f"{settings.frontend_base_url}/verify?token={token}"
