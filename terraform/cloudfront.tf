@@ -8,9 +8,15 @@ resource "aws_cloudfront_origin_access_control" "s3" {
   signing_protocol                  = "sigv4"
 }
 
-# 메모: CSP를 커스텀 응답헤더 정책으로 넣으려 했으나 CloudFront Free 요금제가 커스텀 정책을
-# 거부함("Free pricing plan can't have Custom response headers policy"). 관리형 SecurityHeadersPolicy
-# (HSTS·nosniff·frame-options·referrer·xss)는 유지. CSP는 플랜 업그레이드/Functions 필요 → 보류.
+# CSP: Free 요금제가 커스텀 Response Headers Policy를 거부하므로 CloudFront Function으로 주입한다.
+# (관리형 SecurityHeadersPolicy의 HSTS·nosniff·frame-options·referrer·xss 는 그대로 유지)
+resource "aws_cloudfront_function" "csp" {
+  name    = "add-csp-header"
+  runtime = "cloudfront-js-2.0"
+  comment = "Content-Security-Policy 헤더 추가 (viewer-response)"
+  publish = true
+  code    = file("${path.module}/csp-function.js")
+}
 
 # CloudFront 배포 본체. 정적 화면은 S3, /api·/uploads는 EC2 백엔드로 보낸다.
 resource "aws_cloudfront_distribution" "main" {
@@ -57,6 +63,12 @@ resource "aws_cloudfront_distribution" "main" {
     compress                   = true
     cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
     response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
+
+    # CSP 헤더 주입 (Free 플랜 우회). 정적 화면(HTML)에만 붙이면 되므로 기본 동작에만 연결
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = aws_cloudfront_function.csp.arn
+    }
   }
 
   # /api/* → EC2 (CachingDisabled + AllViewerExceptHostHeader)
