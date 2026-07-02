@@ -95,7 +95,8 @@ def status(request: Request):
 
 
 @app.get("/api/status/history")
-def status_history(days: int = 30):
+@limiter.limit("30/minute")  # 무인증 + 매 호출 DB 집계 쿼리 → 남용 시 DB 부하 방지
+def status_history(request: Request, days: int = 30):
     # 최근 N일 일별 업타임 (업타임 페이지가 사용). 범위 1~90일로 제한
     days = max(1, min(days, 90))
     return get_history(days)
