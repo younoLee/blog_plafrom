@@ -117,6 +117,9 @@ function PostDetailPage() {
       {post && (
         <Reveal>
         <article className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
+          {post.cover_image && (
+            <img src={post.cover_image} alt="" className="mb-6 aspect-[2/1] w-full rounded-xl object-cover" />
+          )}
           <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
             {post.title}
             {post.visibility === 'private' && (

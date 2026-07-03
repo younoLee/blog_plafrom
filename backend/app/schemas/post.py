@@ -12,12 +12,15 @@ Visibility = Literal["public", "subscribers", "private"]
 # 한도 넘으면 422(친절한 검증 오류)로 막힘 — 예전엔 검증이 없어 DB가 500을 냈음.
 TITLE_MAX = 200
 CONTENT_MAX = 50_000
+COVER_MAX = 500  # 커버 이미지 URL 길이 상한
 
 
 # 클라이언트가 글 만들 때 보내는 데이터 (id·시각은 서버가 채움)
 class PostCreate(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     content: str = Field(min_length=1, max_length=CONTENT_MAX)
+    # 커버 이미지 URL(선택). 빈 값이면 None으로 저장
+    cover_image: str | None = Field(default=None, max_length=COVER_MAX)
     visibility: Visibility = "public"
 
 
@@ -25,6 +28,8 @@ class PostCreate(BaseModel):
 class PostUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     content: str = Field(min_length=1, max_length=CONTENT_MAX)
+    # 커버 이미지 URL(선택). 빈 값이면 None으로 저장
+    cover_image: str | None = Field(default=None, max_length=COVER_MAX)
     visibility: Visibility = "public"
 
 
@@ -41,6 +46,7 @@ class PostRead(BaseModel):
     id: int
     title: str
     content: str
+    cover_image: str | None
     owner_id: int | None
     visibility: str
     created_at: datetime

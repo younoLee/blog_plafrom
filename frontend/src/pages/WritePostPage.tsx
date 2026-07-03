@@ -34,6 +34,7 @@ function WritePostPage() {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [visibility, setVisibility] = useState<Visibility>('public')
+  const [coverImage, setCoverImage] = useState('') // 커버(대표) 이미지 URL, 선택
   const [error, setError] = useState('')
 
   // AI 초안 생성용
@@ -82,6 +83,7 @@ function WritePostPage() {
       .then((p) => {
         setTitle(p.title)
         setContent(p.content)
+        setCoverImage(p.cover_image ?? '')
         setVisibility(p.visibility)
       })
       .catch((e) => setError((e as Error).message))
@@ -93,6 +95,19 @@ function WritePostPage() {
     try {
       const url = await uploadImage(file)
       setContent((prev) => `${prev}\n![](${url})\n`)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      e.target.value = ''
+    }
+  }
+
+  // 커버 이미지: 업로드해서 URL만 보관 (본문엔 안 넣음). 홈 카드 썸네일 + 글 상단에 크게 표시됨
+  async function handleCoverPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      setCoverImage(await uploadImage(file))
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -143,8 +158,9 @@ function WritePostPage() {
     e.preventDefault()
     if (!title.trim() || !content.trim()) return
     try {
-      if (editingId === null) await createPost(title, content, visibility)
-      else await updatePost(editingId, title, content, visibility)
+      const cover = coverImage.trim() || null
+      if (editingId === null) await createPost(title, content, cover, visibility)
+      else await updatePost(editingId, title, content, cover, visibility)
       navigate('/blog') // 끝나면 홈으로
     } catch (e) {
       setError((e as Error).message)
@@ -282,6 +298,25 @@ function WritePostPage() {
 
       <form onSubmit={handleSubmit} className="grid gap-3">
         <input placeholder="제목" value={title} onChange={(e) => setTitle(e.target.value)} className={`${input} text-lg`} />
+        {/* 커버(대표) 이미지: 홈 목록 카드 썸네일 + 글 상단에 크게 노출 */}
+        <div className="grid gap-2">
+          <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+            <IconImage className="h-4 w-4" />커버 이미지 (선택):
+            <input type="file" accept="image/*" onChange={handleCoverPick} className="text-sm" />
+          </label>
+          {coverImage && (
+            <div className="relative overflow-hidden rounded-xl">
+              <img src={coverImage} alt="커버 미리보기" className="aspect-[2/1] w-full object-cover" />
+              <button
+                type="button"
+                onClick={() => setCoverImage('')}
+                className="absolute right-2 top-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-black/75"
+              >
+                제거
+              </button>
+            </div>
+          )}
+        </div>
         <textarea
           placeholder="내용 (이미지 첨부하면 ![](url) 로 삽입돼)"
           rows={12}

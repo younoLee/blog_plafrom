@@ -85,6 +85,7 @@ def create_post(
     post = Post(
         title=data.title,
         content=data.content,
+        cover_image=data.cover_image,
         visibility=data.visibility,
         owner_id=user.id,  # 작성자 = 로그인 사용자
     )
@@ -123,6 +124,7 @@ def update_post(
         raise HTTPException(status_code=403, detail="내 글만 수정할 수 있어")
     post.title = data.title
     post.content = data.content
+    post.cover_image = data.cover_image
     post.visibility = data.visibility
     db.commit()
     db.refresh(post)

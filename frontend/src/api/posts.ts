@@ -23,12 +23,13 @@ export async function getPost(id: number): Promise<Post> {
 export async function createPost(
   title: string,
   content: string,
+  coverImage: string | null,
   visibility: Visibility,
 ): Promise<Post> {
   const res = await fetch(`${BASE}/posts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ title, content, visibility }),
+    body: JSON.stringify({ title, content, cover_image: coverImage, visibility }),
   })
   if (res.status === 401) throw new Error('로그인이 필요해')
   if (res.status === 403) throw new Error('글쓰기 권한이 없어 (관리자 승인 필요)')
@@ -43,12 +44,13 @@ export async function updatePost(
   id: number,
   title: string,
   content: string,
+  coverImage: string | null,
   visibility: Visibility,
 ): Promise<Post> {
   const res = await fetch(`${BASE}/posts/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ title, content, visibility }),
+    body: JSON.stringify({ title, content, cover_image: coverImage, visibility }),
   })
   if (res.status === 403) throw new Error('내 글만 수정할 수 있어')
   if (res.status === 422) throw new Error('제목(200자)·내용(5만자) 길이를 확인해줘. 빈칸은 안 돼')

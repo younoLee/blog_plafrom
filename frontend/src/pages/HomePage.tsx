@@ -75,6 +75,11 @@ function HomePage() {
         {posts.map((post, i) => (
           <Reveal key={post.id} delay={Math.min(i * 60, 300)}>
           <article className={`${ui.card} hover:-translate-y-0.5 hover:border-[#0071e3]/30 dark:hover:border-[#0a84ff]/30`}>
+            {post.cover_image && (
+              <Link to={`/blog/posts/${post.id}`} className="mb-4 block overflow-hidden rounded-xl">
+                <img src={post.cover_image} alt="" loading="lazy" className="aspect-[16/9] w-full object-cover" />
+              </Link>
+            )}
             <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
               <Link to={`/blog/posts/${post.id}`} className="transition hover:text-[#0071e3] dark:hover:text-[#0a84ff]">{post.title}</Link>
               {post.visibility === 'private' && (

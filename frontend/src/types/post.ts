@@ -6,6 +6,7 @@ export interface Post {
   id: number
   title: string
   content: string
+  cover_image: string | null // 커버(대표) 이미지 URL, 없으면 null
   owner_id: number | null
   visibility: Visibility
   created_at: string

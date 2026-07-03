@@ -10,6 +10,8 @@ class Post(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
     content: Mapped[str] = mapped_column(Text)
+    # 커버(대표) 이미지 URL — 선택. /api/upload 로 올린 이미지 URL을 저장. 없으면 None
+    cover_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # 작성자. 기존(로그인 전) 글은 owner 없음 → nullable
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
