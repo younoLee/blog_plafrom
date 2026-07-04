@@ -6,6 +6,8 @@ import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconLock } from '../components/icons'
 import { Reveal } from '../components/Reveal'
+import { Sidebar } from '../components/Sidebar'
+import { excerpt, readingTime } from '../postUtils'
 
 function HomePage() {
   const { user } = useAuth()
@@ -60,6 +62,9 @@ function HomePage() {
 
       {error && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
 
+      {/* 본문(글 그리드) + 우측 사이드바 2단 레이아웃 (모바일/태블릿은 세로로 쌓임) */}
+      <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
+      <div>
       <div className="mb-5 flex items-baseline justify-between">
         <h2 className="text-2xl font-semibold tracking-tight">최근 글</h2>
         <span className="text-sm text-gray-400 dark:text-gray-500">{posts.length}개</span>
@@ -71,13 +76,23 @@ function HomePage() {
         </p>
       )}
 
-      <div className="space-y-4">
+      <div className="grid gap-5 sm:grid-cols-2">
         {posts.map((post, i) => (
           <Reveal key={post.id} delay={Math.min(i * 60, 300)}>
           <article className={`${ui.card} hover:-translate-y-0.5 hover:border-[#0071e3]/30 dark:hover:border-[#0a84ff]/30`}>
-            {post.cover_image && (
+            {post.cover_image ? (
               <Link to={`/blog/posts/${post.id}`} className="mb-4 block overflow-hidden rounded-xl">
-                <img src={post.cover_image} alt="" loading="lazy" className="aspect-[16/9] w-full object-cover" />
+                <img src={post.cover_image} alt="" loading="lazy" className="aspect-[16/9] w-full object-cover transition duration-300 hover:scale-[1.03]" />
+              </Link>
+            ) : (
+              // 커버 없는 글: 제목 이니셜 + 은은한 그라데이션으로 그리드를 안 휑하게
+              <Link
+                to={`/blog/posts/${post.id}`}
+                className="mb-4 flex aspect-[16/9] items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#0071e3]/10 via-purple-400/10 to-pink-400/10 dark:from-[#0a84ff]/15 dark:via-purple-500/10 dark:to-pink-500/10"
+              >
+                <span className="text-4xl font-bold text-[#0071e3]/35 dark:text-[#0a84ff]/40">
+                  {post.title[0]?.toUpperCase() ?? '#'}
+                </span>
               </Link>
             )}
             <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -94,12 +109,14 @@ function HomePage() {
               )}
             </h3>
             <Link to={`/blog/posts/${post.id}`} className="mt-2 block text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-              <p className="line-clamp-2 whitespace-pre-wrap leading-relaxed">
-                {post.content.length > 120 ? post.content.slice(0, 120) + '…' : post.content}
+              <p className="line-clamp-2 leading-relaxed">
+                {excerpt(post.content)}
               </p>
             </Link>
             <div className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
-              <time className="text-xs text-gray-400 dark:text-gray-500">{new Date(post.created_at).toLocaleDateString()}</time>
+              <time className="text-xs text-gray-400 dark:text-gray-500">
+                {new Date(post.created_at).toLocaleDateString()} · {readingTime(post.content)}분 읽기
+              </time>
               {/* 본인 글이거나 관리자면 수정·삭제 버튼 노출 */}
               {user && (post.owner_id === user.id || user.role === 'admin') && (
                 <div className="flex gap-3 text-sm">
@@ -111,6 +128,9 @@ function HomePage() {
           </article>
           </Reveal>
         ))}
+      </div>
+      </div>
+      <Sidebar posts={posts} />
       </div>
     </>
   )

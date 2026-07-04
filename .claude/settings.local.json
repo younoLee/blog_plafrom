@@ -259,7 +259,11 @@
       "Bash(echo \"설치 결과: $\\(backend/.venv/bin/python -c 'import playwright; print\\(playwright.__version__\\)' 2>&1\\)\")",
       "Bash(sudo -n true)",
       "Bash(command -v apt-get)",
-      "Bash(find / -name \"libnspr4.so*\")"
+      "Bash(find / -name \"libnspr4.so*\")",
+      "Bash(curl -s -m 10 https://d2j66m9udyg9yq.cloudfront.net/api/posts)",
+      "Bash(curl -s -m 10 https://d2j66m9udyg9yq.cloudfront.net/api/auth/me -H 'Authorization: Bearer __TRACKED_VAR__')",
+      "Bash(python3 /tmp/claude-1000/-home-es0764-blog-platform/5f85b77c-1607-43d9-a258-093e60dc4b6e/scratchpad/setcovers.py)",
+      "Bash(curl -s -m 10 \"https://d2j66m9udyg9yq.cloudfront.net/api/posts\")"
     ]
   }
 }

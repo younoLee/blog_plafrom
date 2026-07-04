@@ -10,6 +10,7 @@ import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconArrowLeft, IconLock, IconCheck } from '../components/icons'
 import { Reveal } from '../components/Reveal'
+import { readingTime } from '../postUtils'
 
 const { input, btnPrimary, btnGhost } = ui
 
@@ -107,7 +108,7 @@ function PostDetailPage() {
   )
 
   return (
-    <>
+    <div className="mx-auto max-w-3xl">
       <Link to="/blog" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
         <IconArrowLeft className="h-4 w-4" />목록으로
       </Link>
@@ -135,7 +136,7 @@ function PostDetailPage() {
           </h1>
           <div className="mt-2 flex items-center gap-3">
             <time className="text-sm text-gray-500 dark:text-gray-400">
-              {new Date(post.created_at).toLocaleString()}
+              {new Date(post.created_at).toLocaleString()} · {readingTime(post.content)}분 읽기
             </time>
             {/* 로그인 + 남의 글이면 글쓴이 구독 버튼 (구독하면 그 사람 비공개글도 볼 수 있음) */}
             {user && post.owner_id && post.owner_id !== user.id && (
@@ -209,7 +210,7 @@ function PostDetailPage() {
           <button type="submit" className={`${btnPrimary} justify-self-start`}>댓글 작성</button>
         </form>
       </section>
-    </>
+    </div>
   )
 }
 
