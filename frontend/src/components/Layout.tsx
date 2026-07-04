@@ -13,7 +13,7 @@ function Layout() {
     <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] dark:bg-black dark:text-[#f5f5f7]">
       {/* 상단 고정 헤더 (모든 페이지 공통) — 애플풍 프로스티드 바 */}
       <header className="sticky top-0 z-10 border-b border-black/5 bg-[#f5f5f7]/70 backdrop-blur-xl dark:border-white/10 dark:bg-black/60">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
           <Link to="/" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight">
             <img src="/favicon.svg" alt="" className="h-6 w-6" />
             <span>DEV 블로그</span>
@@ -60,11 +60,11 @@ function Layout() {
       </header>
 
       {/* 페이지 본문 */}
-      <main className="mx-auto max-w-5xl px-4 py-12">
+      <main className="mx-auto max-w-6xl px-4 py-12">
         <Outlet />
       </main>
 
-      <footer className="mx-auto max-w-5xl px-4 py-12 text-center text-xs text-gray-400 dark:text-gray-500">
+      <footer className="mx-auto max-w-6xl px-4 py-12 text-center text-xs text-gray-400 dark:text-gray-500">
         © 2026 DEV 블로그 · FastAPI · React · Tailwind
       </footer>
     </div>

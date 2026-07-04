@@ -62,8 +62,8 @@ function HomePage() {
 
       {error && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
 
-      {/* 본문(글 그리드) + 우측 사이드바 2단 레이아웃 (모바일/태블릿은 세로로 쌓임) */}
-      <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
+      {/* 본문 + 우측 사이드바 2단. md(768px)+ = 옆으로(PC/태블릿), 그 아래(폰) = 세로 스택 */}
+      <div className="grid gap-8 md:grid-cols-[1fr_18rem]">
       <div>
       <div className="mb-5 flex items-baseline justify-between">
         <h2 className="text-2xl font-semibold tracking-tight">최근 글</h2>
@@ -76,7 +76,7 @@ function HomePage() {
         </p>
       )}
 
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         {posts.map((post, i) => (
           <Reveal key={post.id} delay={Math.min(i * 60, 300)}>
           <article className={`${ui.card} hover:-translate-y-0.5 hover:border-[#0071e3]/30 dark:hover:border-[#0a84ff]/30`}>

@@ -22,7 +22,7 @@ export function Sidebar({ posts }: { posts: Post[] }) {
   const recent = posts.slice(0, 5)
 
   return (
-    <aside className="space-y-5 lg:sticky lg:top-20">
+    <aside className="space-y-5 md:sticky md:top-20">
       {/* 프로필 카드 */}
       <div className={ui.card}>
         <div className="flex flex-col items-center text-center">
