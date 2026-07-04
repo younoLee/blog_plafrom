@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -49,6 +50,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 요청 본문 크기 상한 (t2.micro 메모리 고갈 DoS 방지).
+# Content-Length가 상한을 넘으면 본문을 메모리에 버퍼링하기 '전에' 413으로 끊는다
+# (안 그러면 무인증 큰 요청 몇 개로 OOM 가능 — 실측 확인됨). 이미지 업로드(5MB)는 통과하도록 6MB.
+# 엣지(WAF/CloudFront)에도 같은 상한을 두면 EC2에 닿기 전에 막혀 더 좋다.
+MAX_BODY_BYTES = 6 * 1024 * 1024
+
+
+@app.middleware("http")
+async def limit_body_size(request: Request, call_next):
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > MAX_BODY_BYTES:
+                return JSONResponse(
+                    {"detail": "요청 본문이 너무 큽니다 (최대 6MB)"}, status_code=413
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
 
 
 # 모든 API 라우트를 /api 아래로 (CloudFront가 /api/*를 EC2로 라우팅 → HTTPS 통일)

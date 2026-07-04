@@ -18,6 +18,15 @@ resource "aws_cloudfront_function" "csp" {
   code    = file("${path.module}/csp-function.js")
 }
 
+# 큰 요청 본문(>6MB)을 엣지에서 413으로 차단 → EC2(t2.micro)에 닿기 전에 대용량 본문 DoS 방지
+resource "aws_cloudfront_function" "reqsize" {
+  name    = "limit-request-body"
+  runtime = "cloudfront-js-2.0"
+  comment = "Content-Length 6MB 초과 요청을 엣지에서 413 (원본 DoS 방지)"
+  publish = true
+  code    = file("${path.module}/reqsize-function.js")
+}
+
 # CloudFront 배포 본체. 정적 화면은 S3, /api·/uploads는 EC2 백엔드로 보낸다.
 resource "aws_cloudfront_distribution" "main" {
   enabled             = true
@@ -82,6 +91,12 @@ resource "aws_cloudfront_distribution" "main" {
     cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
     origin_request_policy_id   = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewerExceptHostHeader
     response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
+
+    # 큰 요청 본문(>6MB)을 엣지에서 413 차단 (원본 DoS 방지). API 경로에만 연결.
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.reqsize.arn
+    }
   }
 
   # /uploads/* 는 이제 S3에 저장 → 기본 동작(S3 오리진)이 서빙하므로 별도 behavior 불필요

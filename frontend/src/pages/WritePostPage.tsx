@@ -365,15 +365,22 @@ function WritePostPage() {
         </div>
         {/* 서식 툴바: 선택/커서에 마크다운 삽입 + 미리보기 토글 */}
         <div className="flex flex-wrap items-center gap-1 rounded-xl border border-black/10 bg-black/[0.02] p-1.5 dark:border-white/15 dark:bg-white/5">
-          <button type="button" title="굵게" onClick={() => wrap('**', '**', '굵은 글씨')} className={`${toolBtn} font-bold`}>굵게</button>
-          <button type="button" title="기울임" onClick={() => wrap('*', '*', '기울임')} className={`${toolBtn} italic`}>기울임</button>
-          <span className="mx-1 h-4 w-px bg-black/10 dark:bg-white/15" />
-          <button type="button" title="제목(H2)" onClick={() => linePrefix('## ')} className={toolBtn}>제목</button>
-          <button type="button" title="불릿 목록" onClick={() => linePrefix('- ')} className={toolBtn}>목록</button>
-          <button type="button" title="인용문" onClick={() => linePrefix('> ')} className={toolBtn}>인용</button>
-          <button type="button" title="인라인 코드" onClick={() => wrap('`', '`', '코드')} className={`${toolBtn} font-mono`}>코드</button>
-          <button type="button" title="링크" onClick={() => wrap('[', '](https://)', '링크텍스트')} className={toolBtn}>링크</button>
-          <button type="button" title="가로 구분선" onClick={() => insertAt('\n\n---\n\n')} className={toolBtn}>구분선</button>
+          {/* 서식 버튼은 '편집 모드'에서만 노출 — 미리보기 땐 편집칸이 없어 버튼이 안 먹으므로 숨겨서 혼동 방지 */}
+          {!preview ? (
+            <>
+              <button type="button" title="굵게" onClick={() => wrap('**', '**', '굵은 글씨')} className={`${toolBtn} font-bold`}>굵게</button>
+              <button type="button" title="기울임" onClick={() => wrap('*', '*', '기울임')} className={`${toolBtn} italic`}>기울임</button>
+              <span className="mx-1 h-4 w-px bg-black/10 dark:bg-white/15" />
+              <button type="button" title="제목(H2)" onClick={() => linePrefix('## ')} className={toolBtn}>제목</button>
+              <button type="button" title="불릿 목록" onClick={() => linePrefix('- ')} className={toolBtn}>목록</button>
+              <button type="button" title="인용문" onClick={() => linePrefix('> ')} className={toolBtn}>인용</button>
+              <button type="button" title="인라인 코드" onClick={() => wrap('`', '`', '코드')} className={`${toolBtn} font-mono`}>코드</button>
+              <button type="button" title="링크" onClick={() => wrap('[', '](https://)', '링크텍스트')} className={toolBtn}>링크</button>
+              <button type="button" title="가로 구분선" onClick={() => insertAt('\n\n---\n\n')} className={toolBtn}>구분선</button>
+            </>
+          ) : (
+            <span className="px-1 text-xs text-gray-500 dark:text-gray-400">미리보기 중 — 꾸미려면 ‘편집으로’ 눌러</span>
+          )}
           <button
             type="button"
             onClick={() => setPreview((v) => !v)}
