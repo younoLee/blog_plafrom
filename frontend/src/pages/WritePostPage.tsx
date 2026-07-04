@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
 import type { Visibility } from '../types/post'
 import { getPost, createPost, updatePost } from '../api/posts'
 import { uploadImage } from '../api/uploads'
@@ -23,6 +24,10 @@ import { IconArrowLeft, IconSparkles, IconImage, IconLock, IconChevronDown, Icon
 
 const MEMO_MAX = 5000
 
+// 서식 툴바 버튼 공통 스타일
+const toolBtn =
+  'rounded-lg px-2.5 py-1 text-xs text-gray-700 transition hover:bg-black/[0.06] dark:text-gray-200 dark:hover:bg-white/10'
+
 const { input, btnPrimary, btnGhost } = ui
 
 function WritePostPage() {
@@ -33,6 +38,8 @@ function WritePostPage() {
 
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const contentRef = useRef<HTMLTextAreaElement>(null) // 툴바 서식 삽입용
+  const [preview, setPreview] = useState(false) // 미리보기 토글
   const [visibility, setVisibility] = useState<Visibility>('public')
   const [coverImage, setCoverImage] = useState('') // 커버(대표) 이미지 URL, 선택
   const [error, setError] = useState('')
@@ -113,6 +120,45 @@ function WritePostPage() {
     } finally {
       e.target.value = ''
     }
+  }
+
+  // --- 서식 툴바: 마크다운을 본문 커서 위치에 삽입 (무거운 에디터 없이 '꾸미기') ---
+  // 선택 텍스트를 마커로 감쌈 (굵게/기울임/코드/링크)
+  function wrap(before: string, after = before, ph = '') {
+    const ta = contentRef.current
+    if (!ta) return
+    const s = ta.selectionStart
+    const en = ta.selectionEnd
+    const sel = content.slice(s, en) || ph
+    setContent(content.slice(0, s) + before + sel + after + content.slice(en))
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.selectionStart = s + before.length
+      ta.selectionEnd = s + before.length + sel.length
+    })
+  }
+  // 현재 줄 맨 앞에 접두어 (제목/목록/인용)
+  function linePrefix(prefix: string) {
+    const ta = contentRef.current
+    if (!ta) return
+    const s = ta.selectionStart
+    const lineStart = content.lastIndexOf('\n', s - 1) + 1
+    setContent(content.slice(0, lineStart) + prefix + content.slice(lineStart))
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.selectionStart = ta.selectionEnd = s + prefix.length
+    })
+  }
+  // 커서에 그대로 삽입 (구분선 등)
+  function insertAt(text: string) {
+    const ta = contentRef.current
+    if (!ta) return
+    const s = ta.selectionStart
+    setContent(content.slice(0, s) + text + content.slice(s))
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.selectionStart = ta.selectionEnd = s + text.length
+    })
   }
 
   // 메모 → AI 초안. 결과의 첫 '# 제목' 줄은 제목 칸으로 빼고 나머지는 본문에
@@ -317,13 +363,44 @@ function WritePostPage() {
             </div>
           )}
         </div>
-        <textarea
-          placeholder="내용 (이미지 첨부하면 ![](url) 로 삽입돼)"
-          rows={12}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          className={input}
-        />
+        {/* 서식 툴바: 선택/커서에 마크다운 삽입 + 미리보기 토글 */}
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-black/10 bg-black/[0.02] p-1.5 dark:border-white/15 dark:bg-white/5">
+          <button type="button" title="굵게" onClick={() => wrap('**', '**', '굵은 글씨')} className={`${toolBtn} font-bold`}>굵게</button>
+          <button type="button" title="기울임" onClick={() => wrap('*', '*', '기울임')} className={`${toolBtn} italic`}>기울임</button>
+          <span className="mx-1 h-4 w-px bg-black/10 dark:bg-white/15" />
+          <button type="button" title="제목(H2)" onClick={() => linePrefix('## ')} className={toolBtn}>제목</button>
+          <button type="button" title="불릿 목록" onClick={() => linePrefix('- ')} className={toolBtn}>목록</button>
+          <button type="button" title="인용문" onClick={() => linePrefix('> ')} className={toolBtn}>인용</button>
+          <button type="button" title="인라인 코드" onClick={() => wrap('`', '`', '코드')} className={`${toolBtn} font-mono`}>코드</button>
+          <button type="button" title="링크" onClick={() => wrap('[', '](https://)', '링크텍스트')} className={toolBtn}>링크</button>
+          <button type="button" title="가로 구분선" onClick={() => insertAt('\n\n---\n\n')} className={toolBtn}>구분선</button>
+          <button
+            type="button"
+            onClick={() => setPreview((v) => !v)}
+            className={`ml-auto rounded-lg px-2.5 py-1 text-xs font-medium transition ${preview ? 'bg-[#0071e3] text-white dark:bg-[#0a84ff]' : 'text-gray-600 hover:bg-black/[0.06] dark:text-gray-300 dark:hover:bg-white/10'}`}
+          >
+            {preview ? '편집으로' : '미리보기'}
+          </button>
+        </div>
+        {preview ? (
+          // 미리보기: 실제 글 화면과 같은 방식(ReactMarkdown)으로 '꾸며진' 결과를 보여줌
+          <div className="prose prose-gray min-h-[18rem] max-w-none rounded-xl border border-black/10 bg-white p-5 prose-headings:tracking-tight prose-a:text-[#0071e3] prose-img:rounded-xl dark:prose-invert dark:border-white/15 dark:bg-white/[0.03] dark:prose-a:text-[#0a84ff]">
+            {content.trim() ? (
+              <ReactMarkdown>{content}</ReactMarkdown>
+            ) : (
+              <p className="text-gray-400 dark:text-gray-500">미리볼 내용이 없어. 먼저 내용을 써봐.</p>
+            )}
+          </div>
+        ) : (
+          <textarea
+            ref={contentRef}
+            placeholder="내용 — 위 버튼으로 꾸미거나 마크다운 직접 입력 (이미지 첨부하면 ![](url) 삽입)"
+            rows={14}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            className={`${input} font-mono`}
+          />
+        )}
         <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
           <IconImage className="h-4 w-4" />이미지 첨부:
           <input type="file" accept="image/*" onChange={handleImagePick} className="text-sm" />
