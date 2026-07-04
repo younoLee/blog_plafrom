@@ -76,7 +76,7 @@ function HomePage() {
         </p>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
         {posts.map((post, i) => (
           <Reveal key={post.id} delay={Math.min(i * 60, 300)}>
           <article className={`${ui.card} hover:-translate-y-0.5 hover:border-[#0071e3]/30 dark:hover:border-[#0a84ff]/30`}>
