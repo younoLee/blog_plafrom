@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, ForeignKey, func
+from sqlalchemy import String, Text, DateTime, ForeignKey, func, Index
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
@@ -7,6 +7,8 @@ from app.core.database import Base
 
 class Post(Base):
     __tablename__ = "posts"
+    # 태그 필터(tags @> ARRAY[...])가 전체스캔 대신 인덱스를 타도록 GIN 인덱스
+    __table_args__ = (Index("ix_posts_tags", "tags", postgresql_using="gin"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
