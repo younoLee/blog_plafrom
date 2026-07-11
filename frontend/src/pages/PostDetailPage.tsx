@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
+import rehypeHighlight from 'rehype-highlight'
 import type { Post, Visibility } from '../types/post'
 import type { Comment } from '../types/comment'
 import { getPost, changeVisibility } from '../api/posts'
@@ -100,7 +101,10 @@ function PostDetailPage() {
   const body = useMemo(
     () =>
       content != null ? (
-        <ReactMarkdown components={{ img: (props) => <img {...props} className="rounded-lg" /> }}>
+        <ReactMarkdown
+          rehypePlugins={[rehypeHighlight]}
+          components={{ img: (props) => <img {...props} className="rounded-lg" /> }}
+        >
           {content}
         </ReactMarkdown>
       ) : null,
@@ -163,6 +167,19 @@ function PostDetailPage() {
               </label>
             )}
           </div>
+          {post.tags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {post.tags.map((t) => (
+                <Link
+                  key={t}
+                  to={`/blog?tag=${encodeURIComponent(t)}`}
+                  className="rounded-full bg-black/[0.05] px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-[#0071e3]/10 hover:text-[#0071e3] dark:bg-white/10 dark:text-gray-300 dark:hover:text-[#0a84ff]"
+                >
+                  #{t}
+                </Link>
+              ))}
+            </div>
+          )}
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}
           <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-[#0071e3] prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert dark:prose-a:text-[#0a84ff]">
             {body}

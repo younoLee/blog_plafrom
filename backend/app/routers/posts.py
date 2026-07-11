@@ -52,7 +52,9 @@ def can_view(post: Post, user: User | None, subs: set[int]) -> bool:
 
 @router.get("", response_model=list[PostRead])
 def list_posts(
-    db: Session = Depends(get_db), user: User | None = Depends(get_current_user_optional)
+    tag: str | None = None,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     # 공개글 + (로그인 시) 내 글 전부 + 내가 구독한 글쓴이의 '구독자공개' 글
     # 관리자는 모든 글(조건 없음)
@@ -68,9 +70,11 @@ def list_posts(
             # 구독자공개 글은 내가 그 작성자를 구독한 경우만 (private은 여기 안 걸림)
             and_(Post.visibility == "subscribers", Post.owner_id.in_(subs)),
         )
-    return db.scalars(
-        select(Post).where(condition).order_by(Post.created_at.desc())
-    ).all()
+    stmt = select(Post).where(condition)
+    if tag:
+        # 태그 필터: tags 배열에 이 태그가 포함된 글만 (Postgres 배열 contains)
+        stmt = stmt.where(Post.tags.contains([tag]))
+    return db.scalars(stmt.order_by(Post.created_at.desc())).all()
 
 
 @router.post("", response_model=PostRead, status_code=201)
@@ -86,6 +90,7 @@ def create_post(
         title=data.title,
         content=data.content,
         cover_image=data.cover_image,
+        tags=data.tags,
         visibility=data.visibility,
         owner_id=user.id,  # 작성자 = 로그인 사용자
     )
@@ -125,6 +130,7 @@ def update_post(
     post.title = data.title
     post.content = data.content
     post.cover_image = data.cover_image
+    post.tags = data.tags
     post.visibility = data.visibility
     db.commit()
     db.refresh(post)

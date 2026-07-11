@@ -50,3 +50,50 @@ body {
   background-size: 200% 200%;
   animation: gradient-pan 6s ease infinite;
 }
+
+/* 코드블록 문법 하이라이팅 (rehype-highlight의 hljs 클래스에 색 입힘).
+   prose의 코드블록 배경이 라이트/다크 모두 어두우므로 GitHub-dark 톤 하나로 통일한다. */
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag {
+  color: #ff7b72;
+}
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp,
+.hljs-addition {
+  color: #a5d6ff;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: #d2a8ff;
+}
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-attribute,
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet {
+  color: #79c0ff;
+}
+.hljs-built_in,
+.hljs-type {
+  color: #ffa657;
+}
+.hljs-meta,
+.hljs-deletion {
+  color: #8b949e;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}

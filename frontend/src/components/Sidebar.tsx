@@ -21,6 +21,11 @@ export function Sidebar({ posts }: { posts: Post[] }) {
   const initial = (name[0] ?? 'D').toUpperCase()
   const recent = posts.slice(0, 5)
 
+  // 모든 글의 태그를 세서 인기순 (사이드바 태그 목록)
+  const tagCounts = new Map<string, number>()
+  for (const p of posts) for (const t of p.tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+  const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
+
   return (
     <aside className="space-y-5 md:sticky md:top-20">
       {/* 프로필 카드 */}
@@ -72,6 +77,25 @@ export function Sidebar({ posts }: { posts: Post[] }) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* 태그 목록 (클릭 시 그 태그 글만 보기) */}
+      {topTags.length > 0 && (
+        <div className={ui.card}>
+          <h4 className="mb-3 text-sm font-semibold tracking-tight">태그</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {topTags.map(([t, n]) => (
+              <Link
+                key={t}
+                to={`/blog?tag=${encodeURIComponent(t)}`}
+                className="inline-flex items-center gap-1 rounded-full bg-black/[0.05] px-2.5 py-1 text-xs text-gray-600 transition hover:bg-[#0071e3]/10 hover:text-[#0071e3] dark:bg-white/10 dark:text-gray-300 dark:hover:text-[#0a84ff]"
+              >
+                #{t}
+                <span className="text-gray-400 dark:text-gray-500">{n}</span>
+              </Link>
+            ))}
+          </div>
         </div>
       )}
     </aside>

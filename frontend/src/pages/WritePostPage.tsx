@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
+import rehypeHighlight from 'rehype-highlight'
 import type { Visibility } from '../types/post'
 import { getPost, createPost, updatePost } from '../api/posts'
 import { uploadImage } from '../api/uploads'
@@ -42,6 +43,8 @@ function WritePostPage() {
   const [preview, setPreview] = useState(false) // 미리보기 토글
   const [visibility, setVisibility] = useState<Visibility>('public')
   const [coverImage, setCoverImage] = useState('') // 커버(대표) 이미지 URL, 선택
+  const [tags, setTags] = useState<string[]>([]) // 태그 목록
+  const [tagInput, setTagInput] = useState('') // 태그 입력 중인 값
   const [error, setError] = useState('')
 
   // AI 초안 생성용
@@ -91,6 +94,7 @@ function WritePostPage() {
         setTitle(p.title)
         setContent(p.content)
         setCoverImage(p.cover_image ?? '')
+        setTags(p.tags ?? [])
         setVisibility(p.visibility)
       })
       .catch((e) => setError((e as Error).message))
@@ -200,13 +204,25 @@ function WritePostPage() {
     }
   }
 
+  // 태그 추가(Enter/쉼표) — 공백정리·중복·개수(10) 제한은 서버도 하지만 UI에서도
+  function addTag(raw: string) {
+    const t = raw.trim().replace(/,+$/, '').trim()
+    if (t && !tags.includes(t) && tags.length < 10) setTags([...tags, t])
+    setTagInput('')
+  }
+  function removeTag(t: string) {
+    setTags(tags.filter((x) => x !== t))
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim() || !content.trim()) return
     try {
       const cover = coverImage.trim() || null
-      if (editingId === null) await createPost(title, content, cover, visibility)
-      else await updatePost(editingId, title, content, cover, visibility)
+      // 입력 중이던 태그도 마지막에 반영
+      const finalTags = tagInput.trim() && !tags.includes(tagInput.trim()) ? [...tags, tagInput.trim()].slice(0, 10) : tags
+      if (editingId === null) await createPost(title, content, cover, finalTags, visibility)
+      else await updatePost(editingId, title, content, cover, finalTags, visibility)
       navigate('/blog') // 끝나면 홈으로
     } catch (e) {
       setError((e as Error).message)
@@ -363,6 +379,32 @@ function WritePostPage() {
             </div>
           )}
         </div>
+        {/* 태그: 칩으로 추가/삭제 (Enter 또는 쉼표로 추가) */}
+        <div className="grid gap-2">
+          <label className="text-sm text-gray-500 dark:text-gray-400">태그 (선택, 최대 10개 · Enter로 추가):</label>
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((t) => (
+                <span key={t} className="inline-flex items-center gap-1 rounded-full bg-[#0071e3]/10 px-2.5 py-1 text-xs font-medium text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+                  #{t}
+                  <button type="button" onClick={() => removeTag(t)} className="leading-none text-[#0071e3]/60 hover:text-[#0071e3] dark:text-[#0a84ff]/70" aria-label={`${t} 삭제`}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+          <input
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault()
+                addTag(tagInput)
+              }
+            }}
+            placeholder="예: AWS, Terraform, DevOps"
+            className={`${input} max-w-sm`}
+          />
+        </div>
         {/* 서식 툴바: 선택/커서에 마크다운 삽입 + 미리보기 토글 */}
         <div className="flex flex-wrap items-center gap-1 rounded-xl border border-black/10 bg-black/[0.02] p-1.5 dark:border-white/15 dark:bg-white/5">
           {/* 서식 버튼은 '편집 모드'에서만 노출 — 미리보기 땐 편집칸이 없어 버튼이 안 먹으므로 숨겨서 혼동 방지 */}
@@ -393,7 +435,7 @@ function WritePostPage() {
           // 미리보기: 실제 글 화면과 같은 방식(ReactMarkdown)으로 '꾸며진' 결과를 보여줌
           <div className="prose prose-gray min-h-[18rem] max-w-none rounded-xl border border-black/10 bg-white p-5 prose-headings:tracking-tight prose-a:text-[#0071e3] prose-img:rounded-xl dark:prose-invert dark:border-white/15 dark:bg-white/[0.03] dark:prose-a:text-[#0a84ff]">
             {content.trim() ? (
-              <ReactMarkdown>{content}</ReactMarkdown>
+              <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{content}</ReactMarkdown>
             ) : (
               <p className="text-gray-400 dark:text-gray-500">미리볼 내용이 없어. 먼저 내용을 써봐.</p>
             )}

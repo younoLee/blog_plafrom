@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import type { Post } from '../types/post'
 import { fetchPosts, deletePost } from '../api/posts'
 import { useAuth } from '../auth/auth-context'
@@ -11,23 +11,25 @@ import { excerpt, readingTime } from '../postUtils'
 
 function HomePage() {
   const { user } = useAuth()
+  const [searchParams] = useSearchParams()
+  const tag = searchParams.get('tag') || undefined // URL ?tag= 로 태그 필터
 
   const [posts, setPosts] = useState<Post[]>([])
   const [error, setError] = useState('')
 
   async function loadPosts() {
     try {
-      setPosts(await fetchPosts())
+      setPosts(await fetchPosts(tag))
     } catch (e) {
       setError((e as Error).message)
     }
   }
 
   useEffect(() => {
-    fetchPosts()
+    fetchPosts(tag)
       .then(setPosts)
       .catch((e) => setError((e as Error).message))
-  }, [user])
+  }, [user, tag])
 
   async function handleDelete(id: number) {
     try {
@@ -65,8 +67,17 @@ function HomePage() {
       {/* 본문 + 우측 사이드바 2단. md(768px)+ = 옆으로(PC/태블릿), 그 아래(폰) = 세로 스택 */}
       <div className="grid gap-8 md:grid-cols-[1fr_18rem]">
       <div>
-      <div className="mb-5 flex items-baseline justify-between">
-        <h2 className="text-2xl font-semibold tracking-tight">최근 글</h2>
+      <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          {tag ? (
+            <>
+              <span className="text-[#0071e3] dark:text-[#0a84ff]">#{tag}</span>
+              <Link to="/blog" className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 전체보기</Link>
+            </>
+          ) : (
+            '최근 글'
+          )}
+        </h2>
         <span className="text-sm text-gray-400 dark:text-gray-500">{posts.length}개</span>
       </div>
 
@@ -113,6 +124,19 @@ function HomePage() {
                 {excerpt(post.content)}
               </p>
             </Link>
+            {post.tags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {post.tags.slice(0, 4).map((t) => (
+                  <Link
+                    key={t}
+                    to={`/blog?tag=${encodeURIComponent(t)}`}
+                    className="rounded-full bg-black/[0.05] px-2 py-0.5 text-xs text-gray-600 transition hover:bg-[#0071e3]/10 hover:text-[#0071e3] dark:bg-white/10 dark:text-gray-300 dark:hover:text-[#0a84ff]"
+                  >
+                    #{t}
+                  </Link>
+                ))}
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
               <time className="text-xs text-gray-400 dark:text-gray-500">
                 {new Date(post.created_at).toLocaleDateString()} · {readingTime(post.content)}분 읽기

@@ -1,5 +1,6 @@
 from datetime import datetime
 from sqlalchemy import String, Text, DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
@@ -12,6 +13,8 @@ class Post(Base):
     content: Mapped[str] = mapped_column(Text)
     # 커버(대표) 이미지 URL — 선택. /api/upload 로 올린 이미지 URL을 저장. 없으면 None
     cover_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 태그(다중) — Postgres 텍스트 배열로 저장. 기본 빈 배열. 태그로 글 필터에 사용
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), server_default="{}")
     # 작성자. 기존(로그인 전) 글은 owner 없음 → nullable
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
