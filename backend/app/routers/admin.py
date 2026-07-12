@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -7,9 +7,25 @@ from app.core.deps import require_admin
 from app.models.user import User
 from app.models.post import Post
 from app.schemas.user import UserRead
+from app.services.infra import gather_infra
 
 # 관리자 전용 라우터 — 모든 엔드포인트가 require_admin 통과해야 함
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+
+@router.get("/infra")
+def infra_status(db: Session = Depends(get_db)):
+    """서버(EC2)+DB 실측 지표 — 관리자 인프라 대시보드용. (라우터가 require_admin으로 보호)"""
+    data = gather_infra()
+    try:
+        conns = db.execute(
+            text("select count(*) from pg_stat_activity where datname = current_database()")
+        ).scalar()
+        maxc = int(db.execute(text("show max_connections")).scalar())
+        data["db"] = {"connections": int(conns or 0), "max_connections": maxc}
+    except Exception:
+        data["db"] = {"connections": None, "max_connections": None}
+    return data
 
 
 @router.get("/users", response_model=list[UserRead])

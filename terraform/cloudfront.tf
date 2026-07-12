@@ -34,8 +34,9 @@ resource "aws_cloudfront_distribution" "main" {
   default_root_object = "index.html"
   http_version        = "http2"
   price_class         = "PriceClass_All"
-  # 무료등급 WAF (이미지 업로드 위해 SizeRestrictions를 Count로 override 해둔 그 WebACL)
-  web_acl_id = "arn:aws:wafv2:us-east-1:181568979775:global/webacl/CreatedByCloudFront-920ca6f5/53f85e35-3f61-4210-bfc6-e626cfc90cc6"
+  # WAF 제거(2026-07, 비용절감): WebACL $5/월 + 룰 3개 = 월 ~$8. 저트래픽 개인 블로그라
+  # 앱단 방어(레이트리밋 · 본문크기 CloudFront Function · CSP)로 충분해 떼어냈다.
+  # (본문크기 DoS 방어는 WAF가 아니라 reqsize CloudFront Function이라 이걸 떼도 유지됨)
 
   tags = {
     Name = "bplgplafrom"

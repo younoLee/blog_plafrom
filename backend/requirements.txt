@@ -21,3 +21,4 @@ cryptography==43.0.1
 openai==1.55.3
 google-genai==0.8.0
 cohere==5.13.3
+psutil==7.2.2  # 관리자 인프라 대시보드 실측(CPU·메모리·디스크·부하)

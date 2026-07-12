@@ -67,3 +67,20 @@ export async function deleteUser(id: number): Promise<void> {
   })
   if (!res.ok) throw new Error('삭제에 실패했어')
 }
+
+// 관리자 인프라 대시보드: 서버(EC2)+DB 실측 지표
+export interface InfraStatus {
+  cpu_percent: number
+  cpu_count: number
+  load_avg: { '1m': number; '5m': number; '15m': number }
+  memory: { percent: number; used_mb: number; total_mb: number }
+  disk: { percent: number; used_gb: number; total_gb: number }
+  uptime_seconds: number
+  db: { connections: number | null; max_connections: number | null }
+}
+
+export async function fetchInfra(): Promise<InfraStatus> {
+  const res = await fetch(`${BASE}/admin/infra`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('인프라 상태를 불러오지 못했어')
+  return res.json()
+}

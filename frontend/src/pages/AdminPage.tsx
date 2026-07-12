@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser } from '../api/admin'
+import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser, fetchInfra, type InfraStatus } from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 
@@ -16,15 +16,54 @@ const ROLE_META: Record<Role, { label: string; badge: string }> = {
 // 액션 → 호출할 API 함수
 const ACTIONS = { approve: approveUser, revoke: revokeUser, ban: banUser, unban: unbanUser, pro: toggleProUser }
 
+// 서버 부하 미터: 값에 따라 초록(<60)/노랑(<85)/빨강(>=85)
+function Meter({ label, percent, detail }: { label: string; percent: number; detail: string }) {
+  const p = Math.min(100, Math.max(0, Math.round(percent)))
+  const color = p >= 85 ? 'bg-red-500' : p >= 60 ? 'bg-amber-500' : 'bg-emerald-500'
+  return (
+    <div className={ui.card}>
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{label}</span>
+        <span className="text-lg font-semibold tracking-tight">{p}%</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/10">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${p}%` }} />
+      </div>
+      <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">{detail}</p>
+    </div>
+  )
+}
+
+function formatUptime(s: number): string {
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return d > 0 ? `${d}일 ${h}시간` : h > 0 ? `${h}시간 ${m}분` : `${m}분`
+}
+
 function AdminPage() {
   const { user, loading } = useAuth()
   const [users, setUsers] = useState<User[]>([])
+  const [infra, setInfra] = useState<InfraStatus | null>(null)
   const [error, setError] = useState('')
 
   // 가입자 목록 불러오기 (관리자일 때만)
   useEffect(() => {
     if (user?.role !== 'admin') return
     listUsers().then(setUsers).catch((e) => setError(e.message))
+  }, [user])
+
+  // 인프라 상태: 10초마다 폴링 (관리자일 때만)
+  useEffect(() => {
+    if (user?.role !== 'admin') return
+    let alive = true
+    const load = () => fetchInfra().then((d) => alive && setInfra(d)).catch(() => {})
+    load()
+    const t = setInterval(load, 10000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
   }, [user])
 
   // 로그인 상태 복구 중에는 잠깐 대기
@@ -60,9 +99,31 @@ function AdminPage() {
         가입자를 승인하면 글을 쓸 수 있어. 승인 취소하면 다시 막혀(기존 글은 남음).
       </p>
 
+      {/* 인프라 상태 대시보드 (서버 EC2 + DB 실측, 10초 폴링). 관리자만 봄 */}
+      {infra && (
+        <section className="mt-6">
+          <h2 className="mb-3 flex items-baseline gap-2 text-xl font-semibold tracking-tight">
+            인프라 상태
+            <span className="text-xs font-normal text-gray-400 dark:text-gray-500">서버·DB 실측 · 10초마다 갱신</span>
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Meter label="CPU" percent={infra.cpu_percent} detail={`부하 ${infra.load_avg['1m']} · ${infra.cpu_count}코어`} />
+            <Meter label="메모리" percent={infra.memory.percent} detail={`${infra.memory.used_mb} / ${infra.memory.total_mb} MB`} />
+            <Meter label="디스크" percent={infra.disk.percent} detail={`${infra.disk.used_gb} / ${infra.disk.total_gb} GB`} />
+            <Meter
+              label="DB 커넥션"
+              percent={infra.db.max_connections ? ((infra.db.connections ?? 0) / infra.db.max_connections) * 100 : 0}
+              detail={infra.db.connections != null ? `${infra.db.connections} / ${infra.db.max_connections}` : '조회 불가'}
+            />
+          </div>
+          <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">서버 가동시간: {formatUptime(infra.uptime_seconds)}</p>
+        </section>
+      )}
+
       {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
 
-      <ul className="mt-6 space-y-3">
+      <h2 className="mb-3 mt-8 text-xl font-semibold tracking-tight">가입자 관리</h2>
+      <ul className="space-y-3">
         {users.map((u) => {
           const meta = ROLE_META[u.role]
           return (
