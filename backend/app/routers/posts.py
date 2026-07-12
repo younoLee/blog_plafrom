@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select, or_, and_, true
 from sqlalchemy.orm import Session
@@ -8,10 +10,26 @@ from app.core.deps import get_current_user_optional, require_writer
 from app.models.post import Post
 from app.models.user import User
 from app.models.author_subscription import AuthorSubscription
-from app.schemas.post import PostCreate, PostUpdate, PostRead, PostVisibilityUpdate
+from app.schemas.post import PostCreate, PostUpdate, PostRead, PostSummary, PostVisibilityUpdate
 from app.services.email import notify_new_post
 
 router = APIRouter(prefix="/posts", tags=["posts"])
+
+
+# --- 목록용 발췌/읽기시간 (본문 전체를 목록 응답에 싣지 않기 위해 서버에서 계산) ---
+def _excerpt(md: str, max_len: int = 200) -> str:
+    t = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", md)  # 이미지 제거
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)  # 링크 → 표시 텍스트만
+    t = re.sub(r"^#{1,6}\s+", "", t, flags=re.M)  # 헤딩 기호
+    t = re.sub(r"^\s*[-*+]\s+", "", t, flags=re.M)  # 불릿
+    t = re.sub(r"^\s*>\s?", "", t, flags=re.M)  # 인용
+    t = re.sub(r"[*_~`]", "", t)  # 강조·코드 마커
+    t = re.sub(r"\s+", " ", t).strip()
+    return (t[:max_len].strip() + "…") if len(t) > max_len else t
+
+
+def _reading_minutes(md: str) -> int:
+    return max(1, round(len(md) / 500))  # 한글 기준 분당 약 500자
 
 
 def get_post_or_404(post_id: int, db: Session) -> Post:
@@ -50,7 +68,7 @@ def can_view(post: Post, user: User | None, subs: set[int]) -> bool:
     return False
 
 
-@router.get("", response_model=list[PostRead])
+@router.get("", response_model=list[PostSummary])
 def list_posts(
     tag: str | None = None,
     db: Session = Depends(get_db),
@@ -74,7 +92,23 @@ def list_posts(
     if tag:
         # 태그 필터: tags 배열에 이 태그가 포함된 글만 (Postgres 배열 contains)
         stmt = stmt.where(Post.tags.contains([tag]))
-    return db.scalars(stmt.order_by(Post.created_at.desc())).all()
+    posts = db.scalars(stmt.order_by(Post.created_at.desc())).all()
+    # 본문 전체 대신 발췌+읽기시간만 담아 응답 크기를 줄인다 (증폭 방지)
+    return [
+        PostSummary(
+            id=p.id,
+            title=p.title,
+            excerpt=_excerpt(p.content),
+            reading_minutes=_reading_minutes(p.content),
+            cover_image=p.cover_image,
+            tags=p.tags,
+            owner_id=p.owner_id,
+            visibility=p.visibility,
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+        )
+        for p in posts
+    ]
 
 
 @router.post("", response_model=PostRead, status_code=201)

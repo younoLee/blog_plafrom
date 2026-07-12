@@ -13,3 +13,17 @@ export interface Post {
   created_at: string
   updated_at: string
 }
+
+// 목록용 — 본문 전체 대신 발췌+읽기시간 (서버 PostSummary와 동일 모양)
+export interface PostSummary {
+  id: number
+  title: string
+  excerpt: string
+  reading_minutes: number
+  cover_image: string | null
+  tags: string[]
+  owner_id: number | null
+  visibility: Visibility
+  created_at: string
+  updated_at: string
+}

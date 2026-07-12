@@ -1,20 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import type { Post } from '../types/post'
+import type { PostSummary } from '../types/post'
 import { fetchPosts, deletePost } from '../api/posts'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconLock } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { Sidebar } from '../components/Sidebar'
-import { excerpt, readingTime } from '../postUtils'
 
 function HomePage() {
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const tag = searchParams.get('tag') || undefined // URL ?tag= 로 태그 필터
 
-  const [posts, setPosts] = useState<Post[]>([])
+  const [posts, setPosts] = useState<PostSummary[]>([])
   const [error, setError] = useState('')
 
   async function loadPosts() {
@@ -121,7 +120,7 @@ function HomePage() {
             </h3>
             <Link to={`/blog/posts/${post.id}`} className="mt-2 block text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
               <p className="line-clamp-2 leading-relaxed">
-                {excerpt(post.content)}
+                {post.excerpt}
               </p>
             </Link>
             {post.tags.length > 0 && (
@@ -139,7 +138,7 @@ function HomePage() {
             )}
             <div className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
               <time className="text-xs text-gray-400 dark:text-gray-500">
-                {new Date(post.created_at).toLocaleDateString()} · {readingTime(post.content)}분 읽기
+                {new Date(post.created_at).toLocaleDateString()} · {post.reading_minutes}분 읽기
               </time>
               {/* 본인 글이거나 관리자면 수정·삭제 버튼 노출 */}
               {user && (post.owner_id === user.id || user.role === 'admin') && (

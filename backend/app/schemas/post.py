@@ -67,3 +67,20 @@ class PostRead(BaseModel):
     visibility: str
     created_at: datetime
     updated_at: datetime
+
+
+# 목록용 — 본문 전체 대신 발췌+읽기시간만 담아 응답 크기를 줄인다(증폭 DoS·대역폭 방지).
+# 본문 전체는 상세(GET /posts/{id}=PostRead)에서만 내려간다.
+class PostSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    excerpt: str  # 마크다운 기호 벗긴 짧은 발췌
+    reading_minutes: int  # 읽기 시간(분)
+    cover_image: str | None
+    tags: list[str]
+    owner_id: int | None
+    visibility: str
+    created_at: datetime
+    updated_at: datetime

@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { Post } from '../types/post'
+import type { PostSummary } from '../types/post'
 import { ui } from '../ui'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
 // 블로그 홈 우측 사이드바: 프로필 카드 + 최근 글. 화면이 '꽉 찬 블로그'처럼 보이게 채워준다.
 // (카테고리/태그는 글에 태그 필드가 생기면 여기에 추가 예정)
-export function Sidebar({ posts }: { posts: Post[] }) {
+export function Sidebar({ posts }: { posts: PostSummary[] }) {
   const [owner, setOwner] = useState<{ name: string | null }>({ name: null })
 
   useEffect(() => {

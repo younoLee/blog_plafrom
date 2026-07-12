@@ -1,11 +1,11 @@
-import type { Post, Visibility } from '../types/post'
+import type { Post, PostSummary, Visibility } from '../types/post'
 import { authHeaders } from './auth'
 
 // 백엔드 주소 (나중에 환경변수로 빼면 좋음)
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
 // 글 목록 (로그인했으면 내 비공개글도 포함되도록 토큰 첨부)
-export async function fetchPosts(tag?: string): Promise<Post[]> {
+export async function fetchPosts(tag?: string): Promise<PostSummary[]> {
   // tag가 있으면 그 태그가 달린 글만 (서버 필터)
   const url = tag ? `${BASE}/posts?tag=${encodeURIComponent(tag)}` : `${BASE}/posts`
   const res = await fetch(url, { headers: authHeaders() })

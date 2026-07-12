@@ -265,7 +265,9 @@
       "Bash(python3 /tmp/claude-1000/-home-es0764-blog-platform/5f85b77c-1607-43d9-a258-093e60dc4b6e/scratchpad/setcovers.py)",
       "Bash(curl -s -m 10 \"https://d2j66m9udyg9yq.cloudfront.net/api/posts\")",
       "Bash(PYTHONPATH=backend backend/.venv/bin/python -c ' *)",
-      "Bash(curl -s -m 10 \"https://api.github.com/repos/younoLee/blog_plafrom/actions/runs?per_page=1\")"
+      "Bash(curl -s -m 10 \"https://api.github.com/repos/younoLee/blog_plafrom/actions/runs?per_page=1\")",
+      "Bash(curl -s -m 10 -o /dev/null -w '  /api/health   → HTTP %{http_code}\\\\n' https://d2j66m9udyg9yq.cloudfront.net/api/health)",
+      "Bash(curl -s -m 10 https://d2j66m9udyg9yq.cloudfront.net/api/status)"
     ]
   }
 }
