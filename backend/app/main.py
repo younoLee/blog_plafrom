@@ -15,7 +15,7 @@ from app.core.database import get_db
 from app.core.ratelimit import limiter
 from app.models.user import User
 from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin
-from app.services.status import run_checks, get_history, start_recorder
+from app.services.status import get_latest, get_history, start_recorder
 from app.services.cleanup import start_cleanup
 
 # 절대 운영에서 쓰면 안 되는 기본 SECRET_KEY (코드에 공개돼 있어 토큰 위조 가능)
@@ -102,10 +102,10 @@ def blog_owner(db: Session = Depends(get_db)):
 
 
 @app.get("/api/status")
-@limiter.limit("30/minute")  # 무인증 + 매 호출 SMTP 소켓(최대 2초) → 남용 시 워커 점유 방지
+@limiter.limit("30/minute")  # 무인증 남용 방지 (이제 캐시라 가볍지만 유지)
 def status(request: Request):
-    # 지금 이 순간 상태 (상태 페이지가 사용)
-    c = run_checks()
+    # 백그라운드가 1분마다 갱신한 캐시를 반환 (매 호출 라이브 점검·SMTP 연결 안 함)
+    c = get_latest()
     return {
         "backend": "ok" if c["backend_ok"] else "down",
         "database": "ok" if c["database_ok"] else "down",

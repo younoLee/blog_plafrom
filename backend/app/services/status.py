@@ -20,6 +20,10 @@ from app.models.status_check import StatusCheck
 # 자가 점검 기록 간격(초)
 RECORD_INTERVAL = 60
 
+# 마지막 점검 결과 캐시 — /status가 매 호출마다 라이브 점검(특히 SMTP 2초)하지 않도록.
+# 백그라운드 레코더가 RECORD_INTERVAL마다 갱신한다.
+_latest: dict | None = None
+
 
 def run_checks() -> dict:
     """백엔드/DB/메일 점검 + 통계(글·구독자 수)를 한 번에."""
@@ -57,8 +61,10 @@ def run_checks() -> dict:
 
 
 def record_check() -> None:
-    """점검 결과 한 줄을 status_checks 에 저장 (백그라운드용 자체 세션)."""
+    """점검 결과 한 줄을 status_checks 에 저장 + 최신값 캐시 (백그라운드용 자체 세션)."""
+    global _latest
     c = run_checks()
+    _latest = c  # /status가 이 캐시를 읽음 (매 호출 SMTP 연결 제거)
     db = SessionLocal()
     try:
         db.add(
@@ -71,6 +77,12 @@ def record_check() -> None:
         db.commit()
     finally:
         db.close()
+
+
+def get_latest() -> dict:
+    """/status용: 백그라운드가 1분마다 갱신한 캐시를 반환.
+    아직 캐시가 없으면(콜드스타트) 그때만 한 번 라이브 점검."""
+    return _latest if _latest is not None else run_checks()
 
 
 def _recorder_loop() -> None:
