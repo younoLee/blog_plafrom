@@ -17,17 +17,22 @@ function handler(event) {
     //  - style 'unsafe-inline': React/Tailwind가 인라인 style 속성을 넣을 수 있어 허용(스타일 XSS는 저위험)
     //  - img-src https: : 마크다운 본문의 외부 이미지 링크 허용(업로드 이미지는 same-origin='self')
     //  - connect-src 'self': API가 same-origin(/api)이라 외부 연결 불필요
+    //  - *.tosspayments.com / *.toss.im: 토스페이먼츠 결제창(SDK 스크립트·iframe·네트워크).
+    //    결제 승인 자체는 백엔드(서버→토스)가 하지만, 결제창 SDK는 브라우저에서 토스 도메인을
+    //    로드/연결/프레임하므로 script/connect/frame/form-action에 토스 도메인을 허용해야 창이 뜬다.
+    //    (승인 검증은 여전히 서버가 시크릿키로 수행 — 프론트에 시크릿키 노출 없음)
     var csp = [
         "default-src 'self'",
-        "script-src 'self'",
+        "script-src 'self' https://*.tosspayments.com",
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
         "font-src 'self' https://cdn.jsdelivr.net data:",
         "img-src 'self' data: https:",
-        "connect-src 'self'",
+        "connect-src 'self' https://*.tosspayments.com https://*.toss.im",
+        "frame-src https://*.tosspayments.com https://*.toss.im",
         "object-src 'none'",
         "base-uri 'self'",
         "frame-ancestors 'self'",
-        "form-action 'self'"
+        "form-action 'self' https://*.tosspayments.com https://*.toss.im"
     ].join("; ");
 
     // 검증 완료(위반 0건) → 실제 적용(enforce).

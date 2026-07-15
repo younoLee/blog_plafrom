@@ -54,7 +54,7 @@ resource "aws_cloudfront_distribution" "main" {
   # 백엔드 오리진 (EC2, HTTP only :8000)
   origin {
     origin_id   = "ec2-backend"
-    domain_name = "ec2-15-164-102-25.ap-northeast-2.compute.amazonaws.com"
+    domain_name = aws_eip.backend.public_dns
 
     custom_origin_config {
       http_port              = 8000
