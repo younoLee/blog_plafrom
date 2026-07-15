@@ -51,11 +51,11 @@ function HomePage() {
           최근 <span className={ui.gradientText}>이야기</span>
         </h1>
         <p className="mt-3 text-lg text-gray-500 dark:text-gray-400">인프라를 직접 만들며 배운 것을 남깁니다.</p>
-        {/* 새 글 이메일 구독·계정 구독은 전용 페이지에서 */}
+        {/* 이메일 구독·새 글 알림은 전용 페이지에서 */}
         <p className="mx-auto mt-7 max-w-md text-sm text-gray-500 dark:text-gray-400">
-          새 글 이메일 구독·계정 구독은{' '}
+          이메일 구독과 새 글 알림은{' '}
           <Link to="/subscriptions" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
-            구독 관리
+            구독
           </Link>
           에서 할 수 있어.
         </p>

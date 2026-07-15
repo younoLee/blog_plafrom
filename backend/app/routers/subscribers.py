@@ -4,12 +4,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import require_admin
+from app.core.deps import get_current_user, require_admin
 from app.core.ratelimit import limiter
 from app.core.security import create_email_token, decode_email_token
 from app.models.subscriber import Subscriber
 from app.models.user import User
-from app.schemas.subscriber import SubscriberCreate, SubscriberRead
+from app.schemas.subscriber import MySubscription, SubscriberCreate, SubscriberRead
 from app.services.email import send_subscribe_confirm_email
 
 router = APIRouter(prefix="/subscribers", tags=["subscribers"])
@@ -77,6 +77,48 @@ def unsubscribe(request: Request, data: SubscriberCreate, db: Session = Depends(
         db.delete(sub)
         db.commit()
     return {"message": "구독을 취소했어 (등록된 이메일이라면)"}
+
+
+# --- 로그인 사용자 본인 구독 (구독 관리 페이지 전용) ---
+# '내 계정 이메일'로만 다룬다. 소유권이 로그인으로 증명되므로 더블옵트인(확인메일) 없이
+# 바로 confirmed 처리 → '새 글 알림'(계정 구독)을 구독 직후 바로 설정할 수 있음.
+# 라우트 순서 주의: 아래 DELETE "/{subscriber_id}"(int)가 "me"를 삼키지 않도록 그 앞에 둔다.
+
+
+@router.get("/me", response_model=MySubscription)
+def my_subscription(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
+    return MySubscription(
+        email=user.email, subscribed=(sub is not None and sub.confirmed)
+    )
+
+
+@router.post("/me", response_model=MySubscription, status_code=200)
+def subscribe_me(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    # 내 계정 이메일로 구독(멱등). 본인 인증이 로그인으로 끝났으니 즉시 confirmed.
+    sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
+    if sub is None:
+        sub = Subscriber(email=user.email, confirmed=True)
+        db.add(sub)
+    else:
+        sub.confirmed = True
+    db.commit()
+    return MySubscription(email=user.email, subscribed=True)
+
+
+@router.delete("/me", status_code=204)
+def unsubscribe_me(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    # 내 계정 이메일 구독 해제 (없으면 그냥 204)
+    sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
+    if sub is not None:
+        db.delete(sub)
+        db.commit()
 
 
 @router.get("", response_model=list[SubscriberRead])
