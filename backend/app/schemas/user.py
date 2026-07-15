@@ -27,6 +27,7 @@ class UserRead(BaseModel):
     role: str  # pending / writer / admin / banned
     email_verified: bool
     is_pro: bool  # 유료(고급 AI 모델 해금) 여부
+    pro_until: datetime | None = None  # 구독 만료 시각(없으면 None)
     created_at: datetime
 
 

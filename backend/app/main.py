@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.ratelimit import limiter
 from app.models.user import User
-from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin
+from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin, payments
 from app.services.status import get_latest, get_history, start_recorder
 from app.services.cleanup import start_cleanup
 
@@ -81,6 +81,7 @@ app.include_router(subscriptions.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(payments.router, prefix="/api")
 
 # 업로드된 이미지 파일 서빙: GET /uploads/<파일명> → uploads/ 폴더
 # (이미지 URL은 public_base_url 기준. CloudFront에서 /uploads/* 도 EC2로 넘김)

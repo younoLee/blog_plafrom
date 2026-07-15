@@ -9,6 +9,7 @@ export interface User {
   email: string
   role: Role
   is_pro: boolean // 유료(고급 AI 모델 해금) 여부
+  pro_until?: string | null // 구독 만료 시각(ISO). 없으면 null
   created_at: string
 }
 

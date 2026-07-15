@@ -7,6 +7,8 @@ export interface AuthState {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string) => Promise<void>
   logout: () => void
+  // 서버에서 내 정보를 다시 불러와 갱신 (예: 결제 후 is_pro 반영)
+  refreshUser: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthState | null>(null)

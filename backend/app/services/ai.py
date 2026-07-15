@@ -18,6 +18,7 @@ MODELS: dict[str, tuple[str, str]] = {
     # Claude — 서버 키, 티어 게이팅
     "claude-sonnet-4-6": ("Claude Sonnet 4.6 (기본)", "claude"),
     "claude-opus-4-8": ("Claude Opus 4.8 (고품질·결제)", "claude"),
+    "claude-fable-5": ("Claude Fable 5 (최고 성능·결제)", "claude"),
     "claude-haiku-4-5": ("Claude Haiku 4.5 (저비용)", "claude"),
     # OpenAI — 사용자 키(BYOK)
     "gpt-4o": ("GPT-4o", "openai"),
@@ -32,8 +33,9 @@ MODELS: dict[str, tuple[str, str]] = {
 DEFAULT_MODEL = "claude-haiku-4-5"
 
 # Claude 티어별 허용 집합
-_CLAUDE_FREE = {"claude-sonnet-4-6", "claude-haiku-4-5"}  # Opus만 잠금
-_CLAUDE_ALL = {"claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"}
+# 무료: 소넷+하이쿠. 유료 전용(잠금): Opus·Fable 5 (둘 다 상위·고비용 모델)
+_CLAUDE_FREE = {"claude-sonnet-4-6", "claude-haiku-4-5"}
+_CLAUDE_ALL = {"claude-sonnet-4-6", "claude-opus-4-8", "claude-fable-5", "claude-haiku-4-5"}
 
 
 def model_provider(model: str) -> str | None:
@@ -85,12 +87,27 @@ def _claude(memo: str, model: str, api_key: str | None = None) -> str:
     if not key:
         raise AIKeyMissingError("Claude 키 없음")
     client = anthropic.Anthropic(api_key=key, timeout=REQUEST_TIMEOUT, max_retries=1)
+
+    extra: dict = {}
+    max_tokens = MAX_TOKENS
+    if model == "claude-fable-5":
+        # Fable 5는 사고(thinking)가 항상 켜져 있어, 낮은 effort로 두지 않으면
+        # 짧은 max_tokens 예산을 사고에 다 써버려 초안이 잘릴 수 있음.
+        # effort=low + 넉넉한 출력 예산으로 초안이 온전히 나오게 함.
+        # (extra_body로 넘겨 SDK 버전에 상관없이 API에 그대로 전달)
+        extra["extra_body"] = {"output_config": {"effort": "low"}}
+        max_tokens = 8000
+
     resp = client.messages.create(
         model=model,
-        max_tokens=MAX_TOKENS,
+        max_tokens=max_tokens,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": memo}],
+        **extra,
     )
+    # Fable 5는 안전분류기가 요청을 거부하면 stop_reason='refusal' + 빈 content가 올 수 있음
+    if getattr(resp, "stop_reason", None) == "refusal":
+        raise RuntimeError("모델이 이 요청을 거부했어 (다른 메모로 다시 시도)")
     return "".join(b.text for b in resp.content if b.type == "text")
 
 

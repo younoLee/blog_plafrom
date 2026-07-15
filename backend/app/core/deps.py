@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -5,6 +7,14 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models.user import User
+
+
+def _expire_pro_if_due(user: User, db: Session) -> None:
+    """구독 만료 시각이 지났으면 is_pro를 끈다(lazy expiration).
+    별도 배치 없이, 그 사용자가 요청할 때마다 확인 → 지났으면 한 번만 꺼서 커밋."""
+    if user.is_pro and user.pro_until is not None and user.pro_until <= datetime.now(timezone.utc):
+        user.is_pro = False
+        db.commit()
 
 # Authorization: Bearer <토큰> 헤더에서 토큰을 꺼냄
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -28,6 +38,8 @@ def get_current_user(
     # 차단된 계정은 토큰이 있어도 막음
     if user.role == "banned":
         raise HTTPException(status_code=403, detail="차단된 계정이야")
+    # 구독 만료 확인(지났으면 is_pro off) — 이후 모든 게이팅이 최신 상태로 동작
+    _expire_pro_if_due(user, db)
     return user
 
 

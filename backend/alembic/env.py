@@ -25,6 +25,7 @@ import app.models.author_subscription  # noqa: F401
 import app.models.status_check  # noqa: F401
 import app.models.llm_credential  # noqa: F401 — 빠지면 autogenerate가 이 테이블을 drop하려 함
 import app.models.ai_usage  # noqa: F401
+import app.models.payment  # noqa: F401
 
 # DB 주소를 .env/기본값(settings)에서 주입 (alembic.ini에 비밀번호 안 박아도 됨)
 config.set_main_option("sqlalchemy.url", settings.database_url)

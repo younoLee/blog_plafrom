@@ -30,8 +30,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
   }
 
+  // 결제 등으로 서버 상태가 바뀐 뒤 내 정보를 다시 불러와 반영
+  async function refreshUser() {
+    setUser(await authApi.fetchMe())
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

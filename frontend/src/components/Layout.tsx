@@ -34,6 +34,13 @@ function Layout() {
                 <span className="hidden text-sm text-gray-500 dark:text-gray-400 sm:inline">{user.email}</span>
                 {/* 구독 관리는 로그인한 누구나 */}
                 <Link to="/subscriptions" className={ui.btnGhost}>구독</Link>
+                {/* Pro 결제 (상위 AI 모델 해금). 이미 Pro면 살짝 강조 */}
+                <Link
+                  to="/pricing"
+                  className={user.is_pro || user.role === 'admin' ? ui.btnGhost : ui.btnPrimary}
+                >
+                  {user.is_pro || user.role === 'admin' ? 'Pro ✓' : 'Pro'}
+                </Link>
                 {/* 관리자만 보이는 메뉴 */}
                 {user.role === 'admin' && (
                   <Link to="/admin" className={ui.btnGhost}>관리자</Link>

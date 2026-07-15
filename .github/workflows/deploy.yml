@@ -33,6 +33,10 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_BASE: https://d2j66m9udyg9yq.cloudfront.net/api
+          # 라이브 결제 전환: 리포지토리 Variables에 TOSS_CLIENT_KEY(live_ck_...)를 설정하면 주입됨.
+          # 미설정이면 빈 값 → 프론트가 토스 테스트 키로 폴백(실제 청구 없음).
+          # 클라이언트키는 비밀이 아니라 Secrets가 아닌 Variables로 관리. 시크릿키는 EC2 .env에만.
+          VITE_TOSS_CLIENT_KEY: ${{ vars.TOSS_CLIENT_KEY }}
         run: npm run build
 
       - name: AWS 자격증명 (OIDC 역할 assume — 장기 키 없음)

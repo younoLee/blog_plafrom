@@ -11,6 +11,9 @@ import StatusPage from './pages/StatusPage'
 import PortalPage from './pages/PortalPage'
 import AdminPage from './pages/AdminPage'
 import SettingsPage from './pages/SettingsPage'
+import PaymentPage from './pages/PaymentPage'
+import PaymentSuccessPage from './pages/PaymentSuccessPage'
+import PaymentFailPage from './pages/PaymentFailPage'
 import SubscriptionsPage from './pages/SubscriptionsPage'
 import VerifyPage from './pages/VerifyPage'
 import SubscribeConfirmPage from './pages/SubscribeConfirmPage'
@@ -39,6 +42,10 @@ function App() {
             <Route path="/admin" element={<AdminPage />} />
             {/* 설정 (페이지 안에서 writer 아니면 /blog로 리다이렉트) */}
             <Route path="/settings" element={<SettingsPage />} />
+            {/* Pro 구독 결제 (토스 결제창 → 승인검증 → is_pro 켜짐 → 상위 AI 모델 해금) */}
+            <Route path="/pricing" element={<PaymentPage />} />
+            <Route path="/payment/success" element={<PaymentSuccessPage />} />
+            <Route path="/payment/fail" element={<PaymentFailPage />} />
             {/* 구독 관리 (계정 구독 + 이메일 구독) */}
             <Route path="/subscriptions" element={<SubscriptionsPage />} />
             {/* 인증 (루트 유지) */}
