@@ -33,6 +33,42 @@ class InvalidBaseURLError(ValueError):
     """base_url이 https가 아니거나 내부/사설 주소를 가리킬 때(SSRF 방지)."""
 
 
+class InvalidAPIKeyError(ValueError):
+    """입력한 키가 provider 형식에 안 맞을 때(오타·엉뚱한 값 저장 방지)."""
+
+
+# provider별 키 접두사 — 공개적으로 '안정적인' 것만 강제한다.
+#  - openai:    sk-... (sk-proj-... 포함)
+#  - anthropic: sk-ant-...
+#  - gemini:    Google AI Studio 키는 AIza...
+# compatible/cohere는 벤더마다 형식이 제각각(xai-, sk-or-, 접두사 없음 등)이라
+# 접두사를 강제하지 않고 공통 검증(공백·제어문자 차단)만 적용한다.
+_KEY_PREFIX: dict[str, tuple[str, ...]] = {
+    "openai": ("sk-",),
+    "anthropic": ("sk-ant-",),
+    "gemini": ("AIza",),
+}
+
+
+def validate_api_key(provider: str, key: str) -> str:
+    """저장 전 키 형식 검증. 통과하면 공백 제거한 키를 돌려준다.
+
+    목적은 '이상한 값'(오타, 통째 붙여넣기 사고, 공백 섞임)을 걸러 암호화 저장까지
+    가지 않게 하는 것. 실제 유효성(호출 성공 여부)은 생성 시점에 provider가 판단한다.
+    """
+    k = key.strip()
+    # 공통: API 키에는 공백·탭·개행이 없다 → 붙여넣기 사고나 엉뚱한 값 차단
+    if any(c.isspace() for c in k):
+        raise InvalidAPIKeyError("API 키에 공백이 들어갈 수 없어")
+    # 공통: 제어문자·비ASCII 차단 (정상 키는 출력가능 ASCII다)
+    if not (k.isascii() and k.isprintable()):
+        raise InvalidAPIKeyError("API 키에 쓸 수 없는 문자가 들어있어")
+    prefixes = _KEY_PREFIX.get(provider)
+    if prefixes and not k.startswith(prefixes):
+        raise InvalidAPIKeyError(f"{provider} 키 형식이 아니야 (예: '{prefixes[0]}'로 시작)")
+    return k
+
+
 def validate_base_url(url: str) -> str:
     """compatible provider의 base_url을 SSRF 관점에서 검증한다.
 

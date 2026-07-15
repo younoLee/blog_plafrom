@@ -29,6 +29,7 @@ from app.services.llm_keys import (
     BYOK_PROVIDERS,
     NEEDS_BASE_URL,
     BYOKNotConfiguredError,
+    InvalidAPIKeyError,
     InvalidBaseURLError,
 )
 
@@ -85,6 +86,11 @@ def set_key(
     base_url = (body.base_url or "").strip() or None
     if provider in NEEDS_BASE_URL and not base_url:
         raise HTTPException(status_code=400, detail="이 provider는 주소(base URL)도 필요해 (예: https://api.x.ai/v1)")
+    # 키 형식 검증 — 오타·엉뚱한 값이 암호화 저장까지 가지 않게 막음(provider별 접두사 + 공통 문자)
+    try:
+        clean_key = llm_keys.validate_api_key(provider, body.key)
+    except InvalidAPIKeyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     # base_url은 서버가 직접 호출하는 주소 → SSRF 방지로 검증(내부/사설 주소 차단)
     if base_url:
         try:
@@ -92,7 +98,7 @@ def set_key(
         except InvalidBaseURLError as e:
             raise HTTPException(status_code=400, detail=str(e))
     try:
-        llm_keys.set_key(db, user.id, provider, body.key.strip(), base_url)
+        llm_keys.set_key(db, user.id, provider, clean_key, base_url)
     except BYOKNotConfiguredError:
         raise HTTPException(status_code=503, detail="서버에 BYOK 암호화 키가 설정 안 됐어 (LLM_ENCRYPTION_KEY 필요)")
     return KeyStatus(provider=provider, has_key=True, base_url=base_url)
