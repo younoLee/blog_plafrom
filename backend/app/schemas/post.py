@@ -84,3 +84,25 @@ class PostSummary(BaseModel):
     visibility: str
     created_at: datetime
     updated_at: datetime
+
+
+# 목록 응답 봉투. 발췌만 담아도 '글 개수'가 무제한이면 응답이 계속 커지므로
+# limit/offset으로 끊는다. total은 프론트 페이지 UI(전체 N개 중 몇 쪽)에 필요.
+class PostList(BaseModel):
+    items: list[PostSummary]
+    total: int  # 필터(q·tag) + 공개범위를 적용한 전체 개수
+    limit: int
+    offset: int
+
+
+class TagCount(BaseModel):
+    tag: str
+    count: int
+
+
+# 사이드바용 집계. 목록이 페이지로 끊기면서 필요해졌다 — 사이드바가 현재 페이지만
+# 보고 집계하면 2쪽에서 태그 목록·글 수가 그 페이지 기준으로 틀어진다.
+class PostMeta(BaseModel):
+    total: int
+    tags: list[TagCount]
+    recent: list[PostSummary]

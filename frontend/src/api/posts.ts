@@ -4,12 +4,52 @@ import { authHeaders } from './auth'
 // 백엔드 주소 (나중에 환경변수로 빼면 좋음)
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
+// 한 쪽에 보여줄 글 수. 서버 상한은 50 (그 이상 요청하면 422)
+export const POSTS_PAGE_SIZE = 10
+
+export type PostListResult = {
+  items: PostSummary[]
+  total: number // 필터 적용 후 전체 개수 (페이지 UI용)
+  limit: number
+  offset: number
+}
+
 // 글 목록 (로그인했으면 내 비공개글도 포함되도록 토큰 첨부)
-export async function fetchPosts(tag?: string): Promise<PostSummary[]> {
-  // tag가 있으면 그 태그가 달린 글만 (서버 필터)
-  const url = tag ? `${BASE}/posts?tag=${encodeURIComponent(tag)}` : `${BASE}/posts`
-  const res = await fetch(url, { headers: authHeaders() })
+// q=검색어, tag=태그 필터, limit/offset=페이지
+export async function fetchPosts(
+  opts: { q?: string; tag?: string; limit?: number; offset?: number } = {},
+): Promise<PostListResult> {
+  const params = new URLSearchParams()
+  if (opts.q) params.set('q', opts.q)
+  if (opts.tag) params.set('tag', opts.tag)
+  params.set('limit', String(opts.limit ?? POSTS_PAGE_SIZE))
+  params.set('offset', String(opts.offset ?? 0))
+
+  const res = await fetch(`${BASE}/posts?${params}`, { headers: authHeaders() })
+  if (res.status === 429) throw new Error('요청이 너무 잦아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('목록 불러오기 실패')
+  const data = await res.json()
+  // 배열을 주던 옛 백엔드와의 호환: 프론트·백엔드 배포 사이 잠깐 구버전이 응답할 수 있다
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length, limit: data.length, offset: 0 }
+  }
+  return data
+}
+
+export type TagCount = { tag: string; count: number }
+
+export type PostMetaResult = {
+  total: number
+  tags: TagCount[]
+  recent: PostSummary[]
+}
+
+// 사이드바용 집계(전체 글 수·태그별 개수·최근 글).
+// 목록이 페이지로 끊기므로 사이드바는 목록이 아니라 이걸 봐야 한다
+// (안 그러면 2쪽에서 태그 목록·글 수가 그 페이지 기준으로 틀어짐).
+export async function fetchPostsMeta(): Promise<PostMetaResult> {
+  const res = await fetch(`${BASE}/posts/meta`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('사이드바 정보 불러오기 실패')
   return res.json()
 }
 

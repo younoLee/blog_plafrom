@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { PostSummary } from '../types/post'
-import { fetchPosts, deletePost } from '../api/posts'
+import type { PostMetaResult } from '../api/posts'
+import { fetchPosts, fetchPostsMeta, deletePost, POSTS_PAGE_SIZE } from '../api/posts'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconLock } from '../components/icons'
@@ -10,34 +11,84 @@ import { Sidebar } from '../components/Sidebar'
 
 function HomePage() {
   const { user } = useAuth()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const tag = searchParams.get('tag') || undefined // URL ?tag= 로 태그 필터
+  const q = searchParams.get('q') || undefined // URL ?q= 로 검색
+  // 쪽은 1부터(사람이 읽는 값), 서버엔 offset으로 변환해 보낸다
+  const page = Math.max(1, Number(searchParams.get('page') ?? 1) || 1)
 
   const [posts, setPosts] = useState<PostSummary[]>([])
+  const [total, setTotal] = useState(0)
+  const [meta, setMeta] = useState<PostMetaResult | null>(null)
   const [error, setError] = useState('')
+  // 검색창 입력값. 제출(Enter)할 때만 URL에 반영한다 — 타이핑마다 부르면
+  // 서버 레이트리밋(60/분)에 걸리고 검색은 일반 조회보다 비싸다.
+  const [queryInput, setQueryInput] = useState(q ?? '')
 
   async function loadPosts() {
     try {
-      setPosts(await fetchPosts(tag))
+      const res = await fetchPosts({ q, tag, offset: (page - 1) * POSTS_PAGE_SIZE })
+      setPosts(res.items)
+      setTotal(res.total)
     } catch (e) {
       setError((e as Error).message)
     }
   }
 
   useEffect(() => {
-    fetchPosts(tag)
-      .then(setPosts)
-      .catch((e) => setError((e as Error).message))
-  }, [user, tag])
+    setQueryInput(q ?? '') // 뒤로가기 등으로 URL이 바뀌면 입력창도 맞춘다
+  }, [q])
+
+  useEffect(() => {
+    loadPosts()
+  }, [user, tag, q, page])
+
+  // 사이드바 집계는 목록과 별개 — 페이지·검색과 무관하게 블로그 전체를 보여준다
+  useEffect(() => {
+    fetchPostsMeta()
+      .then(setMeta)
+      .catch(() => {})
+  }, [user])
+
+  function updateParams(next: Record<string, string | undefined>) {
+    const params = new URLSearchParams(searchParams)
+    for (const [k, v] of Object.entries(next)) {
+      if (v) params.set(k, v)
+      else params.delete(k)
+    }
+    setSearchParams(params)
+  }
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault()
+    const v = queryInput.trim()
+    // 서버가 q의 최소 길이를 2로 강제한다(1글자는 trigram 인덱스를 못 타 전체 스캔)
+    if (v.length === 1) {
+      setError('검색어는 2글자 이상 입력해줘')
+      return
+    }
+    setError('')
+    updateParams({ q: v || undefined, page: undefined }) // 검색이 바뀌면 1쪽부터
+  }
+
+  function goToPage(p: number) {
+    updateParams({ page: p > 1 ? String(p) : undefined })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   async function handleDelete(id: number) {
     try {
       await deletePost(id)
       await loadPosts()
+      setMeta(await fetchPostsMeta()) // 글이 줄었으니 사이드바 집계도 갱신
     } catch (e) {
       setError((e as Error).message)
     }
   }
+
+  const lastPage = Math.max(1, Math.ceil(total / POSTS_PAGE_SIZE))
+  const first = total === 0 ? 0 : (page - 1) * POSTS_PAGE_SIZE + 1
+  const last = Math.min(page * POSTS_PAGE_SIZE, total)
 
   return (
     <>
@@ -66,9 +117,33 @@ function HomePage() {
       {/* 본문 + 우측 사이드바 2단. md(768px)+ = 옆으로(PC/태블릿), 그 아래(폰) = 세로 스택 */}
       <div className="grid gap-8 md:grid-cols-[1fr_18rem]">
       <div>
+      {/* 검색 — Enter로 제출. 검색어는 URL(?q=)에 남아 뒤로가기·공유가 된다 */}
+      <form onSubmit={handleSearch} className="mb-5 flex gap-2">
+        <input
+          type="search"
+          value={queryInput}
+          onChange={(e) => setQueryInput(e.target.value)}
+          placeholder="제목·본문 검색 (2글자 이상)"
+          aria-label="글 검색"
+          className="min-w-0 flex-1 rounded-full border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-400 focus:border-[#0071e3] dark:border-white/15 dark:bg-white/5 dark:focus:border-[#0a84ff]"
+        />
+        <button
+          type="submit"
+          className="shrink-0 rounded-full bg-[#0071e3] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#0077ed] dark:bg-[#0a84ff]"
+        >
+          검색
+        </button>
+      </form>
+
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-          {tag ? (
+          {q ? (
+            <>
+              <span className="text-[#0071e3] dark:text-[#0a84ff]">"{q}"</span>
+              <span className="text-base font-normal text-gray-400">검색 결과</span>
+              <Link to={tag ? `/blog?tag=${encodeURIComponent(tag)}` : '/blog'} className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 검색 취소</Link>
+            </>
+          ) : tag ? (
             <>
               <span className="text-[#0071e3] dark:text-[#0a84ff]">#{tag}</span>
               <Link to="/blog" className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 전체보기</Link>
@@ -77,12 +152,14 @@ function HomePage() {
             '최근 글'
           )}
         </h2>
-        <span className="text-sm text-gray-400 dark:text-gray-500">{posts.length}개</span>
+        <span className="text-sm text-gray-400 dark:text-gray-500">
+          {total > 0 ? `${total}개 중 ${first}–${last}` : '0개'}
+        </span>
       </div>
 
       {posts.length === 0 && (
         <p className="rounded-2xl border border-dashed border-black/10 p-12 text-center text-gray-400 dark:border-white/15 dark:text-gray-500">
-          아직 글이 없어. 첫 글을 써봐!
+          {q || tag ? '조건에 맞는 글이 없어.' : '아직 글이 없어. 첫 글을 써봐!'}
         </p>
       )}
 
@@ -152,8 +229,33 @@ function HomePage() {
           </Reveal>
         ))}
       </div>
+
+      {/* 쪽 이동 — 글이 한 쪽을 넘을 때만 */}
+      {lastPage > 1 && (
+        <nav className="mt-8 flex items-center justify-center gap-3" aria-label="페이지 이동">
+          <button
+            type="button"
+            onClick={() => goToPage(page - 1)}
+            disabled={page <= 1}
+            className="rounded-full border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-[#0071e3] enabled:hover:text-[#0071e3] disabled:opacity-40 dark:border-white/15 dark:enabled:hover:border-[#0a84ff] dark:enabled:hover:text-[#0a84ff]"
+          >
+            ← 이전
+          </button>
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {page} / {lastPage}
+          </span>
+          <button
+            type="button"
+            onClick={() => goToPage(page + 1)}
+            disabled={page >= lastPage}
+            className="rounded-full border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-[#0071e3] enabled:hover:text-[#0071e3] disabled:opacity-40 dark:border-white/15 dark:enabled:hover:border-[#0a84ff] dark:enabled:hover:text-[#0a84ff]"
+          >
+            다음 →
+          </button>
+        </nav>
+      )}
       </div>
-      <Sidebar posts={posts} />
+      <Sidebar meta={meta} />
       </div>
     </>
   )

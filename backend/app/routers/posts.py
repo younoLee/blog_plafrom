@@ -1,7 +1,7 @@
 import re
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from sqlalchemy import select, or_, and_, true
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from sqlalchemy import func, select, or_, and_, true
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,7 +10,16 @@ from app.core.deps import get_current_user_optional, require_writer
 from app.models.post import Post
 from app.models.user import User
 from app.models.author_subscription import AuthorSubscription
-from app.schemas.post import PostCreate, PostUpdate, PostRead, PostSummary, PostVisibilityUpdate
+from app.schemas.post import (
+    PostCreate,
+    PostList,
+    PostMeta,
+    PostUpdate,
+    PostRead,
+    PostSummary,
+    PostVisibilityUpdate,
+    TagCount,
+)
 from app.services.email import notify_new_post
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -68,47 +77,126 @@ def can_view(post: Post, user: User | None, subs: set[int]) -> bool:
     return False
 
 
-@router.get("", response_model=list[PostSummary])
+def visible_condition(user: User | None, db: Session):
+    """이 사용자에게 보이는 글의 SQL 조건. 목록·검색·메타가 모두 이걸 쓴다.
+
+    목록/메타가 조건을 각자 만들면 한쪽만 고쳐져 비공개 글이 새기 쉽다(IDOR).
+    """
+    # 관리자는 전체
+    if user is not None and user.role == "admin":
+        return true()
+    if user is None:
+        return Post.visibility == "public"
+    subs = subscribed_author_ids(user, db)
+    return or_(
+        Post.visibility == "public",
+        Post.owner_id == user.id,  # 내 글은 공개범위 무관 전부
+        # 구독자공개 글은 내가 그 작성자를 구독한 경우만 (private은 여기 안 걸림)
+        and_(Post.visibility == "subscribers", Post.owner_id.in_(subs)),
+    )
+
+
+def _summary(p: Post) -> PostSummary:
+    # 본문 전체 대신 발췌+읽기시간만 담아 응답 크기를 줄인다 (증폭 방지)
+    return PostSummary(
+        id=p.id,
+        title=p.title,
+        excerpt=_excerpt(p.content),
+        reading_minutes=_reading_minutes(p.content),
+        cover_image=p.cover_image,
+        tags=p.tags,
+        owner_id=p.owner_id,
+        visibility=p.visibility,
+        created_at=p.created_at,
+        updated_at=p.updated_at,
+    )
+
+
+def _like_escape(s: str) -> str:
+    """ILIKE 패턴에 쓸 사용자 입력을 이스케이프.
+
+    안 하면 q='%'가 전체 매칭이 되고, q='%%%%%'처럼 와일드카드만 잔뜩 보내면
+    인덱스를 못 타 무거운 스캔이 된다. 역슬래시를 먼저 바꿔야 이중 이스케이프가 안 난다.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+@router.get("", response_model=PostList)
+# 무인증으로 부를 수 있고 검색은 일반 조회보다 비싸므로 상한을 둔다(넉넉해서 정상 열람엔 안 걸림).
+@limiter.limit("60/minute")
 def list_posts(
+    request: Request,
+    q: str | None = Query(None, min_length=2, max_length=100, description="제목·본문 검색어"),
     tag: str | None = None,
+    limit: int = Query(10, ge=1, le=50),  # 상한 필수: ?limit=999999로 전체를 뽑아가는 걸 막는다
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    # 공개글 + (로그인 시) 내 글 전부 + 내가 구독한 글쓴이의 '구독자공개' 글
-    # 관리자는 모든 글(조건 없음)
-    if user is not None and user.role == "admin":
-        condition = true()  # 전체 (항상 참)
-    elif user is None:
-        condition = Post.visibility == "public"
-    else:
-        subs = subscribed_author_ids(user, db)
-        condition = or_(
-            Post.visibility == "public",
-            Post.owner_id == user.id,  # 내 글은 공개범위 무관 전부
-            # 구독자공개 글은 내가 그 작성자를 구독한 경우만 (private은 여기 안 걸림)
-            and_(Post.visibility == "subscribers", Post.owner_id.in_(subs)),
-        )
-    stmt = select(Post).where(condition)
+    # 필터는 전부 공개범위 조건과 AND — 하나라도 OR로 새면 검색으로 비공개 글이 샌다(IDOR).
+    filters = [visible_condition(user, db)]
     if tag:
         # 태그 필터: tags 배열에 이 태그가 포함된 글만 (Postgres 배열 contains)
-        stmt = stmt.where(Post.tags.contains([tag]))
-    posts = db.scalars(stmt.order_by(Post.created_at.desc())).all()
-    # 본문 전체 대신 발췌+읽기시간만 담아 응답 크기를 줄인다 (증폭 방지)
-    return [
-        PostSummary(
-            id=p.id,
-            title=p.title,
-            excerpt=_excerpt(p.content),
-            reading_minutes=_reading_minutes(p.content),
-            cover_image=p.cover_image,
-            tags=p.tags,
-            owner_id=p.owner_id,
-            visibility=p.visibility,
-            created_at=p.created_at,
-            updated_at=p.updated_at,
+        filters.append(Post.tags.contains([tag]))
+    if q:
+        # 한국어는 to_tsvector가 형태소를 몰라 풀텍스트가 안 먹는다 → pg_trgm + ILIKE.
+        # 값은 파라미터로 바인딩되고(SQLi 없음) 메타문자는 위에서 이스케이프한다.
+        pattern = f"%{_like_escape(q.strip())}%"
+        filters.append(
+            or_(
+                Post.title.ilike(pattern, escape="\\"),
+                Post.content.ilike(pattern, escape="\\"),
+            )
         )
-        for p in posts
-    ]
+
+    # 페이지를 끊기 전 전체 개수(프론트의 '총 N개 / 다음 쪽' 표시용)
+    total = db.scalar(select(func.count()).select_from(Post).where(*filters)) or 0
+    posts = db.scalars(
+        select(Post).where(*filters).order_by(Post.created_at.desc()).limit(limit).offset(offset)
+    ).all()
+
+    return PostList(
+        items=[_summary(p) for p in posts],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+# 주의: 이 라우트는 반드시 "/{post_id}"보다 위에 있어야 한다.
+# 아래에 두면 'meta'를 post_id(int)로 파싱하려다 422가 난다. (07-15 /subscribers/me와 같은 함정)
+@router.get("/meta", response_model=PostMeta)
+def posts_meta(
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """사이드바용 집계 — 전체 글 수, 태그별 개수, 최근 글.
+
+    목록이 페이지로 끊기면서 필요해졌다. 사이드바가 '현재 페이지'만 보고 집계하면
+    2쪽에서 태그 목록이 그 페이지 글 기준으로 쪼그라든다.
+    """
+    condition = visible_condition(user, db)
+
+    total = db.scalar(select(func.count()).select_from(Post).where(condition)) or 0
+
+    # 태그별 글 수: 배열을 펼쳐(unnest) 태그 단위로 집계
+    unnested = select(func.unnest(Post.tags).label("tag")).where(condition).subquery()
+    tag_rows = db.execute(
+        select(unnested.c.tag, func.count().label("cnt"))
+        .group_by(unnested.c.tag)
+        .order_by(func.count().desc(), unnested.c.tag)
+        .limit(20)
+    ).all()
+
+    recent = db.scalars(
+        select(Post).where(condition).order_by(Post.created_at.desc()).limit(5)
+    ).all()
+
+    return PostMeta(
+        total=total,
+        tags=[TagCount(tag=t, count=c) for t, c in tag_rows],
+        recent=[_summary(p) for p in recent],
+    )
 
 
 @router.post("", response_model=PostRead, status_code=201)

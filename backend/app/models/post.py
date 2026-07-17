@@ -7,8 +7,25 @@ from app.core.database import Base
 
 class Post(Base):
     __tablename__ = "posts"
-    # 태그 필터(tags @> ARRAY[...])가 전체스캔 대신 인덱스를 타도록 GIN 인덱스
-    __table_args__ = (Index("ix_posts_tags", "tags", postgresql_using="gin"),)
+    __table_args__ = (
+        # 태그 필터(tags @> ARRAY[...])가 전체스캔 대신 인덱스를 타도록 GIN 인덱스
+        Index("ix_posts_tags", "tags", postgresql_using="gin"),
+        # 검색(ILIKE '%…%')용 trigram GIN 인덱스. 한국어는 to_tsvector가 형태소를
+        # 몰라 풀텍스트가 안 먹으므로 pg_trgm으로 부분일치를 인덱스 스캔한다.
+        # 주의: trigram이라 2글자 이하 검색어는 인덱스를 못 타고 순차 스캔이 된다.
+        Index(
+            "ix_posts_title_trgm",
+            "title",
+            postgresql_using="gin",
+            postgresql_ops={"title": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_posts_content_trgm",
+            "content",
+            postgresql_using="gin",
+            postgresql_ops={"content": "gin_trgm_ops"},
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
