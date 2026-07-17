@@ -414,7 +414,8 @@
       "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-07-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=USAGE_TYPE --filter '{\"Dimensions\":{\"Key\":\"RECORD_TYPE\",\"Values\":[\"Usage\"]}}' --query 'ResultsByTime[0].Groups[?Metrics.UnblendedCost.Amount!=`0`].{UsageType:Keys[0],USD:Metrics.UnblendedCost.Amount}' --output table)",
       "Bash(aws lambda *)",
       "Bash(aws scheduler *)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 25 https://d2j66m9udyg9yq.cloudfront.net/)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 25 https://d2j66m9udyg9yq.cloudfront.net/)",
+      "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-06-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=RECORD_TYPE --filter '{\"Dimensions\":{\"Key\":\"RECORD_TYPE\",\"Values\":[\"Credit\"]}}' --query 'ResultsByTime[].{Month:TimePeriod.Start,Credit:Groups[0].Metrics.UnblendedCost.Amount}' --output table)"
     ]
   }
 }
