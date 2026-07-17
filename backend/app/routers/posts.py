@@ -18,8 +18,13 @@ from app.schemas.post import (
     PostRead,
     PostSummary,
     PostVisibilityUpdate,
+    SeriesItem,
+    SeriesNav,
     TagCount,
 )
+
+# 연재 네비에 담을 최대 편수. 네비 목록이라 상한이 필요하다(제목만이라 가볍긴 하다).
+SERIES_ITEMS_MAX = 100
 from app.services.email import notify_new_post
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -199,6 +204,44 @@ def posts_meta(
     )
 
 
+@router.get("/{post_id}/series", response_model=SeriesNav | None)
+def post_series(
+    post_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """이 글이 속한 연재의 목록·이전/다음. 연재가 아니면 null.
+
+    목록은 '내가 볼 수 있는 글'만 담는다 — 안 그러면 남의 비공개 글 제목이 네비로 샌다.
+    그래서 index/total도 '내 기준'이다(비공개가 섞인 연재면 남이 보는 번호와 다를 수 있음).
+    """
+    post = get_post_or_404(post_id, db)
+    if not can_view(post, user, subscribed_author_ids(user, db)):
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없음")
+    if not post.series:
+        return None
+
+    rows = db.scalars(
+        select(Post)
+        .where(visible_condition(user, db), Post.series == post.series)
+        .order_by(Post.created_at)  # 연재는 쓴 순서대로 = 1편이 위
+        .limit(SERIES_ITEMS_MAX)
+    ).all()
+
+    items = [SeriesItem(id=p.id, title=p.title, created_at=p.created_at) for p in rows]
+    ids = [p.id for p in rows]
+    # 이 글이 목록에 없을 수는 없다(위에서 can_view 통과 = visible_condition도 통과).
+    pos = ids.index(post.id)
+    return SeriesNav(
+        series=post.series,
+        total=len(items),
+        index=pos + 1,
+        items=items,
+        prev=items[pos - 1] if pos > 0 else None,
+        next=items[pos + 1] if pos + 1 < len(items) else None,
+    )
+
+
 @router.post("", response_model=PostRead, status_code=201)
 @limiter.limit("30/hour")  # 글 도배·자동화 방지 (writer라도 시간당 30개 상한)
 def create_post(
@@ -213,6 +256,7 @@ def create_post(
         content=data.content,
         cover_image=data.cover_image,
         tags=data.tags,
+        series=data.series,
         visibility=data.visibility,
         owner_id=user.id,  # 작성자 = 로그인 사용자
     )
@@ -253,6 +297,7 @@ def update_post(
     post.content = data.content
     post.cover_image = data.cover_image
     post.tags = data.tags
+    post.series = data.series
     post.visibility = data.visibility
     db.commit()
     db.refresh(post)

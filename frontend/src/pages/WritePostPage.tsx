@@ -44,6 +44,7 @@ function WritePostPage() {
   const [visibility, setVisibility] = useState<Visibility>('public')
   const [coverImage, setCoverImage] = useState('') // 커버(대표) 이미지 URL, 선택
   const [tags, setTags] = useState<string[]>([]) // 태그 목록
+  const [series, setSeries] = useState('') // 연재 이름(선택). 같은 이름끼리 한 시리즈
   const [tagInput, setTagInput] = useState('') // 태그 입력 중인 값
   const [error, setError] = useState('')
 
@@ -95,6 +96,7 @@ function WritePostPage() {
         setContent(p.content)
         setCoverImage(p.cover_image ?? '')
         setTags(p.tags ?? [])
+        setSeries(p.series ?? '')
         setVisibility(p.visibility)
       })
       .catch((e) => setError((e as Error).message))
@@ -221,8 +223,10 @@ function WritePostPage() {
       const cover = coverImage.trim() || null
       // 입력 중이던 태그도 마지막에 반영
       const finalTags = tagInput.trim() && !tags.includes(tagInput.trim()) ? [...tags, tagInput.trim()].slice(0, 10) : tags
-      if (editingId === null) await createPost(title, content, cover, finalTags, visibility)
-      else await updatePost(editingId, title, content, cover, finalTags, visibility)
+      // 빈칸이면 연재 없음(null) — 서버도 ''를 None으로 정규화하지만 여기서도 맞춰 보낸다
+      const finalSeries = series.trim() || null
+      if (editingId === null) await createPost(title, content, cover, finalTags, finalSeries, visibility)
+      else await updatePost(editingId, title, content, cover, finalTags, finalSeries, visibility)
       navigate('/blog') // 끝나면 홈으로
     } catch (e) {
       setError((e as Error).message)
@@ -379,6 +383,21 @@ function WritePostPage() {
             </div>
           )}
         </div>
+        {/* 연재: 같은 이름을 쓴 글끼리 한 시리즈가 되고, 순서는 작성일 */}
+        <div className="grid gap-2">
+          <label htmlFor="series-input" className="text-sm text-gray-500 dark:text-gray-400">
+            연재 (선택) — 같은 이름을 쓴 글끼리 묶여 이전/다음 편이 생겨:
+          </label>
+          <input
+            id="series-input"
+            value={series}
+            onChange={(e) => setSeries(e.target.value)}
+            maxLength={100}
+            placeholder="예: 블로그 만들기"
+            className={ui.input}
+          />
+        </div>
+
         {/* 태그: 칩으로 추가/삭제 (Enter 또는 쉼표로 추가) */}
         <div className="grid gap-2">
           <label className="text-sm text-gray-500 dark:text-gray-400">태그 (선택, 최대 10개 · Enter로 추가):</label>

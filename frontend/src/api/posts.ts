@@ -1,4 +1,4 @@
-import type { Post, PostSummary, Visibility } from '../types/post'
+import type { Post, PostSummary, SeriesNav, Visibility } from '../types/post'
 import { authHeaders } from './auth'
 
 // 백엔드 주소 (나중에 환경변수로 빼면 좋음)
@@ -53,6 +53,15 @@ export async function fetchPostsMeta(): Promise<PostMetaResult> {
   return res.json()
 }
 
+// 이 글이 속한 연재의 목록·이전/다음. 연재가 아니면 null.
+// 상세 응답에 안 넣고 따로 부르는 이유: 연재가 아닌 글이 대부분인데
+// 매 상세 조회마다 연재 질의를 얹을 이유가 없다.
+export async function fetchSeries(postId: number): Promise<SeriesNav | null> {
+  const res = await fetch(`${BASE}/posts/${postId}/series`, { headers: authHeaders() })
+  if (!res.ok) return null // 연재 정보는 부가기능 — 실패해도 글 읽기를 막지 않는다
+  return res.json()
+}
+
 // 글 단건 조회 (비공개글은 본인 토큰 있어야 200)
 export async function getPost(id: number): Promise<Post> {
   const res = await fetch(`${BASE}/posts/${id}`, { headers: authHeaders() })
@@ -67,12 +76,13 @@ export async function createPost(
   content: string,
   coverImage: string | null,
   tags: string[],
+  series: string | null,
   visibility: Visibility,
 ): Promise<Post> {
   const res = await fetch(`${BASE}/posts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ title, content, cover_image: coverImage, tags, visibility }),
+    body: JSON.stringify({ title, content, cover_image: coverImage, tags, series, visibility }),
   })
   if (res.status === 401) throw new Error('로그인이 필요해')
   if (res.status === 403) throw new Error('글쓰기 권한이 없어 (관리자 승인 필요)')
@@ -89,12 +99,13 @@ export async function updatePost(
   content: string,
   coverImage: string | null,
   tags: string[],
+  series: string | null,
   visibility: Visibility,
 ): Promise<Post> {
   const res = await fetch(`${BASE}/posts/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ title, content, cover_image: coverImage, tags, visibility }),
+    body: JSON.stringify({ title, content, cover_image: coverImage, tags, series, visibility }),
   })
   if (res.status === 403) throw new Error('내 글만 수정할 수 있어')
   if (res.status === 422) throw new Error('제목(200자)·내용(5만자) 길이를 확인해줘. 빈칸은 안 돼')

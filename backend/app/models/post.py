@@ -34,6 +34,10 @@ class Post(Base):
     cover_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # 태그(다중) — Postgres 텍스트 배열로 저장. 기본 빈 배열. 태그로 글 필터에 사용
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), server_default="{}")
+    # 연재 이름 — 같은 값을 가진 글이 한 시리즈가 되고, 순서는 created_at.
+    # 제목의 '#7' 같은 번호를 파싱하지 않는 이유: 제목을 고치면 순서가 깨지고,
+    # 번호를 매기려면 글마다 손으로 붙여야 한다. 이름만 같으면 되게 두는 게 단순하다.
+    series: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     # 작성자. 기존(로그인 전) 글은 owner 없음 → nullable
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True

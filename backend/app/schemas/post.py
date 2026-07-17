@@ -15,6 +15,7 @@ CONTENT_MAX = 50_000
 COVER_MAX = 500  # 커버 이미지 URL 길이 상한
 TAG_MAX_COUNT = 10  # 글당 최대 태그 수
 TAG_MAX_LEN = 30  # 태그 한 개 최대 길이
+SERIES_MAX = 100  # 연재 이름 길이 상한 (DB varchar(100)에 맞춤)
 
 
 # 글 생성/수정 공통 필드 (id·시각은 서버가 채움)
@@ -26,6 +27,17 @@ class _PostBody(BaseModel):
     # 태그(선택·다중). 아래 검증에서 공백정리·빈값제거·중복제거·개수/길이 제한
     tags: list[str] = Field(default_factory=list)
     visibility: Visibility = "public"
+    # 연재 이름(선택). 같은 이름끼리 한 시리즈. 빈 문자열은 None으로 정규화 —
+    # 안 그러면 ''인 글끼리 '이름 없는 연재'로 묶여버린다.
+    series: str | None = Field(default=None, max_length=SERIES_MAX)
+
+    @field_validator("series")
+    @classmethod
+    def _clean_series(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
     @field_validator("tags")
     @classmethod
@@ -63,6 +75,7 @@ class PostRead(BaseModel):
     content: str
     cover_image: str | None
     tags: list[str]
+    series: str | None
     owner_id: int | None
     visibility: str
     created_at: datetime
@@ -106,3 +119,20 @@ class PostMeta(BaseModel):
     total: int
     tags: list[TagCount]
     recent: list[PostSummary]
+
+
+# 연재 목록의 한 항목 — 네비에 쓸 최소 정보만(발췌·본문 없음)
+class SeriesItem(BaseModel):
+    id: int
+    title: str
+    created_at: datetime
+
+
+# 글 상세의 연재 네비. 이 글이 연재에 속하지 않으면 엔드포인트가 null을 준다.
+class SeriesNav(BaseModel):
+    series: str
+    total: int  # 이 연재에서 '내가 볼 수 있는' 글 수
+    index: int  # 이 글이 몇 번째인지 (1부터)
+    items: list[SeriesItem]
+    prev: SeriesItem | None  # 이전 편(더 오래된 글)
+    next: SeriesItem | None  # 다음 편(더 최신 글)

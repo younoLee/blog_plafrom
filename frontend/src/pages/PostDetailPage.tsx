@@ -2,15 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
-import type { Post, Visibility } from '../types/post'
+import rehypeSlug from 'rehype-slug'
+import type { Post, SeriesNav, Visibility } from '../types/post'
 import type { Comment } from '../types/comment'
-import { getPost, changeVisibility } from '../api/posts'
+import { getPost, changeVisibility, fetchSeries } from '../api/posts'
 import { fetchComments, addComment, deleteComment } from '../api/comments'
 import { fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconArrowLeft, IconLock, IconCheck } from '../components/icons'
 import { Reveal } from '../components/Reveal'
+import { Toc } from '../components/Toc'
+import { SeriesBox, SeriesPrevNext } from '../components/SeriesBox'
 import { readingTime } from '../postUtils'
 
 const { input, btnPrimary, btnGhost } = ui
@@ -22,6 +25,7 @@ function PostDetailPage() {
   const [post, setPost] = useState<Post | null>(null)
   const [error, setError] = useState('')
   const [subscribed, setSubscribed] = useState(false)
+  const [series, setSeries] = useState<SeriesNav | null>(null)
 
   const [comments, setComments] = useState<Comment[]>([])
   const [author, setAuthor] = useState('')
@@ -34,6 +38,8 @@ function PostDetailPage() {
     fetchComments(postId)
       .then(setComments)
       .catch((e) => setError((e as Error).message))
+    // 연재는 부가정보 — 실패해도 글 읽기를 막지 않는다(fetchSeries가 null을 준다)
+    fetchSeries(postId).then(setSeries)
   }, [postId])
 
   // 이 글의 작성자를 내가 구독 중인지 확인
@@ -102,7 +108,8 @@ function PostDetailPage() {
     () =>
       content != null ? (
         <ReactMarkdown
-          rehypePlugins={[rehypeHighlight]}
+          // rehypeSlug: 소제목에 id를 붙인다 → 목차(Toc)의 #앵커가 여기로 점프
+          rehypePlugins={[rehypeHighlight, rehypeSlug]}
           components={{ img: (props) => <img {...props} className="rounded-lg" /> }}
         >
           {content}
@@ -180,12 +187,22 @@ function PostDetailPage() {
               ))}
             </div>
           )}
+          {/* 목차: 본문 앞. 소제목이 2개 미만이면 Toc이 알아서 안 그린다 */}
+          <Toc content={post.content} />
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}
           <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-[#0071e3] prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert dark:prose-a:text-[#0a84ff]">
             {body}
           </div>
         </article>
         </Reveal>
+      )}
+
+      {/* 연재: 본문 다 읽은 뒤에 '다음 편' + 전체 목록이 오게 본문 아래 배치 */}
+      {series && (
+        <>
+          <SeriesPrevNext nav={series} />
+          <SeriesBox nav={series} currentId={postId} />
+        </>
       )}
 
       <section className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">
