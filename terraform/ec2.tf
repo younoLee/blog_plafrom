@@ -23,18 +23,9 @@ resource "aws_instance" "backend" {
   }
 }
 
-# 고정 퍼블릭 IP. EC2를 정지/재시작해도 IP·DNS가 안 바뀌도록 고정
-# → CloudFront 오리진(domain_name)을 매번 갱신할 필요 없음.
-# 주의: EIP는 인스턴스에 '연결돼 있는 동안'만 무료. 인스턴스를 정지하면
-#       연결은 유지되지만 EIP가 미사용으로 잡혀 시간당 소액 과금됨.
-resource "aws_eip" "backend" {
-  instance = aws_instance.backend.id
-  domain   = "vpc"
-
-  tags = {
-    Name = "blog-backend-eip"
-  }
-}
+# 퍼블릭 IP는 EIP 없이 subnet의 auto-assign(MapPublicIpOnLaunch=true)에 맡긴다.
+# → 켤 때마다 IP가 바뀌므로 CloudFront 오리진은 var.backend_origin_dns로 넘긴다.
+#   (정지 중엔 오리진이 주차됨. 이유는 variables.tf 참고)
 
 # EC2 백엔드 보안그룹. SSH(22)는 내 IP만, API(8000)는 CloudFront만.
 resource "aws_security_group" "ec2" {

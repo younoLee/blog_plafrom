@@ -51,10 +51,11 @@ resource "aws_cloudfront_distribution" "main" {
     origin_access_control_id = aws_cloudfront_origin_access_control.s3.id
   }
 
-  # 백엔드 오리진 (EC2, HTTP only :8000)
+  # 백엔드 오리진 (EC2, HTTP only :8000).
+  # EC2 정지 중엔 주차된 도메인이 들어온다(= /api/*가 연결 실패로 fail closed).
   origin {
     origin_id   = "ec2-backend"
-    domain_name = aws_eip.backend.public_dns
+    domain_name = local.backend_origin_dns
 
     custom_origin_config {
       http_port              = 8000
