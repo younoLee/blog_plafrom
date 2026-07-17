@@ -8,11 +8,16 @@
 # 헤더 포함). 주차해두면 오리진이 우리 소유 도메인을 가리키고, 거기엔 8000 포트가 없어
 # 연결 자체가 실패한다 = fail closed.
 #
-# 사용법:
-#   EC2 켤 때:  terraform apply -var="backend_origin_dns=$(aws ec2 describe-instances \
-#                 --instance-ids i-06da19f44d1f38eff \
-#                 --query 'Reservations[0].Instances[0].PublicDnsName' --output text)"
-#   EC2 끌 때:  terraform apply      # 기본값 "" → 주차
+# 사용법 — 순서가 중요하다:
+#   EC2 켤 때:  ① 인스턴스 start → stopped에서 벗어나 퍼블릭 DNS가 생긴 뒤
+#               ② terraform apply -var="backend_origin_dns=$(aws ec2 describe-instances \
+#                    --instance-ids i-06da19f44d1f38eff \
+#                    --query 'Reservations[0].Instances[0].PublicDnsName' --output text)"
+#               ※ IP는 켤 때마다 바뀐다. 어디에도 적어두지 말고 항상 이 명령으로 읽을 것.
+#   EC2 끌 때:  ① terraform apply   # 기본값 "" → 주차. 반드시 정지보다 '먼저'.
+#               ② 인스턴스 stop
+#               ※ 순서를 뒤집으면 정지로 IP가 반납된 뒤에도 오리진이 옛 ec2-<IP>...를
+#                 가리키는 틈이 생기고, 그 사이 /api/*는 그 IP를 새로 받은 제3자에게 간다.
 variable "backend_origin_dns" {
   description = "실행 중인 백엔드 EC2의 퍼블릭 DNS. 비우면 오리진을 주차해 /api/*를 fail closed로 만든다."
   type        = string
