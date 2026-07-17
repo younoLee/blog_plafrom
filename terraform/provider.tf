@@ -7,6 +7,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    # rds-autostop.tf의 Lambda 소스를 zip으로 묶는 데 사용
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 
   # 원격 state (여러 기기에서 작업 가능하게, 버저닝된 버킷에 보관)

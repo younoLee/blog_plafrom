@@ -394,7 +394,27 @@
       "Bash(curl -s -w '\\\\nHTTP:%{http_code}\\\\n' --max-time 20 https://d2j66m9udyg9yq.cloudfront.net/api/posts/meta)",
       "Bash(curl -s -w '\\\\nHTTP:%{http_code}\\\\n' --max-time 20 https://d2j66m9udyg9yq.cloudfront.net/api/posts/25/series)",
       "Bash(grep -o '\"[가-힣 ·]\\\\{3,\\\\}\"' frontend/src/components/SeriesBox.tsx frontend/src/components/Toc.tsx)",
-      "Bash(curl -s --max-time 30 https://d2j66m9udyg9yq.cloudfront.net/index-kJVXLKj-.js -o /tmp/claude-1000/-home-es0764-blog-plafrom/e3471775-63d5-450a-b8bd-ff6ba8a29389/scratchpad/bundle.js)"
+      "Bash(curl -s --max-time 30 https://d2j66m9udyg9yq.cloudfront.net/index-kJVXLKj-.js -o /tmp/claude-1000/-home-es0764-blog-plafrom/e3471775-63d5-450a-b8bd-ff6ba8a29389/scratchpad/bundle.js)",
+      "Bash(echo \"\\(exit: $?\\)\")",
+      "Bash(curl -s -o /dev/null -w \"home: %{http_code}\\\\n\" --max-time 30 https://d2j66m9udyg9yq.cloudfront.net/)",
+      "Bash(curl -s -o /dev/null -w \"api/status: %{http_code}  \\(%{time_total}s\\)\\\\n\" --max-time 80 https://d2j66m9udyg9yq.cloudfront.net/api/status)",
+      "Bash(grep -nA12 'origin_id.*ec2-backend\\\\|origin {' main.tf)",
+      "Bash(timeout 60 aws ce get-cost-and-usage --time-period Start=2026-07-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE --query 'ResultsByTime[0].Groups[?Metrics.UnblendedCost.Amount!=`0`].{Svc:Keys[0],USD:Metrics.UnblendedCost.Amount}' --output table)",
+      "Bash(curl -s -o /dev/null -w \"8000: %{http_code} \\(%{time_total}s\\)\\\\n\" --max-time 12 http://blogplafromops.s3.ap-northeast-2.amazonaws.com:8000/)",
+      "Bash(curl -s -o /dev/null -w \"80  : %{http_code} \\(%{time_total}s\\)\\\\n\" --max-time 12 http://blogplafromops.s3.ap-northeast-2.amazonaws.com/)",
+      "Skill(schedule)",
+      "Bash(env)",
+      "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-07-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost UsageQuantity --group-by Type=DIMENSION,Key=USAGE_TYPE --filter '{\"Dimensions\":{\"Key\":\"SERVICE\",\"Values\":[\"Amazon Elastic Compute Cloud - Compute\",\"Amazon Relational Database Service\",\"EC2 - Other\"]}}' --query 'ResultsByTime[0].Groups[?UsageQuantity.Amount!=`0`].{UsageType:Keys[0],Qty:UsageQuantity.Amount,USD:Metrics.UnblendedCost.Amount}' --output table)",
+      "Bash(timeout 60 aws freetier get-free-tier-usage --region us-east-1 --query 'freeTierUsages[?contains\\(service,`EC2`\\)||contains\\(service,`RDS`\\)].{Svc:service,Op:operation,Used:actualUsageAmount,Limit:limit,Unit:unit,Forecast:forecastedUsageAmount}' --output table)",
+      "Bash(timeout 60 aws freetier get-free-tier-usage --region us-east-1 --output json)",
+      "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-06-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=RECORD_TYPE --query 'ResultsByTime[].{Period:TimePeriod.Start,G:Groups[].{Type:Keys[0],USD:Metrics.UnblendedCost.Amount}}' --output json)",
+      "Bash(timeout 60 aws freetier get-account-plan-state --region us-east-1 --output json)",
+      "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-06-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE --filter '{\"Dimensions\":{\"Key\":\"RECORD_TYPE\",\"Values\":[\"Usage\"]}}' --query 'ResultsByTime[].{Period:TimePeriod.Start,G:Groups[?Metrics.UnblendedCost.Amount!=`0`].{Svc:Keys[0],USD:Metrics.UnblendedCost.Amount}}' --output json)",
+      "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-07-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE --filter '{\"Dimensions\":{\"Key\":\"RECORD_TYPE\",\"Values\":[\"Usage\"]}}' --query 'ResultsByTime[0].Groups[?Metrics.UnblendedCost.Amount!=`0`].{Svc:Keys[0],USD:Metrics.UnblendedCost.Amount}' --output table)",
+      "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-07-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=USAGE_TYPE --filter '{\"Dimensions\":{\"Key\":\"RECORD_TYPE\",\"Values\":[\"Usage\"]}}' --query 'ResultsByTime[0].Groups[?Metrics.UnblendedCost.Amount!=`0`].{UsageType:Keys[0],USD:Metrics.UnblendedCost.Amount}' --output table)",
+      "Bash(aws lambda *)",
+      "Bash(aws scheduler *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 25 https://d2j66m9udyg9yq.cloudfront.net/)"
     ]
   }
 }
