@@ -1028,3 +1028,16 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **커스텀 도메인 — 안 하는 게 합리적이다.** 도메인 ~$12/년 + Route53 호스티드존 $6/년 ≈ **연 $18의 실청구**. 크레딧 아끼자고 RDS까지 들어낸 마당에 굳이 쓸 돈이 아니다. 게다가 `d2j66m9udyg9yq.cloudfront.net`이 **이미 HTTPS로 정상 동작**해 기능상 아쉬울 게 없다. (과거 일지의 'dangling origin 근본해결=커스텀 도메인'도, 지금은 오리진 주차로 fail-closed가 걸려 있어 급하지 않다.) → **보류(비용 결정). 원하면 그때 연 $18을 결정.**
 - **배운 것**: **로드맵의 "남은 것"과 "안 하기로 한 것"은 다르다.** 안 할 일을 남은 일 칸에 두면 매번 "이거 왜 안 했지?"를 다시 묻게 된다. 제약(자격·비용)으로 막힌 건 미루는 게 아니라 **명시적으로 내려놓고 이유를 적어두는** 게 맞다 — 그래야 "남은 것"이 진짜 할 수 있는 일만 남는다.
 - **그래서 실제로 남은(할 수 있는) 것**: AI 초안 e2e(키 충전), 테스트/CI 보강, 블로그에 진짜 글 쓰기.
+
+### 🧪 테스트 + CI 보강 [완료/로컬 그린] (2026-07-18)
+
+지금껏 검증이 전부 수동(curl·눈)이었다. 리팩터링이나 배포가 조용히 뭘 깨도 잡아줄 그물이 없었으니, **backend 통합 테스트 + PR 게이트 CI**를 깔았다.
+
+- **왜 실제 Postgres인가(SQLite 아님)**: `posts.tags`가 `ARRAY(String)`이고 검색이 `pg_trgm`(GIN, `gin_trgm_ops`) 인덱스라 **SQLite로는 `create_all`조차 안 된다.** 그래서 테스트도 프로드와 같은 Postgres를 쓴다 — 로컬은 `blog_test` DB(dev `blog`과 분리 → 오염 없음), CI는 postgres 서비스 컨테이너. conftest가 `pg_trgm` 확장 생성 후 `Base.metadata.create_all`.
+- **격리**: 테스트마다 커넥션 1개에 트랜잭션을 열고 끝나면 통째 롤백. 앱이 내부에서 `commit()`해도 `join_transaction_mode="create_savepoint"`로 savepoint에 잡혀 롤백되므로 테스트 간 오염이 없다. `get_db`를 이 세션으로 override, 리미터는 `limiter.enabled=False`(login 10/min 등이 반복 호출과 충돌하니까), lifespan은 일부러 안 돌림(백그라운드 스레드·SECRET_KEY 가드 회피 — TestClient를 `with` 없이 사용).
+- **유저 시드**: 가입→이메일인증→승인 흐름을 매번 태우는 대신 `make_user(role=...)`로 DB에 직접 넣고 토큰은 `create_access_token`으로 발급 → **권한 로직 자체**를 곧장 겨냥.
+- **스위트(29개, `backend/tests/`)**: health / auth(가입 202·짧은비번 422·오답 401·미인증 403·차단 403·성공 토큰·/me) / **posts 권한 매트릭스**(public·private·subscribers × 익명·남·본인·admin·구독자, 생성=writer 게이팅, 수정·삭제 소유자만 403) / comments(익명 자유이름 vs 로그인 이메일고정, 안 보이는 글 댓글 404) / subscriptions(구독·목록·자기구독 400·미존재 404·해제). 권한이 이 앱의 제일 복잡한 로직이라 거기에 집중했다.
+- **CI(`.github/workflows/ci.yml`, deploy.yml과 분리 — '망가졌나'를 본다)**: push(main)·모든 PR에서 ① `backend-tests`(postgres 서비스 + `pip install -r requirements.txt -r requirements-dev.txt` + pytest) ② `frontend-build`(테스트 없으니 `npm run build`=tsc 타입체크를 게이트로). 테스트 전용 의존성은 `requirements-dev.txt`(pytest·httpx)로 분리 → 프로드 이미지 안 무겁게.
+- **로컬 검증**: host에 `python3-venv`가 없어(ensurepip 부재) venv가 안 만들어짐 → **CI와 똑같이 `python:3.12-slim` 컨테이너 + `--network host`로 로컬 pg를 물려 pytest 실행 → 29 passed(6.7s).** 실행 방법이 곧 CI 재현이라 "내 машине선 되는데" 함정이 없다.
+- **배운 것**: **테스트 DB 선택은 취향이 아니라 앱이 쓰는 DB 기능이 정한다.** ARRAY·trgm을 쓰는 순간 "빠른 SQLite"는 선택지에서 사라진다 — 억지로 맞추느니 프로드와 같은 Postgres를 CI 서비스로 띄우는 게 더 단순하고 진짜에 가깝다. / 테스트는 **행복경로가 아니라 거부 경로(401/403/404)**에 값이 있다 — 권한은 "되는 것"보다 "안 되는 것"이 깨지면 사고다.
+- **남은 것(낮음)**: 프론트 단위테스트(지금은 빌드만 게이트), AI/결제 라우터 테스트(외부 API 목킹 필요), status/uptime 서비스 테스트(백그라운드 레코더 의존).
