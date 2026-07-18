@@ -1,6 +1,25 @@
-# 프로덕션(EC2) 백엔드 실행용. EC2 ~/blog/ 에 이 파일이 있고, .env(시크릿)는 깃 미포함.
-# db/mailpit 없음(RDS·SES 사용). 업로드 이미지는 호스트 디스크에 영구 저장.
+# 프로덕션(EC2) 스택. EC2 ~/blog/ 에 이 파일이 있고, .env(시크릿)는 깃 미포함.
+# DB는 RDS가 아니라 이 compose의 db 컨테이너(pgdata 볼륨=EBS에 영구 저장).
+# db 포트는 호스트에 노출하지 않는다 — backend가 compose 네트워크로 db:5432에 접속.
+# 업로드 이미지는 호스트 디스크(uploads)에 영구 저장.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      # 비번은 compose가 같은 폴더 .env의 DB_PASSWORD로 치환(컨테이너 내부 전용, 인터넷 비노출).
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    # backend가 'DB 준비 완료' 후에 뜨도록 상태 체크
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   backend:
     build: .
     ports:
@@ -11,4 +30,10 @@ services:
     # 업로드 이미지를 호스트 디스크에 영구 저장 → 컨테이너 재빌드해도 안 사라짐
     volumes:
       - ./uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy   # DB 준비될 때까지 대기
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  pgdata:

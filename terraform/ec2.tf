@@ -6,6 +6,10 @@ resource "aws_instance" "backend" {
   subnet_id              = "subnet-04bf4b4e44fe4defe"
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
+  # DB 백업 cron이 S3(blog-db-backups)에 올릴 수 있도록 인스턴스 프로파일 부여.
+  # attach는 in-place(인스턴스 교체 아님). 권한은 db-backup.tf에서 PutObject로만 한정.
+  iam_instance_profile = aws_iam_instance_profile.backend.name
+
   # IMDSv2 강제 (http_tokens=required)
   metadata_options {
     http_endpoint               = "enabled"
@@ -58,18 +62,11 @@ resource "aws_security_group" "ec2" {
   }
 }
 
-# VPC 기본 보안그룹. RDS(blog-db)가 사용 — PostgreSQL(5432)을 EC2 SG에서만 허용.
+# VPC 기본 보안그룹. RDS를 EC2 컨테이너로 이전하면서(2026-07-18) 5432 인바운드는 제거.
+# 이제 DB는 compose 네트워크 내부(db:5432)로만 접근 → VPC에 노출되는 DB 포트가 없다.
 # aws_default_security_group은 '삭제'가 아니라 '관리'만 한다(destroy해도 SG는 남고 규칙만 비워짐).
 resource "aws_default_security_group" "default" {
   vpc_id = "vpc-0326229237c590a90"
-
-  # RDS 접속: EC2 보안그룹에서 온 5432만 통과
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ec2.id]
-  }
 
   # 같은 보안그룹끼리 전체 허용 (default SG 기본 규칙)
   ingress {

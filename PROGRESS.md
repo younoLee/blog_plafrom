@@ -999,3 +999,19 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **확인함 (2026-07-18)**: Explore 크레딧 3개($60)의 **적용 대상 서비스 목록에 EC2·RDS 둘 다 있음** (콘솔 → Billing → Credits → '전체 서비스 목록 보기'). → **$60 유효 확정**, 24/7 수명 2.3 → **4.2개월(~11-22)**로 갱신(위 '크레딧 수명' 반영).
   - CLI 뒷받침: `ce get-cost-and-usage`(RECORD_TYPE=Credit, 서비스별)로 7월 크레딧이 실제 **RDS -$9.49 / EC2 Compute -$4.19 / VPC -$1.57 / EC2-Other -$0.93**에 붙어 Usage $16.19를 정확히 상계 중임을 확인. 단 CLI는 **4개 크레딧 풀 중 어느 것**인지는 구분 못 함(그래서 콘솔 목록이 결정적) — 6월부터 실제로 깎인 건 $100 Free Tier뿐이고 Explore $60은 그 소진 후 이어받는 예비분.
 - **배운 것(추가)**: **숫자가 안 맞을 때 "이 소스는 틀렸다"고 결론내는 게 제일 위험하다.** API($135.10)와 콘솔($75)이 안 맞자 API를 불신했는데, 실제론 **둘 다 맞고 세는 대상이 달랐다**(합계 vs 개별 크레딧). 불일치는 보통 '누가 틀렸나'가 아니라 **'무엇을 세고 있나'**의 문제다.
+
+### 🏗️ RDS → EC2 이전 (self-hosted Postgres 컨테이너) [완료/라이브검증] (2026-07-18)
+
+가장 큰 비용 덩어리였던 **RDS(`db.t3.micro`, 월 ~$16)를 없애고** Postgres를 EC2 안 Docker 컨테이너로 옮겼다. 로컬 개발은 원래 `docker-compose.yml`에서 `db`(postgres:16-alpine)를 쓰고 있었으니, 프로덕션도 같은 패턴으로 통일한 것 — **backend 코드 변경 0, `DATABASE_URL`만 바뀐다.**
+
+- **왜**: 크레딧 만료(2027-06-24 = 실청구 시작)가 확정된 상황에서 만료 후 바닥값을 낮추는 게 핵심. 이전으로 **월 $16(RDS 인스턴스비)이 통째로 사라지고**, 만료 후 바닥값이 **월 ~$3.7(RDS 스토리지 포함) → ~$1.6(EBS만)**로 떨어진다. 가동 중일 때도 RDS 사용액이 0이 된다.
+- **아키텍처**: `CloudFront ─/api/*→ EC2(backend + db 컨테이너, 같은 compose 네트워크) → pgdata(EBS 볼륨)`. **db 포트는 호스트에 노출 안 함** — backend가 compose 네트워크로 `db:5432`에 접속하므로 VPC에 열린 DB 포트가 아예 없다(RDS보다도 단순·안전). 비번은 `.env`의 `DB_PASSWORD`로 compose가 치환(컨테이너 내부 전용, openssl 랜덤).
+- **데이터 이전(라이브)**: EC2·RDS 둘 다 start → **수동 스냅샷 `blog-db-pre-migration-2026-07-18`(안전망)** → EC2에서 `postgres:16-alpine` 컨테이너로 RDS를 `pg_dump`(28214줄/1.3MB, 시크릿은 argv 아닌 env로 전달) → 새 db 컨테이너에 `psql` 복원 → backend를 새 `.env`로 `--force-recreate`. 복원 시 에러 0.
+- **검증**: 이전 **전** RDS 기준값(posts 24, subscribers 4)을 먼저 떠두고 대조 —
+  - db 컨테이너 직접: posts 24 / subscribers 4 / users 5 / comments 4 / payments 2 / **alembic=51cafb80733f(head)** = 전부 일치, 복원 완전.
+  - 앱 레벨: backend `/api/status` → `database:ok, stats:{posts:24, subscribers:4}` = RDS 시절과 동일.
+  - 메모리: postgres+backend 동시 구동에도 available 487MB(t2.micro 1GB) + **스왑 2GB 추가**(안전망). 여유 있음.
+- **RDS·autostop Lambda 해체**: `rds.tf`·`rds-autostop.tf`·`lambda/rds_autostop.py` 삭제 + `ec2.tf` default SG의 5432 ingress 제거 → **`terraform plan`으로 destroy 범위가 RDS 1개 + autostop 세트 7개 + SG 규칙뿐**(EC2/CloudFront/S3 무손상)임을 육안 확인 후 apply(0 added / 1 changed / 8 destroyed). RDS는 `skip_final_snapshot=true`라 위 수동 스냅샷이 유일한 롤백 경로. **autostop Lambda는 존재 이유(정지 RDS의 7일 자동 부활 방지)가 RDS와 함께 사라져 은퇴** — 지켜야 할 게 없어졌다.
+- **백업(내구성 대체)**: RDS 자동 일일 백업·PITR이 사라진 자리를 **일일 `pg_dump→S3` cron**으로 메꿈. `terraform/db-backup.tf` = 비공개 버킷 `blog-db-backups-181568979775`(30일 lifecycle) + EC2 **IAM 인스턴스 프로파일**(`s3:PutObject` 이 버킷 `/*`로만 한정 — autostop이 StopDBInstance 하나로 좁힌 것과 같은 원칙). EC2 root 크론(매일 18:00 UTC) + `/usr/local/bin/blog-db-backup.sh`. 즉시 1회 실행 → **S3에 `blog-2026-07-18-0322.sql.gz`(315KiB) 실제 생성 확인**. 백업은 **EC2가 켜진 동안만** 도는데, DB가 바뀌는 것도 EC2 켜졌을 때뿐이라 의미상 정확하다.
+- **배운 것**: **"옮겼다"의 증거는 목적지에 데이터가 있는 게 아니라 출발지 값과 목적지 값이 같다는 것이다.** 그래서 지우기 전에 원본 카운트를 먼저 떠뒀다 — 이게 없으면 "24개 있네" 는 "원래 몇 개였지?"에 답을 못 한다. / **자동화는 이유가 사라지면 짐이 된다.** autostop Lambda는 잘 만들었지만 RDS가 없으면 지킬 대상이 없다 — 남겨두면 "왜 있지?"를 언젠가 다시 물어야 하는 코드일 뿐이라 같이 지웠다. / DB 포트를 아예 노출 안 하니 RDS 시절의 SG 5432 규칙·publicly_accessible 고민 자체가 사라졌다 — **가장 안전한 포트는 열지 않은 포트다.**
+- **남은 것**: 스냅샷 `blog-db-pre-migration-2026-07-18`은 며칠 롤백 안전망으로 보관 후 삭제(스토리지 소액). 커스텀 도메인, 실결제 전환. (선택) CloudFront 경유 라이브 e2e는 이번엔 생략 — 이 이전이 바꾼 표면은 DB 연결뿐이고 그건 `/api/status`(database:ok)로 직접 검증됨, CloudFront→EC2 오리진 경로는 무변경.
