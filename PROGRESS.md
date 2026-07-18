@@ -352,7 +352,7 @@ cd frontend && npm run dev                               # :5173
 
 ### 5단계 GitHub Actions CI/CD [완료] (2026-06-25)
 - 목표: main에 push하면 프론트엔드가 자동 빌드→S3→CloudFront 무효화. 수동 배포 명령을 워크플로로 옮김. (백엔드 EC2 자동배포는 SSH라 복잡 → 별도/나중)
-- ① 배포 전용 IAM 사용자 `github-actions-deploy`(콘솔접근X, 프로그램용) + 정책 `github-brench`(이름만 그럴뿐 내용 정확): S3 List/Get/Put/Delete on blogplafromops, cloudfront:CreateInvalidation on E1438IL9CSVBS4. 최소권한 — 루트/IAM_cli 키 안 씀. 액세스키 AKIASURS2YM7WKLL4SV3
+- ① 배포 전용 IAM 사용자 `github-actions-deploy`(콘솔접근X, 프로그램용) + 정책 `github-brench`(이름만 그럴뿐 내용 정확): S3 List/Get/Put/Delete on blogplafromops, cloudfront:CreateInvalidation on E1438IL9CSVBS4. 최소권한 — 루트/IAM_cli 키 안 씀. (이 사용자의 액세스키는 이후 GitHub OIDC 전환으로 삭제됨 — 여기 있던 키 ID는 공개 저장소 위생상 스크럽함, 2026-07-18)
 - ② GitHub repo Secrets(Repository secrets)에 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 등록. 워크플로에서 ${{ secrets.* }}로 꺼냄, 로그엔 *** 마스킹
 - ③ `.github/workflows/deploy.yml`: on push(main, paths=frontend/**·워크플로파일) + workflow_dispatch(수동버튼). 스텝7: checkout→setup-node(20,npm cache)→npm ci→build(VITE_API_BASE=라이브/api)→configure-aws-credentials@v4→s3 sync dist/ --delete→cloudfront create-invalidation /*
 - 검증(교차): Actions 초록 + AWS 실측 — S3 index.html 등 방금 시각 갱신, CloudFront 무효화 I8ZLDNWIKQALWOMW02DPQTPH7R Completed
