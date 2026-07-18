@@ -1040,4 +1040,8 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **CI(`.github/workflows/ci.yml`, deploy.yml과 분리 — '망가졌나'를 본다)**: push(main)·모든 PR에서 ① `backend-tests`(postgres 서비스 + `pip install -r requirements.txt -r requirements-dev.txt` + pytest) ② `frontend-build`(테스트 없으니 `npm run build`=tsc 타입체크를 게이트로). 테스트 전용 의존성은 `requirements-dev.txt`(pytest·httpx)로 분리 → 프로드 이미지 안 무겁게.
 - **로컬 검증**: host에 `python3-venv`가 없어(ensurepip 부재) venv가 안 만들어짐 → **CI와 똑같이 `python:3.12-slim` 컨테이너 + `--network host`로 로컬 pg를 물려 pytest 실행 → 29 passed(6.7s).** 실행 방법이 곧 CI 재현이라 "내 машине선 되는데" 함정이 없다.
 - **배운 것**: **테스트 DB 선택은 취향이 아니라 앱이 쓰는 DB 기능이 정한다.** ARRAY·trgm을 쓰는 순간 "빠른 SQLite"는 선택지에서 사라진다 — 억지로 맞추느니 프로드와 같은 Postgres를 CI 서비스로 띄우는 게 더 단순하고 진짜에 가깝다. / 테스트는 **행복경로가 아니라 거부 경로(401/403/404)**에 값이 있다 — 권한은 "되는 것"보다 "안 되는 것"이 깨지면 사고다.
-- **남은 것(낮음)**: 프론트 단위테스트(지금은 빌드만 게이트), AI/결제 라우터 테스트(외부 API 목킹 필요), status/uptime 서비스 테스트(백그라운드 레코더 의존).
+- **[추가] 결제·AI 라우터 테스트(2026-07-18, 54개로 확대)**: 돈·비용을 켜는 로직이라 값어치가 높아 바로 이어 붙였다. 외부 호출은 목킹 seam으로 격리 — 결제는 `app.routers.payments.httpx.post`(토스 승인)를, AI는 `app.routers.ai.generate_draft`(LLM)를 monkeypatch.
+  - 결제: checkout(비인증 401·관리자 400·이미Pro 400·pending주문 생성) / confirm(없는·남의 주문 404, **금액 위변조 400**, 토스 성공→is_pro, 거절→failed 400, 네트워크에러 502, **이미paid 멱등=토스 재호출 안 함**) / **라이브 가드(payments_require_live+테스트키 → checkout·confirm 둘 다 503 = 운영 '공짜 Pro' 차단)** / 해지.
+  - AI: 비인증 401·pending 403 / 성공 시 마크다운+**일일 카운트 증가** / **티어 게이팅(일반 writer는 Opus 403, 유료는 200)** / **비용 캡(일일·월간 각각 429)** / 키없음 503·생성실패 502 / usage·models 조회. 캡·가드는 `settings` 속성 monkeypatch로 상한을 0으로 낮춰 검증.
+  - 배운 것: 목킹은 **경계 하나**에만 걸면 된다 — 라우터가 import한 이름(`app.routers.X.함수`)을 갈아끼우면 그 아래 실제 SDK/HTTP는 안 건드리고도 라우터의 분기(거부·성공·예외)를 다 태울 수 있다. 돈/비용 로직은 "성공"보다 **막아야 할 것(위변조·중복·초과·테스트키)**이 안 막히면 사고라 거기에 무게를 뒀다.
+- **남은 것(낮음)**: 프론트 단위테스트(지금은 빌드만 게이트), status/uptime 서비스 테스트(백그라운드 레코더 의존).
