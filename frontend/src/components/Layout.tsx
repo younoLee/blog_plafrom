@@ -4,6 +4,7 @@ import { canWrite } from '../api/auth'
 import { useTheme } from '../theme'
 import { ui } from '../ui'
 import { IconMoon, IconSun, IconPencil } from './icons'
+import { NotificationBell } from './NotificationBell'
 
 function Layout() {
   const { user, logout } = useAuth()
@@ -31,6 +32,8 @@ function Layout() {
             </button>
             {user ? (
               <>
+                {/* 헤더 알림 종 (안 읽음 배지 + 드롭다운) */}
+                <NotificationBell />
                 <span className="hidden text-sm text-gray-500 dark:text-gray-400 sm:inline">{user.email}</span>
                 {/* 구독 관리는 로그인한 누구나 */}
                 <Link to="/subscriptions" className={ui.btnGhost}>구독</Link>

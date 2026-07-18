@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user_optional, require_writer
 from app.core.ratelimit import limiter
 from app.models.author_subscription import AuthorSubscription
+from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
 from app.schemas.post import (
@@ -265,9 +266,22 @@ def create_post(
     db.add(post)
     db.commit()
     db.refresh(post)
-    # 이 글쓴이를 구독+알림 켠 사람에게 발송 (공개·구독자공개 글. 비공개는 알리지 않음).
+    # 이 글쓴이를 구독+알림 켠 사람에게 알림 (공개·구독자공개 글. 비공개는 알리지 않음).
     # 구독자공개도 포함하는 이유: 구독자는 그 글을 볼 수 있으니 알림도 의미가 있다.
     if post.owner_id and post.visibility in ("public", "subscribers"):
+        notify_uids = db.scalars(
+            select(AuthorSubscription.subscriber_id).where(
+                AuthorSubscription.author_id == post.owner_id,
+                AuthorSubscription.approved.is_(True),
+                AuthorSubscription.notify.is_(True),
+            )
+        ).all()
+        # 인앱 알림(화면 종 배지용) — 요청 트랜잭션에서 확실히 저장
+        for uid in notify_uids:
+            db.add(Notification(user_id=uid, post_id=post.id))
+        if notify_uids:
+            db.commit()
+        # 이메일 알림 — 실패해도 응답 막지 않게 백그라운드
         background.add_task(notify_new_post, post.id, post.title, post.owner_id)
     return post
 
