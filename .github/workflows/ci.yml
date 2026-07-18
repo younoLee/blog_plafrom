@@ -47,7 +47,7 @@ jobs:
     # 유닛테스트(vitest) + tsc·빌드 통과를 게이트로.
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
