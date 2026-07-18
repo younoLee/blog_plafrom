@@ -1049,4 +1049,10 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
   - **uploads**(공격면): require_writer(401·403), 유효 PNG 200, **content-type을 image/png로 위조해도 내용이 HTML이면 매직바이트로 거부(400)**, 5MB 초과 413, 확장자는 파일명 아닌 내용에서 도출(.exe여도 .png 저장). 저장은 tmp로 돌려 실제 uploads/ 안 더럽힘.
   - **auth 보안속성**: 이메일 인증 흐름, **비번 재설정 → 기존 세션 무효화 + 새 비번 로그인**, **리셋 토큰 1회용**(재사용 400), **이메일 토큰을 Bearer로 못 씀**(purpose 박힌 토큰 401), verify 토큰을 reset에 쓰면 거부(purpose 불일치).
   - 배운 것: **커버리지 구멍은 균등하지 않다** — 빈 곳 중에서도 admin(권한)·upload(파일)·세션(토큰)처럼 깨지면 보안사고인 곳이 우선순위다. "성공"이 아니라 **막아야 할 것(권한상승·자기잠금·토큰혼용·위조파일)**이 안 막히는지를 겨냥했다.
-- **남은 것(낮음)**: 프론트 단위테스트(지금은 빌드만 게이트), status/uptime 서비스 테스트(백그라운드 레코더 의존), 커버리지 측정(pytest-cov).
+- **[추가3] 남은 갭 4개 마저 채움(2026-07-18, 백엔드 90개 + 프론트 7개)**:
+  - **subscribers**(더블옵트인): 확인메일 발송은 목킹(백그라운드 태스크가 SMTP 안 치게), 미확인 등록→confirm으로 확정, **unsubscribe enumeration 안전(등록 여부 무관 200)**, 로그인 본인구독(즉시 confirmed) 라이프사이클, **PII 목록은 admin만(writer 403)**.
+  - **status/uptime 서비스**: 백그라운드 레코더 스레드에 의존 안 하고 순수 함수를 직접 — `run_checks`(형태·backend/database ok, mail은 환경차라 값 미검증), `get_latest`(캐시 반환 vs 콜드스타트 라이브), `get_history`(일수만큼 날짜 채움·서비스 3개·비율 0~1 구조).
+  - **커버리지(pytest-cov)**: `--cov=app --cov-report=term-missing --cov-fail-under=70`. 현재 **77%** — 라우터는 대체로 높고(payments 96·subscribers 93·admin 90·subscriptions 90·post schema 86·uploads 84·auth 82), 낮은 곳은 외부 SDK 경로(ai/llm_keys 34%)·백그라운드(cleanup 44·infra 36)로 통합테스트가 못 닿는 자리. 목표는 100%가 아니라 **회귀로 70% 밑으로 떨어지면 CI 실패**.
+  - **프론트 유닛테스트(vitest 4)**: `postUtils`의 순수 함수 `excerpt`(마크다운 벗기기·이미지 제거·링크 텍스트만·공백접기·max 절단+…)·`readingTime`(최소 1분·500자/분). `npm test` 스크립트 + CI `frontend` 잡에 스텝 추가(빌드만 게이트 → 테스트+빌드).
+  - 최종: **백엔드 90 + 프론트 7 = 97개**, 라우터 9/9 커버, CI 두 잡(backend pytest+cov / frontend vitest+build) 게이트.
+- **남은 것**: (선택) status 백그라운드 레코더 통합, ai/llm_keys BYOK 경로 테스트(외부 SDK 목킹 심화), 프론트 컴포넌트 테스트(jsdom). 우선순위 낮음 — 핵심 회귀 그물은 갖춰짐.

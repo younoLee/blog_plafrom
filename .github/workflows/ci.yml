@@ -42,9 +42,9 @@ jobs:
         working-directory: backend
         run: pytest
 
-  frontend-build:
+  frontend:
     runs-on: ubuntu-latest
-    # 프론트는 테스트가 없어 tsc+빌드 통과를 게이트로 쓴다(타입 에러 조기 차단).
+    # 유닛테스트(vitest) + tsc·빌드 통과를 게이트로.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,6 +55,9 @@ jobs:
       - name: 의존성 설치
         working-directory: frontend
         run: npm ci
+      - name: 유닛테스트(vitest)
+        working-directory: frontend
+        run: npm test
       - name: 빌드(타입체크 포함)
         working-directory: frontend
         run: npm run build
