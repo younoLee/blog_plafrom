@@ -1,0 +1,18 @@
+# 백엔드 린터 설정. 실제 문제(안 쓰는 import·변수 F, import 정렬 I, 현대화 UP, 버그 B)에 집중.
+line-length = 100
+target-version = "py312"
+
+# alembic은 도구가 생성/관리하는 보일러플레이트(env.py의 늦은 import 등) → 린트 제외
+exclude = ["alembic"]
+
+[lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+ignore = [
+    "E501",  # 줄길이 — 긴 한글 주석 많아 노이즈
+    "B008",  # FastAPI의 Depends()를 기본값에 두는 건 프레임워크 관용구(오탐)
+    "B904",  # except 안 HTTPException 재던지기 = 내부오류→클라이언트 응답 변환(의도된 패턴)
+]
+
+[lint.per-file-ignores]
+# conftest는 앱 import '전에' 환경변수를 세팅하는 게 핵심이라 E402(최상단 import)가 의도된 위반.
+"tests/conftest.py" = ["E402"]

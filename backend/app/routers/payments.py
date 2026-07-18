@@ -1,6 +1,6 @@
 import base64
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -119,7 +119,7 @@ def confirm(
         raise HTTPException(status_code=400, detail=detail)
 
     # 승인 성공 → 결제 확정 + 구독 활성화(만료 = now + pro_days)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     p.status = "paid"
     p.payment_key = body.payment_key
     p.paid_at = now

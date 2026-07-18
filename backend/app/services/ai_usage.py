@@ -4,7 +4,7 @@
 초안 수를 제한한다. BYOK 호출은 세지 않는다(사용자 본인 비용).
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from app.models.ai_usage import AiUsage
 
 def _today() -> date:
     # 서버 로컬 tz에 안 휘둘리게 UTC 기준 '오늘'
-    return datetime.now(timezone.utc).date()
+    return datetime.now(UTC).date()
 
 
 def count_today(db: Session, user_id: int) -> int:

@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # 공개범위는 이 세 값만 허용 (다른 값 보내면 422)

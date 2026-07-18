@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import FastAPI, Depends, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,9 +14,19 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.ratelimit import limiter
 from app.models.user import User
-from app.routers import posts, subscribers, comments, uploads, auth, subscriptions, ai, admin, payments
-from app.services.status import get_latest, get_history, start_recorder
+from app.routers import (
+    admin,
+    ai,
+    auth,
+    comments,
+    payments,
+    posts,
+    subscribers,
+    subscriptions,
+    uploads,
+)
 from app.services.cleanup import start_cleanup
+from app.services.status import get_history, get_latest, start_recorder
 
 # 절대 운영에서 쓰면 안 되는 기본 SECRET_KEY (코드에 공개돼 있어 토큰 위조 가능)
 _INSECURE_SECRET = "change-me-in-production"
@@ -112,7 +122,7 @@ def status(request: Request):
         "database": "ok" if c["database_ok"] else "down",
         "mail": "ok" if c["mail_ok"] else "down",
         "stats": {"posts": c["posts"], "subscribers": c["subscribers"]},
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": datetime.now(UTC).isoformat(),
     }
 
 

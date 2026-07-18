@@ -1,7 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
@@ -15,17 +14,17 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 우리 앱의 설정과 모델을 연결
+import app.models.ai_usage  # noqa: F401
+import app.models.author_subscription  # noqa: F401
+import app.models.comment  # noqa: F401
+import app.models.llm_credential  # noqa: F401 — 빠지면 autogenerate가 이 테이블을 drop하려 함
+import app.models.payment  # noqa: F401
+import app.models.post  # noqa: F401 — 모델을 import해야 Base에 테이블이 등록됨
+import app.models.status_check  # noqa: F401
+import app.models.subscriber  # noqa: F401
+import app.models.user  # noqa: F401
 from app.core.config import settings
 from app.core.database import Base
-import app.models.post  # noqa: F401 — 모델을 import해야 Base에 테이블이 등록됨
-import app.models.subscriber  # noqa: F401
-import app.models.comment  # noqa: F401
-import app.models.user  # noqa: F401
-import app.models.author_subscription  # noqa: F401
-import app.models.status_check  # noqa: F401
-import app.models.llm_credential  # noqa: F401 — 빠지면 autogenerate가 이 테이블을 drop하려 함
-import app.models.ai_usage  # noqa: F401
-import app.models.payment  # noqa: F401
 
 # DB 주소를 .env/기본값(settings)에서 주입 (alembic.ini에 비밀번호 안 박아도 됨)
 config.set_main_option("sqlalchemy.url", settings.database_url)

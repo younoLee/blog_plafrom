@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
@@ -12,7 +12,7 @@ from app.models.user import User
 def _expire_pro_if_due(user: User, db: Session) -> None:
     """구독 만료 시각이 지났으면 is_pro를 끈다(lazy expiration).
     별도 배치 없이, 그 사용자가 요청할 때마다 확인 → 지났으면 한 번만 꺼서 커밋."""
-    if user.is_pro and user.pro_until is not None and user.pro_until <= datetime.now(timezone.utc):
+    if user.is_pro and user.pro_until is not None and user.pro_until <= datetime.now(UTC):
         user.is_pro = False
         db.commit()
 

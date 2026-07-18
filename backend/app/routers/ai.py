@@ -7,24 +7,24 @@ from app.core.deps import require_writer
 from app.core.ratelimit import limiter
 from app.models.user import User
 from app.schemas.ai import (
-    DraftRequest,
-    DraftResponse,
     AiModelInfo,
     AiModelsResponse,
-    KeyStatus,
+    DraftRequest,
+    DraftResponse,
     KeysResponse,
+    KeyStatus,
     SetKeyRequest,
     UsageResponse,
 )
+from app.services import ai_usage, llm_keys
 from app.services.ai import (
-    generate_draft,
-    AIKeyMissingError,
-    allowed_models_for,
-    model_provider,
     DEFAULT_MODEL,
     MODELS,
+    AIKeyMissingError,
+    allowed_models_for,
+    generate_draft,
+    model_provider,
 )
-from app.services import llm_keys, ai_usage
 from app.services.llm_keys import (
     BYOK_PROVIDERS,
     NEEDS_BASE_URL,

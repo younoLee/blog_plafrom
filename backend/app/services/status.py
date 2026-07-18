@@ -9,12 +9,12 @@
 import socket
 import threading
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.database import engine, SessionLocal
+from app.core.database import SessionLocal, engine
 from app.models.status_check import StatusCheck
 
 # 자가 점검 기록 간격(초)
@@ -126,7 +126,7 @@ def get_history(days: int = 30) -> dict:
         group by day
         """
     )
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
 
     # 날짜 -> {total, backend, database, mail}
     by_date: dict[str, dict] = {}
@@ -141,7 +141,7 @@ def get_history(days: int = 30) -> dict:
             }
 
     # 최근 N일 날짜 목록 (오래된 → 오늘 순)
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     date_list = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
 
     services = []

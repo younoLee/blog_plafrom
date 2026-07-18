@@ -1,31 +1,31 @@
 import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select, or_, and_, true
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.ratelimit import limiter
 from app.core.deps import get_current_user_optional, require_writer
+from app.core.ratelimit import limiter
+from app.models.author_subscription import AuthorSubscription
 from app.models.post import Post
 from app.models.user import User
-from app.models.author_subscription import AuthorSubscription
 from app.schemas.post import (
     PostCreate,
     PostList,
     PostMeta,
-    PostUpdate,
     PostRead,
     PostSummary,
+    PostUpdate,
     PostVisibilityUpdate,
     SeriesItem,
     SeriesNav,
     TagCount,
 )
+from app.services.email import notify_new_post
 
 # 연재 네비에 담을 최대 편수. 네비 목록이라 상한이 필요하다(제목만이라 가볍긴 하다).
 SERIES_ITEMS_MAX = 100
-from app.services.email import notify_new_post
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 

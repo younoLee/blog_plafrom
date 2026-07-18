@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_current_user_optional
 from app.core.ratelimit import limiter
-from app.models.post import Post
 from app.models.comment import Comment
+from app.models.post import Post
 from app.models.user import User
-from app.routers.posts import can_view, subscribed_author_ids, get_post_or_404
+from app.routers.posts import can_view, get_post_or_404, subscribed_author_ids
 from app.schemas.comment import CommentCreate, CommentRead
 
 # 댓글은 글에 소속되므로 URL을 /posts/{post_id}/comments 로 둠

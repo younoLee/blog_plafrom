@@ -4,29 +4,29 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.ratelimit import limiter
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.ratelimit import limiter
 from app.core.security import (
-    hash_password,
-    verify_password,
     create_access_token,
     create_email_token,
     decode_email_token,
+    hash_password,
+    verify_password,
 )
 from app.models.user import User
 from app.schemas.user import (
-    UserCreate,
-    RegisterRequest,
-    UserRead,
-    Token,
     ForgotPasswordRequest,
+    RegisterRequest,
     ResetPasswordRequest,
+    Token,
+    UserCreate,
+    UserRead,
 )
 from app.services.email import (
-    send_verification_email,
-    send_reset_email,
     send_already_registered_email,
+    send_reset_email,
+    send_verification_email,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])

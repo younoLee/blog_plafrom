@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
@@ -24,7 +24,7 @@ def create_access_token(user_id: int, token_version: int) -> str:
     payload = {
         "sub": str(user_id),  # 토큰 주인(사용자 id)
         "ver": token_version,  # 사용자 token_version 스냅샷 (재설정/차단 시 불일치→무효)
-        "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS),
+        "exp": datetime.now(UTC) + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
@@ -52,7 +52,7 @@ def create_email_token(
         "sub": str(user_id),
         "purpose": purpose,
         "ver": ver,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=expire_hours),
+        "exp": datetime.now(UTC) + timedelta(hours=expire_hours),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 

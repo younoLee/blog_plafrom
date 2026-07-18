@@ -1,7 +1,9 @@
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, ForeignKey, func, Index
+
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.database import Base
 
 

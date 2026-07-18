@@ -1066,3 +1066,12 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **LICENSE**: MIT (공개 저장소 표준 — 없으면 "써도 되나?"가 모호).
 - **.github/dependabot.yml**: pip(backend)·npm(frontend)·github-actions·terraform 4개 생태계 주간 점검, groups로 패치 묶어 알림 소음↓ → 의존성 보안 업데이트 자동화.
 - **배운 것**: 코드가 좋아도 **읽는 사람의 진입점**이 없으면 없는 것과 같다. README는 기능 목록이 아니라 "이게 뭐고, 왜 이렇게 했고, 어떻게 돌리나"를 30초에 전달하는 문서다 — 이미 한 일(비용 최적화·RDS 이전·97개 테스트)을 보이게 만드는 게 새 기능만큼 값어치 있다.
+
+### 🧹 백엔드 린터(ruff) + 삭제 안전성 확인 (2026-07-18)
+
+프론트엔 eslint가 있는데 백엔드만 린터가 없었다. ruff를 붙여 CI 게이트로.
+- **버그 사냥 먼저(성과 없음=좋은 소식)**: admin이 유저 삭제 시 자식 데이터가 CASCADE로 지워지는지 의심했는데, `llm_credentials·payments·ai_usage·author_subscriptions` 전부 `ondelete=CASCADE`이고 `posts`만 명시 삭제 → **500 버그 없음.** 신선 DB에 `alembic upgrade head`도 통과(env.py 정상).
+- **ruff 결과 — 실제 버그 0**: 자동수정 50건(import 정렬 I001, `timezone.utc`→`datetime.UTC` UP017)은 스타일. **F(pyflakes: 안 쓰는 import·미정의 변수) 위반은 하나도 없었다** = 코드가 이미 깨끗하다는 신호. 나머지는 프레임워크 관용구(B008 = FastAPI `Depends()` 기본값)·의도된 패턴(B904 = except 안 HTTPException 변환, conftest E402 = 앱 import 전 env 세팅)이라 `ruff.toml`에서 근거와 함께 제외.
+- **유일한 실수정**: `posts.py`가 `notify_new_post` import를 상수 아래로 잘못 내려둔 것(순환 아님) → 상단 import 블록으로 올림.
+- `ruff.toml`(select E/F/W/B/I/UP, alembic 제외) + `requirements-dev.txt`에 ruff + CI `backend-tests`에 `ruff check .` 스텝. import 재정렬이 28개 파일에 퍼졌지만 **90개 테스트·마이그레이션 전부 통과**로 무해 검증.
+- **배운 것**: 린터의 값어치는 "지적 개수"가 아니라 **오탐을 걷어낸 뒤 남는 신호**다 — 267건 중 실제 버그는 0, 관용구·스타일을 제외하니 진짜 고칠 건 import 위치 하나였다. 설정에 "왜 이 규칙을 껐나"를 적어두면 다음 사람이 안 되묻는다.

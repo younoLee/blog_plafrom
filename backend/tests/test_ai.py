@@ -3,8 +3,8 @@
 import pytest
 
 from app.core.config import settings
-from app.services.ai import DEFAULT_MODEL, AIKeyMissingError
 from app.services import ai_usage
+from app.services.ai import DEFAULT_MODEL, AIKeyMissingError
 
 
 @pytest.fixture
