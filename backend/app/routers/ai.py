@@ -112,6 +112,59 @@ def remove_key(provider: str, user: User = Depends(require_writer), db: Session 
     return KeyStatus(provider=provider, has_key=False)
 
 
+# create_draft의 세 갈래를 각자 이름 붙은 헬퍼로 분리한다(복잡도↓·경로별 테스트 용이).
+# 1) 어떤 모델/provider를 쓸지 결정하며 권한을 검사, 2) 서버키 비용 캡, 3) BYOK 키 로드.
+
+
+def _resolve_provider(body: DraftRequest, user: User, pk: set[str]) -> tuple[str, str]:
+    """(model, provider) 결정 + 권한 검사. 카탈로그 모델은 티어/키로, 커스텀 모델은
+    provider 명시+키 등록으로 허용을 판단한다. 위반 시 403/400."""
+    model = (body.model or DEFAULT_MODEL).strip()
+    if model in MODELS:
+        if model not in allowed_models_for(user, pk):
+            raise HTTPException(status_code=403, detail="이 모델을 쓸 권한이 없어 (결제 또는 키 등록 필요)")
+        return model, model_provider(model)
+    # 커스텀 모델(BYOK 전용): provider 명시 + 그 키 등록돼 있어야 함
+    provider = (body.provider or "").strip()
+    if provider not in BYOK_PROVIDERS:
+        raise HTTPException(status_code=400, detail="커스텀 모델은 provider(openai/gemini)를 함께 보내야 해")
+    if provider not in pk:
+        raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
+    return model, provider
+
+
+def _enforce_server_caps(db: Session, user_id: int) -> None:
+    """서버키(Claude) 호출의 일일·월간 비용 캡. 초과 시 429. (BYOK는 본인 비용이라 제외)"""
+    if ai_usage.count_today(db, user_id) >= settings.ai_daily_cap:
+        raise HTTPException(
+            status_code=429,
+            detail=f"오늘 AI 초안 한도({settings.ai_daily_cap}회)를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
+        )
+    if ai_usage.count_month(db, user_id) >= settings.ai_monthly_cap:
+        raise HTTPException(
+            status_code=429,
+            detail=f"이번 달 AI 초안 한도({settings.ai_monthly_cap}회)를 다 썼어. 다음 달에 다시 하거나 본인 키(BYOK)를 등록해줘",
+        )
+
+
+def _load_byok_credential(db: Session, user_id: int, provider: str) -> tuple[str, str | None]:
+    """BYOK 사용자 키를 복호화해 (키, base_url) 반환. 미설정 503, 미등록 400.
+    base_url은 SSRF 심층방어로 호출 직전 재검증(저장 후 DNS rebinding 가능)."""
+    try:
+        cred = llm_keys.get_credential(db, user_id, provider)
+    except BYOKNotConfiguredError:
+        raise HTTPException(status_code=503, detail="서버에 BYOK 암호화 키가 설정 안 됐어")
+    if cred is None:
+        raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
+    user_key, base_url = cred
+    if base_url:
+        try:
+            llm_keys.validate_base_url(base_url)
+        except InvalidBaseURLError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    return user_key, base_url
+
+
 @router.post("/draft", response_model=DraftResponse)
 @limiter.limit("10/hour")  # AI 호출 비용 폭탄 방지 (승인된 writer라도 시간당 10회)
 def create_draft(
@@ -120,52 +173,17 @@ def create_draft(
     user: User = Depends(require_writer),
     db: Session = Depends(get_db),
 ):
-    model = (body.model or DEFAULT_MODEL).strip()
     pk = llm_keys.providers_with_key(db, user.id)
+    model, provider = _resolve_provider(body, user, pk)
 
-    if model in MODELS:
-        # 카탈로그 모델: Claude는 티어, BYOK는 키 등록 여부로 허용 결정
-        if model not in allowed_models_for(user, pk):
-            raise HTTPException(status_code=403, detail="이 모델을 쓸 권한이 없어 (결제 또는 키 등록 필요)")
-        provider = model_provider(model)
-    else:
-        # 커스텀 모델(BYOK 전용): provider 명시 + 그 키 등록돼 있어야 함
-        provider = (body.provider or "").strip()
-        if provider not in BYOK_PROVIDERS:
-            raise HTTPException(status_code=400, detail="커스텀 모델은 provider(openai/gemini)를 함께 보내야 해")
-        if provider not in pk:
-            raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
-
-    # 서버키(Claude) 호출은 유저별 '일일 캡' + '월간 캡'으로 비용 폭주 방지 (BYOK는 본인 비용이라 제외)
     if provider == "claude":
-        if ai_usage.count_today(db, user.id) >= settings.ai_daily_cap:
-            raise HTTPException(
-                status_code=429,
-                detail=f"오늘 AI 초안 한도({settings.ai_daily_cap}회)를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
-            )
-        if ai_usage.count_month(db, user.id) >= settings.ai_monthly_cap:
-            raise HTTPException(
-                status_code=429,
-                detail=f"이번 달 AI 초안 한도({settings.ai_monthly_cap}회)를 다 썼어. 다음 달에 다시 하거나 본인 키(BYOK)를 등록해줘",
-            )
+        _enforce_server_caps(db, user.id)
 
-    # BYOK provider는 사용자 키를 복호화해서 사용 (서버 claude만 서버 키)
-    user_key = None
-    base_url = None
-    if provider in BYOK_PROVIDERS:
-        try:
-            cred = llm_keys.get_credential(db, user.id, provider)
-        except BYOKNotConfiguredError:
-            raise HTTPException(status_code=503, detail="서버에 BYOK 암호화 키가 설정 안 됐어")
-        if cred is None:
-            raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
-        user_key, base_url = cred
-        # SSRF 심층방어: 저장 후 DNS가 바뀌었을 수 있어(rebinding) 호출 직전 다시 검증
-        if base_url:
-            try:
-                llm_keys.validate_base_url(base_url)
-            except InvalidBaseURLError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+    user_key, base_url = (
+        _load_byok_credential(db, user.id, provider)
+        if provider in BYOK_PROVIDERS
+        else (None, None)
+    )
 
     try:
         markdown = generate_draft(body.memo, model, provider, user_key, base_url)
