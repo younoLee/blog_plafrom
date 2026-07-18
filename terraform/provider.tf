@@ -5,7 +5,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.55"
     }
     # rds-autostop.tf의 Lambda 소스를 zip으로 묶는 데 사용
     archive = {
