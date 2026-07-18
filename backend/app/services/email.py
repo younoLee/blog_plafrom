@@ -6,7 +6,8 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models.subscriber import Subscriber
+from app.models.author_subscription import AuthorSubscription
+from app.models.user import User
 
 
 def send_email(to: str, subject: str, body: str, html: str | None = None) -> None:
@@ -109,15 +110,20 @@ def send_subscribe_confirm_email(to: str, link: str) -> None:
     )
 
 
-def notify_new_post(post_id: int, post_title: str) -> None:
-    """새 글 작성 시 '확인된' 구독자에게만 알림 메일 발송 (백그라운드 실행)."""
+def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:
+    """글쓴이가 새 글을 쓰면, 그 글쓴이를 '구독 + 알림 켠' 사람들의 계정 이메일로 발송.
+    (전역 뉴스레터를 없애고 글쓴이별 알림으로 통일 — 2026-07-18)"""
     # 백그라운드라 요청 세션과 별개로 자체 세션을 연다
     db = SessionLocal()
     try:
-        # confirmed=True인 구독자만 → 더블옵트인 핵심 방어선
-        # (남이 무단등록한 미확인 이메일에는 절대 발송 안 됨)
+        # author를 구독(author_subscriptions)하고 notify=True로 켠 사용자들의 계정 이메일
         emails = db.scalars(
-            select(Subscriber.email).where(Subscriber.confirmed.is_(True))
+            select(User.email)
+            .join(AuthorSubscription, AuthorSubscription.subscriber_id == User.id)
+            .where(
+                AuthorSubscription.author_id == author_id,
+                AuthorSubscription.notify.is_(True),
+            )
         ).all()
     finally:
         db.close()

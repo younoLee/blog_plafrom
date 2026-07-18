@@ -32,18 +32,50 @@ class SubscriptionOut(BaseModel):
     name: str
 
 
-@router.get("/detail", response_model=list[SubscriptionOut])
+class SubscriptionDetailOut(BaseModel):
+    id: int
+    name: str
+    notify: bool  # 이 글쓴이의 새 글 이메일 알림을 켰는지
+
+
+class NotifyIn(BaseModel):
+    notify: bool
+
+
+@router.get("/detail", response_model=list[SubscriptionDetailOut])
 def my_subscriptions_detail(
     db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    # 내가 구독 중인 글쓴이 (id + 이름) — '구독 중인 블로그' 목록 표시용
+    # 내가 구독 중인 글쓴이 (id + 이름 + 알림여부) — 구독 관리 목록 표시용
     rows = db.execute(
-        select(User.id, User.email)
+        select(User.id, User.email, AuthorSubscription.notify)
         .join(AuthorSubscription, AuthorSubscription.author_id == User.id)
         .where(AuthorSubscription.subscriber_id == user.id)
         .order_by(User.id)
     ).all()
-    return [{"id": r.id, "name": r.email.split("@")[0]} for r in rows]
+    return [{"id": r.id, "name": r.email.split("@")[0], "notify": r.notify} for r in rows]
+
+
+@router.put("/{author_id}/notify", response_model=SubscriptionDetailOut)
+def set_notify(
+    author_id: int,
+    data: NotifyIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 알림은 '구독한 다음에'만 켤 수 있다 → 구독 관계가 없으면 404
+    sub = db.scalar(
+        select(AuthorSubscription).where(
+            AuthorSubscription.subscriber_id == user.id,
+            AuthorSubscription.author_id == author_id,
+        )
+    )
+    if sub is None:
+        raise HTTPException(status_code=404, detail="먼저 구독해야 알림을 켤 수 있어")
+    sub.notify = data.notify
+    db.commit()
+    author = db.get(User, author_id)
+    return {"id": author_id, "name": author.email.split("@")[0], "notify": sub.notify}
 
 
 @router.get("/authors", response_model=list[SubscriptionOut])

@@ -263,9 +263,10 @@ def create_post(
     db.add(post)
     db.commit()
     db.refresh(post)
-    # 공개글만 구독자에게 알림 (비공개글은 알리지 않음)
-    if post.visibility == "public":
-        background.add_task(notify_new_post, post.id, post.title)
+    # 이 글쓴이를 구독+알림 켠 사람에게 발송 (공개·구독자공개 글. 비공개는 알리지 않음).
+    # 구독자공개도 포함하는 이유: 구독자는 그 글을 볼 수 있으니 알림도 의미가 있다.
+    if post.owner_id and post.visibility in ("public", "subscribers"):
+        background.add_task(notify_new_post, post.id, post.title, post.owner_id)
     return post
 
 

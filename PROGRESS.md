@@ -1113,3 +1113,13 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **1단계 변경(프론트 전용 — 백엔드 `subscribeAuthor`는 이미 이메일과 독립 동작)**: SubscriptionsPage에서 잠금(`if (!subscribed) return`·`disabled`·opacity 락·'구독하면 설정 가능' 뱃지) 제거 → **글쓴이마다 버튼 하나로 독립 구독/해제**. 섹션을 재정리: "구독"(글쓴이 열람, 주 기능)을 위로, "이메일 알림"(새 공개글 뉴스레터, 선택)을 아래로. 라벨·문구를 '알림'↔'구독' 개념에 맞게 정정.
 - 알림·승인은 **일부러 안 건드림**(로드맵 2·3단계). 검증: eslint 0·빌드·vitest 7 통과, 도커 프론트 재빌드해 `/subscriptions` 200.
 - **배운 것**: 요구사항이 "한번에 말고 하나씩"처럼 짧을 땐 **내가 이해한 걸 되짚어 확인**하는 게 빠르다 — 처음엔 '알림을 엮는 것'으로 오해했는데, 확인해보니 '열람 구독을 글쓴이별로 분리'였다. 한 번 물어서 엉뚱한 구현을 피했다.
+
+### 🔔 구독 UX 3단계: 글쓴이별 알림(구독 후 opt-in) — 전역 뉴스레터 폐지 (2026-07-18)
+
+로드맵 3단계(선택적 알림)를 글쓴이별로 구현. "구독한 다음에 그 글쓴이 알림을 켠다", "한번에 말고 test 구독하면 test 알림이 열린다". 전역 뉴스레터(모든 공개글 → 전체 구독자)는 폐지(사용자 선택 B).
+- **DB**: `author_subscriptions`에 `notify`(bool, 기본 false) 추가 — 마이그레이션 `814d837c28a3`(add_column만).
+- **백엔드**: `/subscriptions/detail`이 notify 포함, `PUT /subscriptions/{author_id}/notify`(구독 안 했으면 404 = '구독이 먼저'). `notify_new_post(post_id, title, author_id)`를 **그 글쓴이를 구독+알림 켠 사람의 계정 이메일**로 발송하게 재배선(기존 Subscriber 전역 목록 → 폐기). posts.py 호출부는 공개·구독자공개 글에 대해 author_id 전달.
+- **프론트**: SubscriptionsPage를 글쓴이 목록으로 재구성 — 각 행에 [구독] 버튼, 구독한 글쓴이에만 [🔔 알림] 토글. 전역 "이메일 알림" 섹션·관리자 구독자 목록 제거.
+- **남긴 것(dormant)**: 익명 Subscriber 테이블·라우터·`/subscribe/confirm` 페이지는 파괴적 teardown(테이블 drop→status stats 깨짐) 위험이라 **일부러 안 지우고 휴면**으로 뒀다. UI 진입점이 없어 사용자에겐 사라진 것과 같다. 완전 제거는 나중에.
+- 검증: 백엔드 90+notify 2개 통과, ruff clean, 프론트 lint 0·build·test 7, 도커 재빌드 후 notify/detail 401(인증)·구독페이지 200.
+- **배운 것**: '없앤다'가 항상 '코드를 지운다'는 아니다 — Subscriber 테이블은 status 집계·다른 코드에 얽혀 있어 지금 drop하면 연쇄로 깨진다. **진입점만 없애고 휴면**시키면 사용자 경험상 제거이면서 회귀 위험은 0이다.

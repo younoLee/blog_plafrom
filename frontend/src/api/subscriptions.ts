@@ -13,10 +13,21 @@ export async function fetchBlogOwner(): Promise<BlogOwner> {
   return res.json()
 }
 
-// 내가 구독 중인 글쓴이 (id + 이름) — '구독 중인 블로그' 목록용
+// 내가 구독 중인 글쓴이 (id + 이름 + 알림여부) — /detail은 notify 포함, /authors는 미포함
 export interface SubscribedAuthor {
   id: number
   name: string
+  notify?: boolean
+}
+
+// 구독한 글쓴이의 새 글 이메일 알림 켜기/끄기 (구독한 뒤에만 가능 — 아니면 404)
+export async function setNotify(authorId: number, notify: boolean): Promise<void> {
+  const res = await fetch(`${BASE}/subscriptions/${authorId}/notify`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ notify }),
+  })
+  if (!res.ok) throw new Error('알림 설정 실패')
 }
 export async function fetchMySubscriptionsDetail(): Promise<SubscribedAuthor[]> {
   const res = await fetch(`${BASE}/subscriptions/detail`, { headers: authHeaders() })
