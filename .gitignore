@@ -24,3 +24,7 @@ dist/
 *.tfstate.lock.info
 # archive_file이 Lambda 소스를 묶어 내놓는 곳 (빌드 산출물 — 소스는 terraform/lambda/)
 terraform/.build/
+
+# 커버리지 산출물 (pytest-cov)
+.coverage
+htmlcov/
