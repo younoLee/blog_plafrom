@@ -15,6 +15,7 @@ import { Reveal } from '../components/Reveal'
 import { Toc } from '../components/Toc'
 import { SeriesBox, SeriesPrevNext } from '../components/SeriesBox'
 import { readingTime } from '../postUtils'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 const { input, btnPrimary, btnGhost } = ui
 
@@ -23,6 +24,8 @@ function PostDetailPage() {
   const postId = Number(id)
   const { user } = useAuth()
   const [post, setPost] = useState<Post | null>(null)
+  // 브라우저 탭/북마크/검색결과에 글 제목이 뜨도록 (글 로딩 전엔 사이트 기본 제목)
+  useDocumentTitle(post?.title)
   const [error, setError] = useState('')
   const [subscribed, setSubscribed] = useState(false)
   const [series, setSeries] = useState<SeriesNav | null>(null)

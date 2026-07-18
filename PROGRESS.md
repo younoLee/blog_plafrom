@@ -1075,3 +1075,16 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **유일한 실수정**: `posts.py`가 `notify_new_post` import를 상수 아래로 잘못 내려둔 것(순환 아님) → 상단 import 블록으로 올림.
 - `ruff.toml`(select E/F/W/B/I/UP, alembic 제외) + `requirements-dev.txt`에 ruff + CI `backend-tests`에 `ruff check .` 스텝. import 재정렬이 28개 파일에 퍼졌지만 **90개 테스트·마이그레이션 전부 통과**로 무해 검증.
 - **배운 것**: 린터의 값어치는 "지적 개수"가 아니라 **오탐을 걷어낸 뒤 남는 신호**다 — 267건 중 실제 버그는 0, 관용구·스타일을 제외하니 진짜 고칠 건 import 위치 하나였다. 설정에 "왜 이 규칙을 껐나"를 적어두면 다음 사람이 안 되묻는다.
+
+### 🔎 보안 리뷰(구멍 없음) + SEO·공유 최적화 (2026-07-18)
+
+**보안 리뷰(읽기 전용, 취약점 0)**: 제일 위험한 두 곳을 감사 —
+- `security.py`(JWT): `algorithms=[HS256]` 명시로 알고리즘 혼동/none 공격 차단, purpose 없는 토큰만 로그인 인정, bcrypt 해싱. 견고.
+- `llm_keys.py`(BYOK SSRF): 사용자 base_url을 실제 IP로 resolve해 `ip.is_global` 아니면 거부(사설·loopback·링크로컬 169.254.169.254 전부 차단), https 강제, 저장 시+호출 직전 이중 검증, 키는 Fernet 암호화·원문 미노출. rebinding 한계는 IMDSv2+hop-limit로 방어. 잘 됨.
+- CSP는 이미 CloudFront Function으로 촘촘히 적용 중(토스 결제창 도메인만 예외). → **실제 취약점 없음.** (남은 하드닝: HSTS·X-Content-Type-Options 등 헤더 추가는 라이브 CloudFront 건드려야 해 보류)
+
+**SEO·공유 최적화(프론트 전용, 라이브 서버 무관 — deploy.yml이 자동 반영)**: 실제 갭이 있었다 —
+- `index.html`이 `lang="en"`(한국어 사이트인데) → `ko`로. **description·Open Graph·Twitter 카드 태그가 아예 없어** 링크를 카톡/트위터에 붙여도 미리보기가 안 떴다 → 전부 추가(`public/og-image.png`=hero 이미지 복사, 절대 URL로 참조).
+- SPA라 모든 페이지 탭 제목이 "DEV 블로그"로 동일했다 → `useDocumentTitle` 훅 신설 + PostDetailPage에 적용해 **글마다 "글제목 — DEV 블로그"**가 탭·북마크·(JS 렌더하는)구글에 뜨게.
+- 검증: `npm run build`(tsc) 통과, 프론트 테스트 7개 통과, dist에 OG 태그·og-image.png 포함 확인.
+- **한계(정직)**: 카톡 같은 소셜 스크레이퍼는 JS를 안 돌려 index.html의 '사이트 기본' 미리보기만 본다 → 글별 개별 OG는 SSR/프리렌더가 있어야 완벽. 지금은 사이트 레벨 미리보기까지 확보(0→1이 제일 큼).
