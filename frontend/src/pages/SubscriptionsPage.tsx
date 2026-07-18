@@ -166,8 +166,7 @@ function SubscriptionsPage() {
                         aria-label={`${a.name} 새 글 알림 ${notifyOn ? '끄기' : '켜기'}`}
                         aria-pressed={notifyOn}
                       >
-                        {/* 종 모양(🔔)이 보이면 켜진 것, 음소거 종(🔕)이면 꺼진 것 */}
-                        {notifyOn ? '🔔' : '🔕'}
+                        {notifyOn ? '🔔 알림 켬' : '🔕 알림 꺼짐'}
                       </button>
                     )}
                     <button
