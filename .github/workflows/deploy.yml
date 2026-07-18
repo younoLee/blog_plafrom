@@ -16,7 +16,7 @@ jobs:
       contents: read  # checkout용 최소 권한
     steps:
       - name: 코드 체크아웃
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Node 설치
         uses: actions/setup-node@v4

@@ -28,7 +28,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/blog_test
       SECRET_KEY: ci-secret-key-0123456789abcdef
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     # 유닛테스트(vitest) + tsc·빌드 통과를 게이트로.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
