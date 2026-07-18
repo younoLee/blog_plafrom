@@ -161,10 +161,13 @@ function SubscriptionsPage() {
                       <button
                         type="button"
                         onClick={() => toggleNotify(a.id, !notifyOn)}
+                        title={notifyOn ? '새 글 알림 켜짐 (누르면 끔)' : '새 글 알림 꺼짐 (누르면 켬)'}
                         className={`${notifyOn ? ui.btnPrimary : ui.btnGhost} text-sm`}
                         aria-label={`${a.name} 새 글 알림 ${notifyOn ? '끄기' : '켜기'}`}
+                        aria-pressed={notifyOn}
                       >
-                        {notifyOn ? '🔔 알림 켬' : '🔕 알림 꺼짐'}
+                        {/* 종 모양(🔔)이 보이면 켜진 것, 음소거 종(🔕)이면 꺼진 것 */}
+                        {notifyOn ? '🔔' : '🔕'}
                       </button>
                     )}
                     <button
