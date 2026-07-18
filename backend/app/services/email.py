@@ -116,12 +116,13 @@ def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:
     # 백그라운드라 요청 세션과 별개로 자체 세션을 연다
     db = SessionLocal()
     try:
-        # author를 구독(author_subscriptions)하고 notify=True로 켠 사용자들의 계정 이메일
+        # author를 '승인된' 구독으로 갖고 notify=True로 켠 사용자들의 계정 이메일
         emails = db.scalars(
             select(User.email)
             .join(AuthorSubscription, AuthorSubscription.subscriber_id == User.id)
             .where(
                 AuthorSubscription.author_id == author_id,
+                AuthorSubscription.approved.is_(True),
                 AuthorSubscription.notify.is_(True),
             )
         ).all()

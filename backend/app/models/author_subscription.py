@@ -19,7 +19,10 @@ class AuthorSubscription(Base):
     author_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    # 이 글쓴이의 새 글을 이메일로 알림받을지 (구독한 뒤 별도로 켜는 opt-in). 기본 꺼짐.
+    # 글쓴이가 이 구독 신청을 승인했는지. 신청 직후엔 false(대기), 글쓴이가 승인하면 true.
+    # 승인된 구독만 '구독자공개' 글 열람·알림 권한을 갖는다.
+    approved: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # 이 글쓴이의 새 글을 이메일로 알림받을지 (승인된 뒤 별도로 켜는 opt-in). 기본 꺼짐.
     notify: Mapped[bool] = mapped_column(Boolean, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

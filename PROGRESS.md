@@ -1123,3 +1123,14 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **남긴 것(dormant)**: 익명 Subscriber 테이블·라우터·`/subscribe/confirm` 페이지는 파괴적 teardown(테이블 drop→status stats 깨짐) 위험이라 **일부러 안 지우고 휴면**으로 뒀다. UI 진입점이 없어 사용자에겐 사라진 것과 같다. 완전 제거는 나중에.
 - 검증: 백엔드 90+notify 2개 통과, ruff clean, 프론트 lint 0·build·test 7, 도커 재빌드 후 notify/detail 401(인증)·구독페이지 200.
 - **배운 것**: '없앤다'가 항상 '코드를 지운다'는 아니다 — Subscriber 테이블은 status 집계·다른 코드에 얽혀 있어 지금 drop하면 연쇄로 깨진다. **진입점만 없애고 휴면**시키면 사용자 경험상 제거이면서 회귀 위험은 0이다.
+
+### ✅ 구독 UX 2단계: 글쓴이 승인제 (신청 → 승인 후 열람·알림) (2026-07-18)
+
+로드맵 마지막 2단계. 이제 구독은 **'신청'**이고, 글쓴이가 **승인**해야 열람·알림 권한이 생긴다.
+- **DB**: `author_subscriptions.approved`(bool, 기본 false) — 마이그레이션 `d29ba157b9a6`. **핵심**: 기존 구독은 이미 활성이었으므로 `UPDATE ... SET approved=true`로 백필(접근 잃지 않게). 신규 구독만 대기(false).
+- **열람 게이트 한 곳**: `posts.subscribed_author_ids`에 `approved.is_(True)` 추가 → can_view·목록·검색·메타가 전부 이걸 써서 **승인된 구독만** 구독자공개 글을 본다(IDOR 방지 구조 덕에 한 줄로 전면 적용). notify 발송(email.py)·알림 켜기(승인 안 됐으면 400)도 approved 요구.
+- **백엔드 API**: 구독=신청(approved=false 반환), 글쓴이용 `GET /subscriptions/requests`(대기 목록)·`POST /requests/{sid}/approve`·`DELETE /requests/{sid}`(거절=삭제). `/detail`이 approved 포함.
+- **프론트**: SubscriptionsPage에 "받은 구독 신청" 섹션(승인/거절) + 구독자 쪽 "승인 대기중" 배지(승인 전엔 알림 벨 대신). 신청 버튼은 대기 중 "신청 취소".
+- **테스트**: 승인 전엔 구독자공개 글 404·알림 400, 승인 후 200 — 기존 테스트 2개를 승인 단계 포함으로 갱신 + 승인 흐름 5개 추가. **백엔드 97개**(+5), ruff clean, 커버리지 78%. 프론트 lint 0·build·test 7. 도커 재빌드 검증.
+- **배운 것**: 스키마에 상태(approved)를 넣을 땐 **기존 행의 의미**를 먼저 정해야 한다 — server_default(false)를 그냥 두면 기존 구독자가 전부 '대기'로 떨어져 접근을 잃는다. 마이그레이션의 백필 한 줄이 "이 기능 이전 사람들"을 지켜준다.
+- **구독 로드맵 3단계(글쓴이별 독립 → 글쓴이별 알림 → 승인제) 전부 완료.**

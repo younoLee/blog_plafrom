@@ -74,28 +74,30 @@ def test_private_visible_to_admin(client, make_user, auth_headers):
 
 
 # ── subscribers: 구독하면 열림 ─────────────────────────────────────────────
-def test_subscribers_only_hidden_then_visible_after_subscribe(
+def test_subscribers_only_visible_only_after_approval(
     client, make_user, auth_headers
 ):
     author = make_user(role="writer")
     reader = make_user(role="writer")
     post = _create_post(client, auth_headers(author), visibility="subscribers")
 
-    # 구독 전: 숨김
-    before = client.get(f"/api/posts/{post['id']}", headers=auth_headers(reader))
-    assert before.status_code == 404
+    # 구독(신청) 전: 숨김
+    assert client.get(f"/api/posts/{post['id']}", headers=auth_headers(reader)).status_code == 404
 
-    # 구독
+    # 구독 신청 → 아직 '대기'라 열람 안 됨
     sub = client.post(
-        "/api/subscriptions",
-        headers=auth_headers(reader),
-        json={"author_id": author.id},
+        "/api/subscriptions", headers=auth_headers(reader), json={"author_id": author.id}
     )
     assert sub.status_code == 201
+    assert sub.json()["approved"] is False
+    assert client.get(f"/api/posts/{post['id']}", headers=auth_headers(reader)).status_code == 404
 
-    # 구독 후: 열림
-    after = client.get(f"/api/posts/{post['id']}", headers=auth_headers(reader))
-    assert after.status_code == 200
+    # 글쓴이가 승인 → 이제 열림
+    approve = client.post(
+        f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author)
+    )
+    assert approve.status_code == 204
+    assert client.get(f"/api/posts/{post['id']}", headers=auth_headers(reader)).status_code == 200
 
 
 # ── 수정/삭제: 소유자만 ────────────────────────────────────────────────────

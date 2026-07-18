@@ -54,13 +54,15 @@ def get_post_or_404(post_id: int, db: Session) -> Post:
 
 
 def subscribed_author_ids(user: User | None, db: Session) -> set[int]:
-    # 이 사용자가 구독 중인 글쓴이 id들 (비로그인은 빈 집합)
+    # 이 사용자가 '승인된' 구독을 가진 글쓴이 id들 (비로그인은 빈 집합).
+    # 승인 대기(approved=false) 구독은 열람 권한을 주지 않는다.
     if user is None:
         return set()
     return set(
         db.scalars(
             select(AuthorSubscription.author_id).where(
-                AuthorSubscription.subscriber_id == user.id
+                AuthorSubscription.subscriber_id == user.id,
+                AuthorSubscription.approved.is_(True),
             )
         ).all()
     )

@@ -13,11 +13,37 @@ export async function fetchBlogOwner(): Promise<BlogOwner> {
   return res.json()
 }
 
-// 내가 구독 중인 글쓴이 (id + 이름 + 알림여부) — /detail은 notify 포함, /authors는 미포함
+// 내가 구독(신청)한 글쓴이 — /detail은 approved+notify 포함, /authors는 미포함
 export interface SubscribedAuthor {
   id: number
   name: string
+  approved?: boolean // 글쓴이가 승인했는지 (false=승인 대기)
   notify?: boolean
+}
+
+// 나(글쓴이)에게 온 구독 신청 (승인 대기)
+export interface PendingRequest {
+  id: number // 신청한 사용자 id
+  name: string
+}
+export async function fetchRequests(): Promise<PendingRequest[]> {
+  const res = await fetch(`${BASE}/subscriptions/requests`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+export async function approveRequest(subscriberId: number): Promise<void> {
+  const res = await fetch(`${BASE}/subscriptions/requests/${subscriberId}/approve`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('승인 실패')
+}
+export async function rejectRequest(subscriberId: number): Promise<void> {
+  const res = await fetch(`${BASE}/subscriptions/requests/${subscriberId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('거절 실패')
 }
 
 // 구독한 글쓴이의 새 글 이메일 알림 켜기/끄기 (구독한 뒤에만 가능 — 아니면 404)

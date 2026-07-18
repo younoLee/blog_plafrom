@@ -72,17 +72,40 @@ def test_notify_requires_subscription_first(client, make_user, auth_headers):
     assert r.status_code == 404
 
 
-def test_notify_toggle_after_subscribe(client, make_user, auth_headers):
-    author = make_user(role="writer")
-    reader = make_user(role="writer")
+def _subscribe_and_approve(client, auth_headers, reader, author):
     client.post(
         "/api/subscriptions", headers=auth_headers(reader), json={"author_id": author.id}
     )
-    # 구독 직후 알림은 기본 꺼짐
+    client.post(
+        f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author)
+    )
+
+
+def test_notify_blocked_until_approved(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    # 신청만 하고 승인 전 → 알림 켜기 400 (승인 대기)
+    client.post(
+        "/api/subscriptions", headers=auth_headers(reader), json={"author_id": author.id}
+    )
+    pending = client.put(
+        f"/api/subscriptions/{author.id}/notify",
+        headers=auth_headers(reader),
+        json={"notify": True},
+    )
+    assert pending.status_code == 400
+
+
+def test_notify_toggle_after_approval(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    _subscribe_and_approve(client, auth_headers, reader, author)
+
+    # 승인 후 기본 알림은 꺼짐
     detail = client.get("/api/subscriptions/detail", headers=auth_headers(reader)).json()
+    assert detail[0]["approved"] is True
     assert detail[0]["notify"] is False
 
-    # 켜기 → 반영
     on = client.put(
         f"/api/subscriptions/{author.id}/notify",
         headers=auth_headers(reader),
@@ -90,13 +113,58 @@ def test_notify_toggle_after_subscribe(client, make_user, auth_headers):
     )
     assert on.status_code == 200
     assert on.json()["notify"] is True
-    detail2 = client.get("/api/subscriptions/detail", headers=auth_headers(reader)).json()
-    assert detail2[0]["notify"] is True
 
-    # 끄기
-    off = client.put(
-        f"/api/subscriptions/{author.id}/notify",
-        headers=auth_headers(reader),
-        json={"notify": False},
+
+# ── 구독 승인 흐름 (2단계) ────────────────────────────────────────────────────
+def test_subscribe_is_pending_and_author_sees_request(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    sub = client.post(
+        "/api/subscriptions", headers=auth_headers(reader), json={"author_id": author.id}
     )
-    assert off.json()["notify"] is False
+    assert sub.json()["approved"] is False  # 신청 = 대기
+
+    # 글쓴이에게 신청이 보임
+    reqs = client.get("/api/subscriptions/requests", headers=auth_headers(author))
+    assert reqs.status_code == 200
+    assert any(r["id"] == reader.id for r in reqs.json())
+
+
+def test_approve_moves_out_of_requests(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post(
+        "/api/subscriptions", headers=auth_headers(reader), json={"author_id": author.id}
+    )
+    ap = client.post(
+        f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author)
+    )
+    assert ap.status_code == 204
+    # 승인되면 대기 목록에서 사라짐
+    reqs = client.get("/api/subscriptions/requests", headers=auth_headers(author)).json()
+    assert all(r["id"] != reader.id for r in reqs)
+
+
+def test_reject_deletes_request(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post(
+        "/api/subscriptions", headers=auth_headers(reader), json={"author_id": author.id}
+    )
+    rej = client.delete(
+        f"/api/subscriptions/requests/{reader.id}", headers=auth_headers(author)
+    )
+    assert rej.status_code == 204
+    # 거절되면 구독 자체가 사라짐(내 구독 목록에 없음)
+    mine = client.get("/api/subscriptions", headers=auth_headers(reader)).json()
+    assert author.id not in mine
+
+
+def test_approve_unknown_request_404(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    assert (
+        client.post(
+            "/api/subscriptions/requests/999999/approve", headers=auth_headers(author)
+        ).status_code
+        == 404
+    )
