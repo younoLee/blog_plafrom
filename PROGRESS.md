@@ -1056,3 +1056,13 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
   - **프론트 유닛테스트(vitest 4)**: `postUtils`의 순수 함수 `excerpt`(마크다운 벗기기·이미지 제거·링크 텍스트만·공백접기·max 절단+…)·`readingTime`(최소 1분·500자/분). `npm test` 스크립트 + CI `frontend` 잡에 스텝 추가(빌드만 게이트 → 테스트+빌드).
   - 최종: **백엔드 90 + 프론트 7 = 97개**, 라우터 9/9 커버, CI 두 잡(backend pytest+cov / frontend vitest+build) 게이트.
 - **남은 것**: (선택) status 백그라운드 레코더 통합, ai/llm_keys BYOK 경로 테스트(외부 SDK 목킹 심화), 프론트 컴포넌트 테스트(jsdom). 우선순위 낮음 — 핵심 회귀 그물은 갖춰짐.
+
+### 📄 저장소 정비: README · LICENSE · Dependabot (2026-07-18)
+
+기능·인프라·테스트는 쌓였는데 **저장소를 열면 설명이 없어서** 그 노력이 안 보였다 —
+방문자·채용담당자가 코드보다 먼저 보는 게 저장소 첫 화면이라, 그걸 채웠다.
+
+- **README.md**: 소개 + 라이브 URL + CI 배지, 주요 기능, 기술 스택 표, **아키텍처 mermaid 다이어그램**(CloudFront→S3/EC2→Postgres 컨테이너→S3 백업), 로컬 실행(`docker compose up`), 테스트 실행법, 프로젝트 구조. 개발일지(PROGRESS.md)로 링크해 "왜 그렇게 만들었나"를 드러냄.
+- **LICENSE**: MIT (공개 저장소 표준 — 없으면 "써도 되나?"가 모호).
+- **.github/dependabot.yml**: pip(backend)·npm(frontend)·github-actions·terraform 4개 생태계 주간 점검, groups로 패치 묶어 알림 소음↓ → 의존성 보안 업데이트 자동화.
+- **배운 것**: 코드가 좋아도 **읽는 사람의 진입점**이 없으면 없는 것과 같다. README는 기능 목록이 아니라 "이게 뭐고, 왜 이렇게 했고, 어떻게 돌리나"를 30초에 전달하는 문서다 — 이미 한 일(비용 최적화·RDS 이전·97개 테스트)을 보이게 만드는 게 새 기능만큼 값어치 있다.

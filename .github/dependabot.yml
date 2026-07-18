@@ -1,0 +1,29 @@
+# 의존성 보안·업데이트 자동 감지. 매주 각 생태계를 확인해 PR을 연다.
+# groups로 자잘한 패치를 한 PR로 묶어 알림 소음을 줄인다.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      backend-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: /terraform
+    schedule:
+      interval: weekly
