@@ -1096,3 +1096,12 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **동작 보존 리팩터**: 세 갈래를 이름 붙은 헬퍼로 분리 — `_resolve_provider`(모델/권한), `_enforce_server_caps`(일일·월간 429), `_load_byok_credential`(복호화+base_url 재검증). create_draft는 "결정→캡→키→생성→기록" 오케스트레이션만 남김.
 - **안전망**: test_ai.py 11개가 모든 경로(403/400/429×2/503/502/성공+카운트)를 이미 덮어, 리팩터 후 전부 통과 = 동작 안 바뀜 증명. 복잡도 16→8이하, ruff clean, 전체 90개 통과.
 - **배운 것**: "복잡한 코드"는 느낌이 아니라 **측정 가능한 숫자**(순환복잡도)다. 그리고 리팩터는 **테스트가 있을 때만 안전** — 여기선 경로별 테스트가 먼저 있었기에 함수를 겁 없이 쪼갤 수 있었다(없었으면 리팩터가 곧 도박).
+
+### 🧽 전체 훑기: 프론트 eslint 5개 정리 + lint를 CI 게이트로 (2026-07-18)
+
+"이거 다 훑고" → 백엔드는 이미 clean이라, 여태 **CI가 안 돌리던 프론트 eslint**를 돌려봤다 → 에러 5개 발견(전부 스타일 룰, 버그 아님 — 확인함). 처리:
+- **실수정(확실히 나은 것)**: `Toc.tsx`의 `extractHeadings`는 파일 내부에서만 써서 `export` 제거(react-refresh 규칙 충족). `PaymentPage`의 렌더 중 `Date.now()`(비순수)는 마운트 스냅샷 `useState(() => Date.now())`으로 교체.
+- **이유 적은 disable(의도된 패턴)**: HomePage의 URL→입력창 동기화·목록 재조회 effect, PaymentSuccessPage의 1회 승인검증 effect의 `set-state-in-effect`. 잘 도는 결제/홈 페이지를 룰 만족 위해 뜯는 건 churn·회귀위험이라, StatusPage에서 이미 쓰던 "이유 명시 disable" 방식으로. (`exhaustive-deps`도 loadPosts 재사용 이유와 함께 억제)
+- **lint를 CI 게이트로**: `.github/workflows/ci.yml`의 `frontend` 잡에 `npm run lint` 스텝 추가 → 이제 프론트도 lint·test·build 3중 게이트. 앞으로 스타일 회귀가 조용히 쌓이지 않는다.
+- 검증: eslint 0 problems, 빌드·테스트(7) 통과.
+- **배운 것**: 규칙 위반을 만나면 "고칠 것 vs 이유 대고 끌 것"을 구분해야 한다 — 잘 도는 코드를 순수 스타일 룰 때문에 뜯으면 없던 버그가 생긴다. **disable도 이유를 적으면 정당한 결정**이지 회피가 아니다.

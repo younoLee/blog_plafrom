@@ -18,7 +18,9 @@ function slug(text: string): string {
     .replace(/[^\p{L}\p{N}\-_]/gu, '') // 문자·숫자·하이픈·밑줄만 남김(한글 유지)
 }
 
-export function extractHeadings(markdown: string): Heading[] {
+// Toc 내부 전용(외부 미사용) → export 안 함. 컴포넌트 파일이 컴포넌트만 export하게
+// 해서 fast-refresh(react-refresh/only-export-components)를 만족시킨다.
+function extractHeadings(markdown: string): Heading[] {
   const out: Heading[] = []
   const seen = new Map<string, number>()
   let inFence = false

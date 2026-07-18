@@ -24,6 +24,8 @@ function PaymentPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  // '며칠 남음' 계산용 '지금' 시각을 마운트 시 한 번만 스냅샷 (렌더 중 Date.now() 직접 호출 = 비순수).
+  const [now] = useState(() => Date.now())
 
   if (loading) return null
 
@@ -116,7 +118,7 @@ function PaymentPage() {
                   {new Date(user.pro_until).toLocaleDateString('ko-KR')}까지
                   {(() => {
                     const days = Math.ceil(
-                      (new Date(user.pro_until).getTime() - Date.now()) / 86400000,
+                      (new Date(user.pro_until).getTime() - now) / 86400000,
                     )
                     return days > 0 ? ` (${days}일 남음)` : ''
                   })()}

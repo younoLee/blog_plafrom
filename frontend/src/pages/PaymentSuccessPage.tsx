@@ -20,6 +20,8 @@ function PaymentSuccessPage() {
     const orderId = params.get('orderId')
     const amount = Number(params.get('amount'))
     if (!paymentKey || !orderId || !amount) {
+      // 마운트 1회 검증(ran.current 가드)에서 잘못된 쿼리면 즉시 에러 표시 — 의도된 동기 setState.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setState('error')
       setError('결제 정보가 올바르지 않아')
       return

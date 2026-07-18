@@ -58,6 +58,9 @@ jobs:
       - name: 의존성 설치
         working-directory: frontend
         run: npm ci
+      - name: 린트(eslint)
+        working-directory: frontend
+        run: npm run lint
       - name: 유닛테스트(vitest)
         working-directory: frontend
         run: npm test

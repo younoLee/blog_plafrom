@@ -36,11 +36,17 @@ function HomePage() {
   }
 
   useEffect(() => {
-    setQueryInput(q ?? '') // 뒤로가기 등으로 URL이 바뀌면 입력창도 맞춘다
+    // URL의 q가 바뀌면(뒤로가기 등) 검색 입력창을 그 값으로 되돌리는 의도된 동기화.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQueryInput(q ?? '')
   }, [q])
 
   useEffect(() => {
+    // 필터/페이지 변화 시 목록 재조회. loadPosts는 액션 후에도 재사용해 effect 밖에 두므로
+    // deps에서 제외(넣으면 매 렌더 재생성으로 무한루프). setState는 await 뒤라 실제론 비동기.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPosts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, tag, q, page])
 
   // 사이드바 집계는 목록과 별개 — 페이지·검색과 무관하게 블로그 전체를 보여준다
