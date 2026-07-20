@@ -416,7 +416,13 @@
       "Bash(aws scheduler *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 25 https://d2j66m9udyg9yq.cloudfront.net/)",
       "Bash(timeout 90 aws ce get-cost-and-usage --time-period Start=2026-06-01,End=2026-07-18 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=RECORD_TYPE --filter '{\"Dimensions\":{\"Key\":\"RECORD_TYPE\",\"Values\":[\"Credit\"]}}' --query 'ResultsByTime[].{Month:TimePeriod.Start,Credit:Groups[0].Metrics.UnblendedCost.Amount}' --output table)",
-      "Bash(PYTHONPATH=/home/es0764/blog_plafrom /tmp/claude-1000/-home-es0764-blog-plafrom/0aa95ec7-fdc6-4ccd-b4b3-a5e0b7e8cd27/scratchpad/docxenv/bin/python scripts/devlog_to_markdown.py 2026-07-17)"
+      "Bash(PYTHONPATH=/home/es0764/blog_plafrom /tmp/claude-1000/-home-es0764-blog-plafrom/0aa95ec7-fdc6-4ccd-b4b3-a5e0b7e8cd27/scratchpad/docxenv/bin/python scripts/devlog_to_markdown.py 2026-07-17)",
+      "Bash(aws ce *)",
+      "Bash(aws freetier *)",
+      "Bash(aws billing *)",
+      "Bash(curl -s --max-time 20 https://d2j66m9udyg9yq.cloudfront.net/api/status)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 20 https://d2j66m9udyg9yq.cloudfront.net/api/health)",
+      "Bash(sudo -n chown es0764:es0764 content/devlog/2026-07-17.md content/devlog/2026-07-18.md \"블로그_개발일지_2026-07-18.docx\")"
     ]
   }
 }
