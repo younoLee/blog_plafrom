@@ -1,5 +1,6 @@
 import type { Post, PostSummary, SeriesNav, Visibility } from '../types/post'
 import { authHeaders } from './auth'
+import { fetchWithTimeout } from './http'
 
 // 백엔드 주소 (나중에 환경변수로 빼면 좋음)
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -25,7 +26,8 @@ export async function fetchPosts(
   params.set('limit', String(opts.limit ?? POSTS_PAGE_SIZE))
   params.set('offset', String(opts.offset ?? 0))
 
-  const res = await fetch(`${BASE}/posts?${params}`, { headers: authHeaders() })
+  // 서버가 꺼져 있으면 8초에 끊고 '절전' 안내로 넘긴다(60초 대기 방지). http.ts 참고.
+  const res = await fetchWithTimeout(`${BASE}/posts?${params}`, { headers: authHeaders() })
   if (res.status === 429) throw new Error('요청이 너무 잦아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('목록 불러오기 실패')
   const data = await res.json()

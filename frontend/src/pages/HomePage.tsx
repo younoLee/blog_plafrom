@@ -8,6 +8,7 @@ import { ui } from '../ui'
 import { IconLock } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { Sidebar } from '../components/Sidebar'
+import { ServerAsleepError } from '../api/http'
 
 function HomePage() {
   const { user } = useAuth()
@@ -21,6 +22,8 @@ function HomePage() {
   const [total, setTotal] = useState(0)
   const [meta, setMeta] = useState<PostMetaResult | null>(null)
   const [error, setError] = useState('')
+  // 서버 절전(꺼둠) 상태 — 에러와 톤을 구분해 안내한다.
+  const [asleep, setAsleep] = useState(false)
   // 검색창 입력값. 제출(Enter)할 때만 URL에 반영한다 — 타이핑마다 부르면
   // 서버 레이트리밋(60/분)에 걸리고 검색은 일반 조회보다 비싸다.
   const [queryInput, setQueryInput] = useState(q ?? '')
@@ -30,7 +33,10 @@ function HomePage() {
       const res = await fetchPosts({ q, tag, offset: (page - 1) * POSTS_PAGE_SIZE })
       setPosts(res.items)
       setTotal(res.total)
+      setAsleep(false)
     } catch (e) {
+      // 절전(서버 꺼짐)과 진짜 에러를 구분해 안내 톤을 다르게 한다.
+      setAsleep(e instanceof ServerAsleepError)
       setError((e as Error).message)
     }
   }
@@ -118,7 +124,13 @@ function HomePage() {
         </p>
       </section>
 
-      {error && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
+      {/* 절전은 '고장'이 아니라 의도된 비용 절약이라 톤을 구분한다(빨강 에러 X). */}
+      {asleep && (
+        <p className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 글 목록은 깨어난 뒤에 보여.
+        </p>
+      )}
+      {error && !asleep && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
 
       {/* 본문 + 우측 사이드바 2단. md(768px)+ = 옆으로(PC/태블릿), 그 아래(폰) = 세로 스택 */}
       <div className="grid gap-8 md:grid-cols-[1fr_18rem]">
@@ -163,7 +175,8 @@ function HomePage() {
         </span>
       </div>
 
-      {posts.length === 0 && (
+      {/* 절전 중엔 목록이 비는 게 당연하므로 '글이 없다'는 안내를 겹쳐 띄우지 않는다. */}
+      {posts.length === 0 && !asleep && (
         <p className="rounded-2xl border border-dashed border-black/10 p-12 text-center text-gray-400 dark:border-white/15 dark:text-gray-500">
           {q || tag ? '조건에 맞는 글이 없어.' : '아직 글이 없어. 첫 글을 써봐!'}
         </p>

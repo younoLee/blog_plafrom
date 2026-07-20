@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { POSTS_PAGE_SIZE, fetchPosts, getPost } from './posts'
+import { QUICK_TIMEOUT_MS, ServerAsleepError } from './http'
 
 // authHeaders()가 토큰을 localStorage에서 읽는데 vitest 기본 환경(node)엔 없다.
 // jsdom을 새로 들이는 대신 필요한 만큼만 stub한다(의존성 추가 0).
@@ -102,5 +103,37 @@ describe('상태코드 → 사용자 메시지', () => {
   it('getPost의 404는 "찾을 수 없어"로 구분된다', async () => {
     stubFetch({ status: 404 })
     await expect(getPost(1)).rejects.toThrow(/찾을 수 없어/)
+  })
+})
+
+describe('절전 감지 — 서버를 꺼두는 운영 습관을 화면이 견디게', () => {
+  it('504(오리진 안 뜸)는 ServerAsleepError로 구분된다', async () => {
+    stubFetch({ status: 504 })
+    await expect(fetchPosts()).rejects.toBeInstanceOf(ServerAsleepError)
+  })
+
+  it('응답이 타임아웃을 넘기면 절전으로 본다 (60초 대기 방지)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        // 영원히 안 오는 응답 — abort 시그널이 올 때만 거부된다
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          )
+        })
+      }),
+    )
+    vi.useFakeTimers()
+    const p = fetchPosts()
+    const assertion = expect(p).rejects.toBeInstanceOf(ServerAsleepError)
+    await vi.advanceTimersByTimeAsync(QUICK_TIMEOUT_MS + 10)
+    await assertion
+    vi.useRealTimers()
+  })
+
+  it('500은 절전이 아니라 진짜 에러다 (톤을 구분해야 하므로)', async () => {
+    stubFetch({ status: 500 })
+    await expect(fetchPosts()).rejects.not.toBeInstanceOf(ServerAsleepError)
   })
 })
