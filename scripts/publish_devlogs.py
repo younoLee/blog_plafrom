@@ -51,6 +51,10 @@ def main() -> None:
                 timezone.utc
             )
 
+            # 연재 묶음. PostCreate에 없는 필드라 여기서 직접 넣는다 — 빠뜨리면 글은
+            # 보이지만 연재 네비(/posts/{id}/series)가 null이 된다(2026-07-20에 겪음).
+            series = item.get("series", "블로그 만들기")
+
             existing = db.scalar(select(Post).where(Post.title == body.title))
             if existing:
                 existing.content = body.content
@@ -58,6 +62,7 @@ def main() -> None:
                 existing.visibility = body.visibility
                 existing.owner_id = owner.id
                 existing.created_at = written
+                existing.series = series
                 updated += 1
                 print(f"  갱신  {item['date']}  {body.title}")
             else:
@@ -68,6 +73,7 @@ def main() -> None:
                         tags=body.tags,
                         visibility=body.visibility,
                         owner_id=owner.id,
+                        series=series,
                         created_at=written,
                         updated_at=written,
                     )
