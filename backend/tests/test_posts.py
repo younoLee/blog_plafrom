@@ -1,6 +1,7 @@
 """글 권한 매트릭스가 이 앱의 가장 복잡한 로직이라 여기에 테스트를 집중한다.
 공개범위(public/subscribers/private) × 열람자(익명/남/본인/구독자) + 소유자 게이팅.
 """
+import pytest
 
 
 def _create_post(client, headers, *, visibility="public", title="T", content="C"):
@@ -137,3 +138,29 @@ def test_owner_can_update_and_delete(client, make_user, auth_headers):
     assert dele.status_code == 204
     # 삭제 후 조회 불가
     assert client.get(f"/api/posts/{post['id']}").status_code == 404
+
+
+# ── 커버 이미지 URL 검증 ─────────────────────────────────────────────────────
+# CSP가 img-src를 https로 제한하므로 http 커버는 브라우저가 차단해 '조용히' 안 보인다.
+# 저장 시점에 막아 원인 모를 실패를 없앤다.
+@pytest.mark.parametrize(
+    "cover,expect",
+    [
+        ("https://cdn.example.com/a.png", 201),  # 외부 https
+        ("/uploads/abc.png", 201),  # same-origin 상대경로
+        ("http://localhost:8000/uploads/a.png", 201),  # 로컬 개발 업로더
+        ("", 201),  # 빈 값 = 미지정
+        ("http://evil.example.com/a.png", 422),  # 평문 http
+        ("//evil.example.com/a.png", 422),  # 프로토콜 상대 = 외부 호스트
+        ("javascript:alert(1)", 422),
+        ("data:image/svg+xml,<svg onload=alert(1)>", 422),
+    ],
+)
+def test_cover_image_scheme(client, make_user, auth_headers, cover, expect):
+    user = make_user(role="writer")
+    r = client.post(
+        "/api/posts",
+        headers=auth_headers(user),
+        json={"title": "T", "content": "C", "cover_image": cover},
+    )
+    assert r.status_code == expect, r.text

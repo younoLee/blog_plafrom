@@ -32,6 +32,33 @@ class _PostBody(BaseModel):
     # 안 그러면 ''인 글끼리 '이름 없는 연재'로 묶여버린다.
     series: str | None = Field(default=None, max_length=SERIES_MAX)
 
+    @field_validator("cover_image")
+    @classmethod
+    def _check_cover_image(cls, v: str | None) -> str | None:
+        """커버 URL은 https(또는 same-origin 상대경로)만 받는다.
+
+        보안이라기보단 '조용한 실패' 제거다: CSP가 `img-src 'self' data: https:`라
+        http:// 커버는 브라우저가 차단해 화면에서 그냥 안 보인다. 저장은 됐는데
+        이미지만 사라지니 원인을 알 방법이 없었다 → 저장 시점에 400으로 알려준다.
+
+        http://localhost·127.0.0.1은 허용한다. 로컬 개발의 public_base_url이
+        http://localhost:8000이라, 막으면 자기 업로더가 준 URL이 거부된다.
+        """
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        # '//host/x'는 프로토콜 상대 URL = 외부 호스트다. 상대경로처럼 보이지만
+        # same-origin이 아니므로 '/'로 시작한다고 통과시키면 안 된다.
+        if v.startswith("//"):
+            raise ValueError("커버 이미지 주소는 https:// 로 시작해야 해")
+        if v.startswith("/") or v.startswith("https://"):
+            return v
+        if v.startswith(("http://localhost", "http://127.0.0.1")):
+            return v
+        raise ValueError("커버 이미지 주소는 https:// 여야 해 (http는 브라우저가 차단해서 안 보여)")
+
     @field_validator("series")
     @classmethod
     def _clean_series(cls, v: str | None) -> str | None:
