@@ -6,7 +6,7 @@ resource "aws_instance" "backend" {
   subnet_id              = "subnet-04bf4b4e44fe4defe"
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
-  # DB 백업 cron이 S3(blog-db-backups)에 올릴 수 있도록 인스턴스 프로파일 부여.
+  # DB 백업(정지 절차 1단계)이 S3(blog-db-backups)에 올릴 수 있도록 인스턴스 프로파일 부여.
   # attach는 in-place(인스턴스 교체 아님). 권한은 db-backup.tf에서 PutObject로만 한정.
   iam_instance_profile = aws_iam_instance_profile.backend.name
 
