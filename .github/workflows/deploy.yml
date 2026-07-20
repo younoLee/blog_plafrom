@@ -40,7 +40,7 @@ jobs:
         run: npm run build
 
       - name: AWS 자격증명 (OIDC 역할 assume — 장기 키 없음)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-deploy
           aws-region: ap-northeast-2
