@@ -1,5 +1,6 @@
 import type { Comment } from '../types/comment'
 import { authHeaders } from './auth'
+import { fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -7,7 +8,7 @@ const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 // 인증 헤더 필수: 백엔드가 글 열람권한(can_view)을 확인하므로, 비공개·구독자공개 글은
 // 로그인 토큰을 보내야 소유자/구독자가 댓글을 읽을 수 있음(없으면 익명 취급 → 404).
 export async function fetchComments(postId: number): Promise<Comment[]> {
-  const res = await fetch(`${BASE}/posts/${postId}/comments`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/posts/${postId}/comments`, { headers: authHeaders() })
   if (!res.ok) throw new Error('댓글 불러오기 실패')
   return res.json()
 }

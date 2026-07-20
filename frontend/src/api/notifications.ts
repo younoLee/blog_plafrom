@@ -1,4 +1,5 @@
 import { authHeaders } from './auth'
+import { fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -16,7 +17,7 @@ export interface NotificationList {
 }
 
 export async function fetchNotifications(): Promise<NotificationList> {
-  const res = await fetch(`${BASE}/notifications`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/notifications`, { headers: authHeaders() })
   if (!res.ok) return { items: [], unread: 0 }
   return res.json()
 }

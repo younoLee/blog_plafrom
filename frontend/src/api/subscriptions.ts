@@ -1,4 +1,5 @@
 import { authHeaders } from './auth'
+import { fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -8,7 +9,7 @@ export interface BlogOwner {
   name: string | null
 }
 export async function fetchBlogOwner(): Promise<BlogOwner> {
-  const res = await fetch(`${BASE}/blog-owner`)
+  const res = await fetchWithTimeout(`${BASE}/blog-owner`)
   if (!res.ok) return { id: null, name: null }
   return res.json()
 }
@@ -27,7 +28,7 @@ export interface PendingRequest {
   name: string
 }
 export async function fetchRequests(): Promise<PendingRequest[]> {
-  const res = await fetch(`${BASE}/subscriptions/requests`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/subscriptions/requests`, { headers: authHeaders() })
   if (!res.ok) return []
   return res.json()
 }
@@ -56,7 +57,7 @@ export async function setNotify(authorId: number, notify: boolean): Promise<void
   if (!res.ok) throw new Error('알림 설정 실패')
 }
 export async function fetchMySubscriptionsDetail(): Promise<SubscribedAuthor[]> {
-  const res = await fetch(`${BASE}/subscriptions/detail`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/subscriptions/detail`, { headers: authHeaders() })
   if (!res.ok) return []
   return res.json()
 }

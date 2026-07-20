@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from './http'
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
 // 백엔드 /status 응답 구조 (main.py의 status()와 일치)
@@ -14,7 +15,7 @@ export interface StatusInfo {
 
 // 서비스 상태 조회. 실패 시 에러 throw
 export async function fetchStatus(): Promise<StatusInfo> {
-  const res = await fetch(`${BASE}/status`)
+  const res = await fetchWithTimeout(`${BASE}/status`)
   if (!res.ok) throw new Error('상태 조회 실패')
   return res.json()
 }
@@ -41,7 +42,7 @@ export interface UptimeHistory {
 
 // 최근 N일 일별 업타임 기록 조회
 export async function fetchHistory(days = 30): Promise<UptimeHistory> {
-  const res = await fetch(`${BASE}/status/history?days=${days}`)
+  const res = await fetchWithTimeout(`${BASE}/status/history?days=${days}`)
   if (!res.ok) throw new Error('업타임 기록 조회 실패')
   return res.json()
 }

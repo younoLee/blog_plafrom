@@ -50,7 +50,7 @@ export type PostMetaResult = {
 // 목록이 페이지로 끊기므로 사이드바는 목록이 아니라 이걸 봐야 한다
 // (안 그러면 2쪽에서 태그 목록·글 수가 그 페이지 기준으로 틀어짐).
 export async function fetchPostsMeta(): Promise<PostMetaResult> {
-  const res = await fetch(`${BASE}/posts/meta`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/posts/meta`, { headers: authHeaders() })
   if (!res.ok) throw new Error('사이드바 정보 불러오기 실패')
   return res.json()
 }
@@ -59,14 +59,21 @@ export async function fetchPostsMeta(): Promise<PostMetaResult> {
 // 상세 응답에 안 넣고 따로 부르는 이유: 연재가 아닌 글이 대부분인데
 // 매 상세 조회마다 연재 질의를 얹을 이유가 없다.
 export async function fetchSeries(postId: number): Promise<SeriesNav | null> {
-  const res = await fetch(`${BASE}/posts/${postId}/series`, { headers: authHeaders() })
-  if (!res.ok) return null // 연재 정보는 부가기능 — 실패해도 글 읽기를 막지 않는다
-  return res.json()
+  // 연재 정보는 부가기능 — 실패해도 글 읽기를 막지 않는다는 게 이 함수의 계약이다.
+  // 그래서 절전(서버 꺼짐)도 던지지 않고 null로 흡수한다. 던지면 호출부의
+  // .then(setSeries)가 unhandled rejection이 된다.
+  try {
+    const res = await fetchWithTimeout(`${BASE}/posts/${postId}/series`, { headers: authHeaders() })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
 }
 
 // 글 단건 조회 (비공개글은 본인 토큰 있어야 200)
 export async function getPost(id: number): Promise<Post> {
-  const res = await fetch(`${BASE}/posts/${id}`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/posts/${id}`, { headers: authHeaders() })
   if (res.status === 404) throw new Error('글을 찾을 수 없어')
   if (!res.ok) throw new Error('글 불러오기 실패')
   return res.json()
