@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # AI 글 초안 생성 (Claude API). 키는 .env에만 — 코드/커밋 금지
     anthropic_api_key: str = ""
     # 모델명: 이제 /ai/draft가 요청마다 모델을 받으므로 사실상 미사용(하위호환용 기본값)
-    ai_model: str = "claude-sonnet-4-6"
+    ai_model: str = "claude-sonnet-5"
     # 유저별 '일일' 서버키(Claude) AI 초안 호출 상한 (비용 폭주 방지). BYOK 호출은 제외.
     ai_daily_cap: int = 20
     # 유저별 '월간' 서버키 호출 상한. 일일 캡과 별개의 2차 방어선(매일 조금씩 누적되는 비용 방지).

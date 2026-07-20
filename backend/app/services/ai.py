@@ -16,7 +16,7 @@ from app.models.user import User
 # 전체 모델 카탈로그: id → (라벨, provider)
 MODELS: dict[str, tuple[str, str]] = {
     # Claude — 서버 키, 티어 게이팅
-    "claude-sonnet-4-6": ("Claude Sonnet 4.6 (기본)", "claude"),
+    "claude-sonnet-5": ("Claude Sonnet 5 (기본)", "claude"),
     "claude-opus-4-8": ("Claude Opus 4.8 (고품질·결제)", "claude"),
     "claude-fable-5": ("Claude Fable 5 (최고 성능·결제)", "claude"),
     "claude-haiku-4-5": ("Claude Haiku 4.5 (저비용)", "claude"),
@@ -34,8 +34,8 @@ DEFAULT_MODEL = "claude-haiku-4-5"
 
 # Claude 티어별 허용 집합
 # 무료: 소넷+하이쿠. 유료 전용(잠금): Opus·Fable 5 (둘 다 상위·고비용 모델)
-_CLAUDE_FREE = {"claude-sonnet-4-6", "claude-haiku-4-5"}
-_CLAUDE_ALL = {"claude-sonnet-4-6", "claude-opus-4-8", "claude-fable-5", "claude-haiku-4-5"}
+_CLAUDE_FREE = {"claude-sonnet-5", "claude-haiku-4-5"}
+_CLAUDE_ALL = {"claude-sonnet-5", "claude-opus-4-8", "claude-fable-5", "claude-haiku-4-5"}
 
 
 def model_provider(model: str) -> str | None:
@@ -72,6 +72,9 @@ SYSTEM_PROMPT = """너는 기술 블로그 글쓰기를 돕는 편집자야.
 """
 
 MAX_TOKENS = 2500  # 초안 1개엔 충분. 상한을 낮춰 긴 생성의 대기시간↓(웹뷰/타임아웃 완화)·비용↓
+
+# thinking을 안 넘기면 사고가 켜진 채로 도는 모델들 — max_tokens를 따로 키워야 한다(_claude 참고).
+_THINKING_ON_BY_DEFAULT = {"claude-fable-5", "claude-sonnet-5"}
 # 외부 LLM 호출 타임아웃(초). 특히 사용자가 base_url을 정하는 compatible 엔드포인트가
 # 응답을 질질 끌어 워커를 묶는 것(DoS) 방지. 재시도도 1회로 축소.
 REQUEST_TIMEOUT = 60
@@ -90,13 +93,17 @@ def _claude(memo: str, model: str, api_key: str | None = None) -> str:
 
     extra: dict = {}
     max_tokens = MAX_TOKENS
-    if model == "claude-fable-5":
-        # Fable 5는 사고(thinking)가 항상 켜져 있어, 낮은 effort로 두지 않으면
-        # 짧은 max_tokens 예산을 사고에 다 써버려 초안이 잘릴 수 있음.
-        # effort=low + 넉넉한 출력 예산으로 초안이 온전히 나오게 함.
+    if model in _THINKING_ON_BY_DEFAULT:
+        # 이 모델들은 thinking을 안 넘기면 사고가 켜진 채로 돈다. max_tokens는
+        # 사고+본문을 합친 상한이라, 짧은 예산이면 사고가 다 먹고 초안이 잘린다.
+        # effort=low + 넉넉한 출력 예산으로 초안이 온전히 나오게 한다.
         # (extra_body로 넘겨 SDK 버전에 상관없이 API에 그대로 전달)
+        #
+        # Fable 5: 사고가 '항상' 켜짐 — thinking:disabled는 400이라 끌 수 없다.
+        # Sonnet 5: thinking 생략 시 adaptive가 기본(4.6은 꺼진 채였다). 지연이
+        #   더 중요하면 extra_body에 {"thinking": {"type": "disabled"}}로 끄면 된다.
         extra["extra_body"] = {"output_config": {"effort": "low"}}
-        max_tokens = 8000
+        max_tokens = 8000 if model == "claude-fable-5" else 6000
 
     resp = client.messages.create(
         model=model,
