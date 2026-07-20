@@ -22,7 +22,8 @@ INSTANCE_ID=i-06da19f44d1f38eff
 BUCKET=blog-db-backups-181568979775
 SSH_KEY=~/.ssh/blog-key.pem
 CF_URL=https://d2j66m9udyg9yq.cloudfront.net
-TF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../terraform" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TF_DIR="$(cd "$SCRIPT_DIR/../terraform" && pwd)"
 
 SKIP_BACKUP=false
 [[ "${1:-}" == "--skip-backup" ]] && SKIP_BACKUP=true
@@ -50,8 +51,13 @@ else
   say "1/4 백업 — pg_dump → S3"
   before=$(aws s3 ls "s3://$BUCKET/" | wc -l)
 
-  if ! ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
-      'sudo /usr/local/bin/blog-db-backup.sh'; then
+  # 저장소 판본을 매번 올려 덮어쓴다 — 서버에만 있던 시절엔 인스턴스를 새로
+  # 만들면 백업 능력이 조용히 사라졌다(버전 관리도 안 됐다).
+  if ! scp -o StrictHostKeyChecking=no -i "$SSH_KEY" \
+        "$SCRIPT_DIR/blog-db-backup.sh" "ec2-user@$DNS:/tmp/blog-db-backup.sh" \
+     || ! ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
+        'sudo install -m 755 /tmp/blog-db-backup.sh /usr/local/bin/blog-db-backup.sh \
+         && sudo /usr/local/bin/blog-db-backup.sh'; then
     say "❌ 백업 실패 — 정지하지 않고 멈춥니다. EC2는 아직 켜져 있습니다."
     echo "   사본 없이 끄지 않으려는 의도적 중단입니다. 원인을 보고 판단하세요:"
     echo "     - 다시 시도: $0"
