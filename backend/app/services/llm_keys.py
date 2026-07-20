@@ -78,7 +78,15 @@ def validate_base_url(url: str) -> str:
     - 호스트가 가리키는 모든 IP가 공인(global) 대역이어야 함
       → 사설/loopback/링크로컬/예약 대역이면 거부
     한계: 검증~호출 사이 DNS가 바뀌는 rebinding까지는 못 막는다.
-    최종 방어선은 인프라(EC2 IMDSv2 강제 + hop-limit 1)다.
+
+    그 경우의 최종 방어선은 **IMDSv2 강제**(ec2.tf `http_tokens = "required"`)다.
+    자격증명을 꺼내려면 먼저 PUT으로 토큰을 받아 커스텀 헤더에 실어야 하는데,
+    여기 SSRF는 '주소만' 조종할 수 있고 요청 모양(OpenAI SDK가 보내는
+    POST /chat/completions + JSON)은 못 바꾸므로 그 핸드셰이크를 완성할 수 없다.
+
+    hop-limit은 방어선이 아니다 — 1이면 네트워크 레벨에서 한 겹 더 막히지만,
+    백엔드가 컨테이너에서 인스턴스 역할로 S3에 업로드하고(routers/uploads.py)
+    도커 브리지가 홉을 하나 더 먹어서 1로 낮추면 업로드가 깨진다. 그래서 2다.
     """
     parsed = urlparse(url)
     if parsed.scheme != "https":

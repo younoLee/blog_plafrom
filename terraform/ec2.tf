@@ -10,10 +10,15 @@ resource "aws_instance" "backend" {
   # attach는 in-place(인스턴스 교체 아님). 권한은 db-backup.tf에서 PutObject로만 한정.
   iam_instance_profile = aws_iam_instance_profile.backend.name
 
-  # IMDSv2 강제 (http_tokens=required)
+  # IMDSv2 강제 (http_tokens=required). SSRF로 자격증명을 캐가는 걸 막는 실질 방어선 —
+  # 토큰을 PUT으로 먼저 받아 헤더에 실어야 해서, 주소만 조종하는 SSRF로는 완성 못 한다.
+  # (앱 측 1차 방어는 services/llm_keys.py validate_base_url)
   metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+    # 2를 1로 낮추지 말 것: 백엔드가 '컨테이너' 안에서 인스턴스 역할로 S3에 업로드하는데
+    # (routers/uploads.py) 도커 브리지가 홉을 하나 더 써서, 1이면 IMDS에 못 닿아 업로드가 깨진다.
+    # 보안은 hop-limit이 아니라 위의 http_tokens=required가 담당한다.
     http_put_response_hop_limit = 2
     instance_metadata_tags      = "disabled"
   }
