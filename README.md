@@ -8,6 +8,11 @@
 
 🔗 **라이브:** https://d2j66m9udyg9yq.cloudfront.net
 
+> 💤 **서버는 평소 꺼져 있습니다.** 개인 프로젝트라 안 쓸 땐 EC2를 정지해 비용을 아끼는데,
+> 그러면 글 목록이 안 뜹니다. 화면이 8초 안에 "절전 중"이라고 알려주니 고장은 아닙니다 —
+> 오리진을 fail-closed로 주차해두는 것까지 의도된 운영 방식입니다.
+> **글 내용은 서버 없이도 읽을 수 있습니다** → [`content/devlog/`](./content/devlog) (개발일지 16편)
+
 > 이 프로젝트는 기능뿐 아니라 **왜 그렇게 만들었는지**를 개발일지로 남긴다 —
 > 비용 구조 분석, RDS→EC2 이전, 보안 하드닝 결정 등. → [`PROGRESS.md`](./PROGRESS.md)
 
@@ -17,9 +22,9 @@
 
 - **글**: 작성/수정/삭제, 마크다운 + 이미지 업로드, 공개범위(전체/구독자/비공개), 연재(시리즈), 태그, 검색(pg_trgm)
 - **계정**: JWT 인증, 이메일 인증, 비밀번호 재설정, 역할(pending/writer/admin/banned), 세션 무효화
-- **구독**: 글쓴이 구독(구독자 공개 글 열람) + 이메일 뉴스레터(더블옵트인) + 새 글 알림(SES)
+- **구독**: 글쓴이별 구독 **신청 → 글쓴이 승인** → 구독자 공개 글 열람. 승인 후 글쓴이별 알림 opt-in(이메일 SES + 인앱 알림)
 - **댓글**: 로그인/익명, 공개범위 연동
-- **AI 초안**: 메모 → 정돈된 글 구조 생성. Claude(서버 키, 티어 게이팅) + OpenAI/Gemini(BYOK). 일일·월간 비용 캡
+- **AI 초안**: 메모 → 정돈된 글 구조 생성. Claude(서버 키, 티어 게이팅) + BYOK 5종(Anthropic/OpenAI/Gemini/Cohere/OpenAI호환). 시간당·일일·월간 캡, BYOK 키는 암호화 저장 + base_url SSRF 검증
 - **Pro 구독**: 토스페이먼츠 결제(승인검증 → 상위 AI 모델 해금)
 - **상태 페이지**: 백엔드/DB/메일 실시간 점검 + 일별 업타임 집계
 - **관리자**: 사용자 승인/차단, 인프라 대시보드
@@ -31,7 +36,7 @@
 | **백엔드** | FastAPI, PostgreSQL, SQLAlchemy 2.0, Alembic, JWT(PyJWT), slowapi(레이트리밋), boto3(S3), Anthropic/OpenAI/Gemini SDK |
 | **프론트엔드** | React 19, TypeScript, Vite, React Router, Tailwind CSS v4, react-markdown |
 | **인프라** | AWS EC2(Docker), CloudFront + S3, SES, Terraform(IaC), GitHub Actions(CI/CD) |
-| **테스트** | pytest(90) + 커버리지 게이트, vitest(7) |
+| **테스트** | pytest(114) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
 
 ## 아키텍처
 
