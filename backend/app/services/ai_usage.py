@@ -9,12 +9,18 @@ from datetime import UTC, date, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.ai_usage import AiUsage
+from app.models.ai_usage import AiHourlyUsage, AiUsage
 
 
 def _today() -> date:
     # 서버 로컬 tz에 안 휘둘리게 UTC 기준 '오늘'
     return datetime.now(UTC).date()
+
+
+def _this_hour() -> datetime:
+    # 정시로 내림 (14:37 → 14:00). 고정 창이라 경계에서 최대 2배가 몰릴 수 있는데,
+    # 일일 캡도 같은 성질이고 slowapi 기본 창도 고정이라 동일한 트레이드오프다.
+    return datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
 
 
 def count_today(db: Session, user_id: int) -> int:
@@ -42,6 +48,31 @@ def increment_today(db: Session, user_id: int) -> None:
     )
     if row is None:
         db.add(AiUsage(user_id=user_id, day=today, count=1))
+    else:
+        row.count += 1
+    db.commit()
+
+
+def count_hour(db: Session, user_id: int) -> int:
+    """이번 시간(UTC 정시 창)에 이 사용자가 '시도'한 초안 수. BYOK 포함."""
+    row = db.scalar(
+        select(AiHourlyUsage).where(
+            AiHourlyUsage.user_id == user_id, AiHourlyUsage.hour == _this_hour()
+        )
+    )
+    return row.count if row else 0
+
+
+def increment_hour(db: Session, user_id: int) -> None:
+    """시도 시점에 미리 센다 — 실패해도 차감되어야 재시도 남용이 공짜가 아니게 된다."""
+    hour = _this_hour()
+    row = db.scalar(
+        select(AiHourlyUsage).where(
+            AiHourlyUsage.user_id == user_id, AiHourlyUsage.hour == hour
+        )
+    )
+    if row is None:
+        db.add(AiHourlyUsage(user_id=user_id, hour=hour, count=1))
     else:
         row.count += 1
     db.commit()

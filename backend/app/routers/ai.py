@@ -133,6 +133,19 @@ def _resolve_provider(body: DraftRequest, user: User, pk: set[str]) -> tuple[str
     return model, provider
 
 
+def _enforce_abuse_cap(db: Session, user_id: int) -> None:
+    """시간당 '시도' 캡 — provider 무관(BYOK 포함), 실패도 셈. 초과 시 429.
+
+    slowapi의 `10/hour`(인메모리·IP별)와 목적이 겹치지만 성질이 다르다: 이건 DB라
+    컨테이너 재시작에도 안 지워지고, IP가 아니라 계정 기준이라 IP를 바꿔도 못 피한다.
+    둘을 겹쳐 두는 건 의도적이다 — 인메모리가 싸게 1차로 걸러주고, DB가 최종 방어선."""
+    if ai_usage.count_hour(db, user_id) >= settings.ai_hourly_cap:
+        raise HTTPException(
+            status_code=429,
+            detail=f"시간당 AI 초안 한도({settings.ai_hourly_cap}회)를 다 썼어. 잠시 후 다시 시도해줘",
+        )
+
+
 def _enforce_server_caps(db: Session, user_id: int) -> None:
     """서버키(Claude) 호출의 일일·월간 비용 캡. 초과 시 429. (BYOK는 본인 비용이라 제외)"""
     if ai_usage.count_today(db, user_id) >= settings.ai_daily_cap:
@@ -176,8 +189,14 @@ def create_draft(
     pk = llm_keys.providers_with_key(db, user.id)
     model, provider = _resolve_provider(body, user, pk)
 
+    # 남용 캡이 먼저 — provider와 무관하게 '시도' 자체를 제한한다.
+    _enforce_abuse_cap(db, user.id)
     if provider == "claude":
         _enforce_server_caps(db, user.id)
+
+    # 호출 '전에' 센다. 뒤에 세면 실패하는 호출(느린 BYOK 등)이 카운트되지 않아
+    # 무한 재시도가 공짜가 된다 — 방어하려는 게 바로 그 경로다.
+    ai_usage.increment_hour(db, user.id)
 
     user_key, base_url = (
         _load_byok_credential(db, user.id, provider)

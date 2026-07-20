@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     # 모델명: 이제 /ai/draft가 요청마다 모델을 받으므로 사실상 미사용(하위호환용 기본값)
     ai_model: str = "claude-sonnet-5"
+    # 유저별 '시간당' 초안 '시도' 상한 (남용/DoS 방어). BYOK도 포함하고 실패도 센다.
+    # slowapi의 인메모리 10/hour와 같은 값이지만 이쪽은 DB라 재시작을 견딘다(2중 방어).
+    ai_hourly_cap: int = 10
     # 유저별 '일일' 서버키(Claude) AI 초안 호출 상한 (비용 폭주 방지). BYOK 호출은 제외.
     ai_daily_cap: int = 20
     # 유저별 '월간' 서버키 호출 상한. 일일 캡과 별개의 2차 방어선(매일 조금씩 누적되는 비용 방지).

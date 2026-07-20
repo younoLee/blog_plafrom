@@ -121,3 +121,38 @@ def test_models_gated_by_tier(client, make_user, auth_headers):
     pro = make_user(role="writer", is_pro=True)
     pro_ids = [m["id"] for m in client.get("/api/ai/models", headers=auth_headers(pro)).json()["models"]]
     assert "claude-opus-4-8" in pro_ids
+
+
+# ── 남용 캡(시간당 시도) ─────────────────────────────────────────────────────
+# 일일/월간이 '비용'을 막는다면 이건 '자원'(워커 스레드)을 막는다. 그래서 성공만
+# 세는 일일 캡과 달리 BYOK도 세고 실패도 센다.
+def test_hourly_cap_exceeded_429(
+    client, make_user, auth_headers, fake_generate, monkeypatch
+):
+    monkeypatch.setattr(settings, "ai_hourly_cap", 0)  # 0회 = 즉시 초과
+    user = make_user(role="writer")
+    r = _draft(client, auth_headers(user))
+    assert r.status_code == 429
+    assert "시간당" in r.json()["detail"]
+
+
+def test_hourly_cap_counts_failed_attempts(
+    client, db, make_user, auth_headers, fake_generate
+):
+    """실패한 호출도 카운트돼야 한다 — 안 그러면 느린/죽은 엔드포인트를
+    무한 재시도하는 게 공짜가 되어 이 캡의 존재 이유가 사라진다."""
+    fake_generate.fail(RuntimeError("업스트림 사망"))
+    user = make_user(role="writer")
+
+    r = _draft(client, auth_headers(user))
+    assert r.status_code == 502  # 생성은 실패했지만
+    assert ai_usage.count_hour(db, user.id) == 1  # 시도는 차감됐다
+
+
+def test_hourly_cap_accumulates_across_calls(
+    client, db, make_user, auth_headers, fake_generate
+):
+    user = make_user(role="writer")
+    for _ in range(3):
+        assert _draft(client, auth_headers(user)).status_code == 200
+    assert ai_usage.count_hour(db, user.id) == 3
