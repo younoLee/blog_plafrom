@@ -236,6 +236,10 @@ cands = [
 ]
 host_dir = next((d for d in cands if os.path.isdir(d)), None)
 if host_dir:
+    # 바탕화면에 흩뿌리지 않고 '개발일지' 폴더에 모은다(회차가 쌓이면 바탕화면이 지저분해진다).
+    # 폴더가 없으면 만든다 — 다음 회차 스크립트도 이 블록을 그대로 복사해 쓰면 된다.
+    host_dir = os.path.join(host_dir, "개발일지")
+    os.makedirs(host_dir, exist_ok=True)
     host_path = os.path.join(host_dir, FILENAME)
     shutil.copy2(PROJECT_PATH, host_path)
     print(f"[저장] Windows host: {host_path}")
