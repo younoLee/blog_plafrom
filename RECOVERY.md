@@ -187,7 +187,7 @@ aws s3api list-object-versions --bucket blogplafromops --prefix uploads/ \
 | 잃은 값 | 결과 | 복구 |
 |---|---|---|
 | `LLM_ENCRYPTION_KEY` | `llm_credentials`의 BYOK 키를 **영원히 못 푼다** | 사본에서 복원(이 PC 또는 SSM). 셋 다 잃었으면 없음 — 해당 행을 지우고 사용자에게 재입력 요청 |
-| `SECRET_KEY` | 발급된 모든 세션 토큰 무효 | 새 값 생성. 사용자는 다시 로그인하면 됨 |
+| `SECRET_KEY` | 세션뿐 아니라 **발송 대기 중인 이메일 인증·비번재설정·구독확인 링크까지** 전부 무효 | 새 값 생성. 세션은 재로그인, 링크는 재발송. 미인증 계정은 24h 뒤 자동 삭제되므로 재가입 안내 필요 |
 | `DB_PASSWORD` | 컨테이너가 새로 뜨면 초기화됨 | 새 값으로 재설정 |
 | `ANTHROPIC_API_KEY` / 토스 키 | 해당 기능 정지 | 각 콘솔에서 재발급 |
 

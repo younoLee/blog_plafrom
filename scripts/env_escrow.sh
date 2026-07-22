@@ -39,6 +39,9 @@ ESCROW_DIR="$HOME/.blog-secrets"
 # 이걸로도 못 막는 것: **AWS 계정 자체를 잃는 경우**. 그때 남는 건 이 PC 사본뿐이라,
 # 비밀번호 관리자에 한 벌 더 넣는 일은 여전히 사람이 해야 한다.
 SSM_PARAM=/blog/prod/env
+# 템플릿과 실제 키 집합을 대조하기 위한 경로. 값은 읽지 않고 키 '이름'만 본다.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE="$SCRIPT_DIR/../backend/.env.example"
 ESCROW="$ESCROW_DIR/prod.env"
 REMOTE_ENV=/home/ec2-user/blog/.env
 
@@ -162,6 +165,21 @@ case "$MODE" in
       echo "⚠️  SSM에 사본이 없습니다($SSM_PARAM). PC와 서버를 동시에 잃으면 복구 불가:"
       echo "   scripts/env_escrow.sh save"
       RC=1
+    fi
+
+    # 템플릿이 실제 키 집합과 맞는지 본다. 예전엔 세 사본의 **파일 해시**만 대조해서,
+    # 운영에 새 키가 생기면 세 사본은 계속 일치하고 템플릿만 조용히 낡았다.
+    # `PAYMENTS_REQUIRE_LIVE`가 아예 없던 채로 돌던 것이 정확히 이 장치가 없어서였다.
+    if [ -f "$TEMPLATE" ]; then
+      only_env=$(comm -23 <(grep -oE '^[A-Za-z0-9_]+=' "$ESCROW" | tr -d = | LC_ALL=C sort) \
+                          <(grep -oE '^#? ?[A-Za-z0-9_]+=' "$TEMPLATE" | tr -d '#= ' | LC_ALL=C sort) | tr '\n' ' ')
+      if [ -n "${only_env// /}" ]; then
+        echo "⚠️  운영에는 있는데 템플릿(backend/.env.example)에 없는 키: $only_env"
+        echo "   재해 복구 때 이 값들을 빠뜨리게 됩니다."
+        RC=1
+      else
+        echo "✅ 템플릿이 실제 키 집합을 전부 덮습니다"
+      fi
     fi
 
     # 서버는 꺼져 있을 수 있다. 그건 이상이 아니므로 RC를 올리지 않는다.

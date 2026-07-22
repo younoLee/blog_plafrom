@@ -80,7 +80,10 @@ cat <<CMD
   ssh -i $SSH_KEY ec2-user@$DNS \\
     'cd ~/blog && sudo docker compose -f docker-compose.prod.yml up -d --build'
 
-  끝나면 확인:
+  끝나면 확인 — healthy가 될 때까지 **기다린다**(눈으로 보는 대신):
+    ssh -i $SSH_KEY ec2-user@$DNS 'for i in \$(seq 1 40); do \\
+        s=\$(sudo docker inspect -f "{{.State.Health.Status}}" blog-backend-1 2>/dev/null); echo "  \$s"; \\
+        [ "\$s" = healthy ] && exit 0; [ "\$s" = unhealthy ] && exit 1; sleep 5; done; exit 1'
     ssh -i $SSH_KEY ec2-user@$DNS \\
       'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T backend alembic current'
     curl -s https://d2j66m9udyg9yq.cloudfront.net/api/status

@@ -53,19 +53,40 @@ resource "aws_iam_policy" "github_deploy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      # 액션을 대상별로 쪼갠다. 예전엔 4개를 두 ARN에 통으로 묶어서 `ListBucket`이
+      # `bucket/*`에, `DeleteObject`가 버킷 ARN에 걸려 있었다(무해하지만 의도가 안 읽힌다).
+      # `s3:GetObject`는 뺐다 — `aws s3 sync dist/ s3://...`는 올리기만 하고 내려받지 않는다.
       {
-        Sid    = "S3Deploy"
+        Sid      = "ListForSync"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.frontend.arn
+      },
+      {
+        Sid    = "WriteSiteObjects"
         Effect = "Allow"
         Action = [
-          "s3:ListBucket",
-          "s3:GetObject",
           "s3:PutObject",
-          "s3:DeleteObject",
+          "s3:DeleteObject", # --delete가 옛 번들을 지운다
+          "s3:AbortMultipartUpload",
         ]
-        Resource = [
-          aws_s3_bucket.frontend.arn,
-          "${aws_s3_bucket.frontend.arn}/*",
-        ]
+        Resource = "${aws_s3_bucket.frontend.arn}/*"
+      },
+      # 업로드 이미지는 **정책으로** 못 박는다.
+      #
+      # 지금까지 복구 불가능한 이미지 전체를 지키는 건 워크플로의 플래그 한 줄
+      # (`--exclude "uploads/*"`)뿐이었다. 그 한 줄을 빠뜨린 sync 한 번이면 조용히 전멸한다.
+      # 명시적 Deny는 같은 정책의 Allow를 이기므로, 빠뜨리면 **삭제 대신 AccessDenied로
+      # 배포가 빨간불**이 된다 — 조용한 데이터 손실이 시끄러운 실패로 바뀐다.
+      #
+      # EC2의 이미지 업로드는 영향 없다. 그건 다른 주체(`blog-ec2-backup` 역할의
+      # `PutUploadedImages`, db-backup.tf)가 하고 이 정책은 GitHub 배포 역할에만 붙는다.
+      # db-backup.tf가 EC2 쪽에 이미 같은 원칙을 적용해 뒀는데 배포 쪽만 예외였다.
+      {
+        Sid      = "NeverTouchUploads"
+        Effect   = "Deny"
+        Action   = ["s3:PutObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.frontend.arn}/uploads/*"
       },
       {
         Sid      = "CloudFrontInvalidate"
@@ -89,10 +110,10 @@ output "github_deploy_role_arn" {
 
 # 감시 워크플로(.github/workflows/watch.yml)가 쓰는 읽기 전용 권한.
 #
-# 왜 배포 정책(`github-brench`)에 얹지 않고 따로 두는가 — 그 정책은 terraform 밖에서
-# 만들어진 것이라(콘솔 생성) 내용이 저장소에 없다. 2026-07-22에 그 종류의 드리프트로
-# 이미지 업로드가 조용히 깨져 있었던 걸 발견했으므로, 새로 더하는 권한만이라도
-# 코드에 남긴다. 나중에 `github-brench`도 여기로 회수하는 게 맞다.
+# 왜 배포 정책(위 `github_deploy`)에 얹지 않고 따로 두는가 — 관심사가 다르다.
+# 저건 '사이트를 배포한다', 이건 '상태를 읽는다'이고, 배포 권한이 커지는 걸 막으려면
+# 읽기 전용은 분리해 두는 편이 낫다. (배포 정책 자체는 2026-07-22에 terraform으로
+# 회수했다 — 그전까지 콘솔 생성이라 내용이 저장소에 없었다.)
 #
 # 전부 읽기다. 감시가 뭔가를 고치면 그건 더 이상 감시가 아니다.
 resource "aws_iam_role_policy" "github_watch" {
