@@ -284,7 +284,6 @@
       "Bash(terraform init *)",
       "Bash(terraform plan *)",
       "Bash(aws s3api *)",
-      "Bash(terraform apply *)",
       "Bash(aws rds describe-db-instances *)",
       "Bash(git rm *)",
       "Bash(git config *)",
@@ -491,7 +490,6 @@
       "Bash(curl -s -o /dev/null -w 'register\\(한글30자=90B\\) → %{http_code}\\\\n' -X POST http://localhost:8000/api/auth/register -H 'Content-Type: application/json' -d '{\"email\":\"pwtest2@example.com\",\"password\":\"__TRACKED_VAR__\"}')",
       "Bash(docker version *)",
       "Bash(awk 'NR<=12 {printf \"%2d  %3d자  %s\\\\n\", NR, length\\($0\\), $0}' backend/app/schemas/user.py)",
-      "Bash(terraform -chdir=terraform apply -auto-approve -var=\"backend_origin_dns=ec2-3-35-21-2.ap-northeast-2.compute.amazonaws.com\")",
       "Bash(awk -F/ '{print $1}')",
       "Bash(scp -q -o StrictHostKeyChecking=no -i ~/.ssh/blog-key.pem /tmp/claude-1000/-home-es0764-blog-plafrom/726e8726-8710-4a33-bb5c-68f35025fb90/scratchpad/backend.tar.gz ec2-user@ec2-3-35-21-2.ap-northeast-2.compute.amazonaws.com:/tmp/backend.tar.gz)",
       "Bash(curl -s --max-time 90 https://d2j66m9udyg9yq.cloudfront.net/api/posts?limit=3)",
@@ -575,7 +573,6 @@
       "Bash(bash -n scripts/watch.sh)",
       "Bash(./scripts/watch.sh)",
       "Bash(echo \"종료코드 $?\")",
-      "Bash(timeout 300 terraform -chdir=/home/es0764/blog_plafrom/terraform apply -no-color /tmp/p.tfplan)",
       "Bash(.venv/bin/python -c \"import app.services.status as m; print\\('import OK'\\); print\\('mail_ok =', m._check_mail\\(\\)\\)\")",
       "Bash(echo \"    액세스키: $\\(aws iam list-access-keys --user-name github-actions-deploy --query 'length\\(AccessKeyMetadata\\)' --output text\\)\")",
       "Bash(echo \"    인라인정책: $\\(aws iam list-user-policies --user-name github-actions-deploy --query 'length\\(PolicyNames\\)' --output text\\)\")",
@@ -594,7 +591,6 @@
       "Bash(bash -n scripts/env_escrow.sh)",
       "Bash(timeout 300 docker run --rm -v __TRACKED_VAR__:/mnt -w /mnt koalaman/shellcheck:stable -S warning scripts/env_escrow.sh)",
       "Bash(aws kms *)",
-      "Bash(terraform import *)",
       "Bash(terraform -chdir=terraform fmt -check -recursive)",
       "Bash(timeout 300 terraform -chdir=terraform plan -no-color)",
       "Bash(echo \" 종료코드 $?\")",
@@ -613,7 +609,17 @@
       "Bash(echo \"exit=$? \\(expect nonzero, connection refused\\)\")",
       "Bash(timeout 180 bash scripts/watch.sh)",
       "Bash(echo \"=== watch.sh exit=$? ===\")",
-      "Bash(DB_PASSWORD=x timeout 120 docker compose -f docker-compose.prod.yml config)"
+      "Bash(DB_PASSWORD=x timeout 120 docker compose -f docker-compose.prod.yml config)",
+      "Skill(update-config)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; cat {}')"
+    ],
+    "ask": [
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy *)",
+      "Bash(terraform import *)",
+      "Bash(aws ec2 terminate-instances *)",
+      "Bash(aws iam delete-* *)",
+      "Bash(aws s3 rb *)"
     ]
   }
 }
