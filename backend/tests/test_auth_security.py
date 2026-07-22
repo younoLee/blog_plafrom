@@ -73,3 +73,42 @@ def test_verify_purpose_token_rejected_on_reset(client, make_user):
         json={"token": verify_token, "new_password": "newpassword1"},
     )
     assert r.status_code == 400
+
+
+# ── 미인증 계정 선점(account pre-hijacking) ──────────────────────────────────
+def test_reregister_unverified_replaces_password(client, db):
+    """미인증 계정에 같은 이메일로 다시 가입하면 **비밀번호가 갱신돼야** 한다.
+
+    안 그러면 계정 선점이 된다: 공격자가 피해자 이메일로 먼저 가입해 두면(미인증),
+    피해자가 같은 주소로 가입할 때 인증 메일만 피해자에게 가고 저장된 해시는
+    공격자 것으로 남는다. 피해자가 링크를 누르는 순간 '검증된' 계정이 되는데
+    로그인은 공격자만 할 수 있다. (2026-07-22 보안검사에서 발견)
+    """
+    from app.models.user import User
+
+    victim_email = "prehijack-target@test.com"
+    attacker_pw, victim_pw = "attacker-password-1", "victim-password-2"
+
+    # 1) 공격자가 피해자 이메일로 선점 가입 (미인증 상태로 생성됨)
+    assert client.post(
+        "/api/auth/register", json={"email": victim_email, "password": attacker_pw}
+    ).status_code == 202
+
+    # 2) 진짜 피해자가 같은 이메일로 가입 → 이 분기가 해시를 덮어써야 한다
+    assert client.post(
+        "/api/auth/register", json={"email": victim_email, "password": victim_pw}
+    ).status_code == 202
+
+    # 3) 피해자가 메일 링크로 인증을 마친다
+    uid = db.query(User).filter(User.email == victim_email).one().id
+    assert client.post(
+        f"/api/auth/verify?token={create_email_token(uid, purpose='verify')}"
+    ).status_code == 200
+
+    # 4) 공격자 비밀번호로는 못 들어가고, 피해자 비밀번호로는 들어가야 한다
+    assert client.post(
+        "/api/auth/login", json={"email": victim_email, "password": attacker_pw}
+    ).status_code == 401
+    assert client.post(
+        "/api/auth/login", json={"email": victim_email, "password": victim_pw}
+    ).status_code == 200

@@ -6,6 +6,11 @@ on:
     branches: [main]
   pull_request:
 
+# 저장소 기본값을 상속하지 않게 최소 권한을 명시한다. CI는 코드를 읽기만 하면 되고,
+# 서드파티 액션이 침해됐을 때 토큰으로 할 수 있는 일을 좁힌다(2026-07-22 보안검사).
+permissions:
+  contents: read
+
 jobs:
   backend-tests:
     runs-on: ubuntu-latest

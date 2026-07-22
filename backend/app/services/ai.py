@@ -125,6 +125,7 @@ def _claude(memo: str, model: str, api_key: str | None = None) -> str:
 
 
 def _openai(memo: str, model: str, api_key: str, base_url: str | None = None) -> str:
+    import httpx
     from openai import OpenAI
 
     # base_url 지정 시 OpenAI 호환 엔드포인트(Grok/DeepSeek/OpenRouter/로컬 등).
@@ -133,6 +134,14 @@ def _openai(memo: str, model: str, api_key: str, base_url: str | None = None) ->
     if base_url:
         kwargs["base_url"] = base_url
         kwargs["timeout"] = COMPATIBLE_TIMEOUT
+        # 리다이렉트를 따라가지 않는다. validate_base_url이 저장·호출 시점에 스킴과
+        # 공인 IP를 검사하지만, openai SDK의 httpx 기본값이 follow_redirects=True라
+        # **공격자 서버가 302로 내부 주소를 돌려주면 그대로 따라간다**(SSRF).
+        # 검증은 최초 URL만 보고 최종 목적지는 못 본다 — 그 창을 여기서 닫는다.
+        # (IMDS 자격증명 절도는 IMDSv2가 따로 막지만, 내부 포트 스캔은 이걸로 막힌다)
+        kwargs["http_client"] = httpx.Client(
+            follow_redirects=False, timeout=COMPATIBLE_TIMEOUT
+        )
     client = OpenAI(**kwargs)
     resp = client.chat.completions.create(
         model=model,

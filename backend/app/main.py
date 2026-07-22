@@ -49,7 +49,17 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Blog Platform API", lifespan=lifespan)
+# docs/redoc/openapi를 끈다. CloudFront는 `/api/*`만 오리진으로 보내므로 정상 경로로는
+# 안 보이지만, 오리진 SG가 'CloudFront 엣지 전체'(prefix list)라 **공격자가 자기 배포를
+# 만들어 직접 오리진을 때리면** 스키마가 통째로 노출된다. 끄는 데 드는 비용이 없다.
+# 로컬 개발에서 필요하면 uvicorn을 직접 띄우고 이 인자를 빼면 된다.
+app = FastAPI(
+    title="Blog Platform API",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 # 레이트 리밋: 한도 초과 시 429 응답 (가입/로그인 폭주 방어)
 app.state.limiter = limiter

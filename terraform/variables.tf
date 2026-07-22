@@ -25,6 +25,20 @@
 #               ※ ①②도 순서가 있다(2026-07-22에 바꿨다). 백업이 먼저면 pg_dump가 스냅샷을
 #                 뜬 뒤 주차까지의 몇 분 동안 들어온 글·댓글·결제가 사본에 없는 채로 서버가
 #                 꺼진다. 주차를 먼저 해 /api/*를 fail closed로 만든 뒤에 사본을 떠야 한다.
+# SSH를 허용할 단일 주소. 공개 저장소에 실제 IP를 남기지 않으려고 변수로 뺐다.
+# 값은 terraform.tfvars(gitignore됨)에 두고, 기본값은 **일부러 없다** —
+# 빠뜨리면 apply가 실패하지, 조용히 넓어지지 않는다.
+variable "ssh_cidr" {
+  description = "SSH(22)를 허용할 CIDR. 예: 1.2.3.4/32. terraform.tfvars에 둔다."
+  type        = string
+
+  validation {
+    # /32 단일 호스트만 허용한다. 오타로 /0이나 넓은 대역이 들어가는 걸 막는다.
+    condition     = can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/32$", var.ssh_cidr))
+    error_message = "ssh_cidr는 단일 호스트(/32)여야 합니다. 예: 1.2.3.4/32"
+  }
+}
+
 variable "backend_origin_dns" {
   description = "실행 중인 백엔드 EC2의 퍼블릭 DNS. 비우면 오리진을 주차해 /api/*를 fail closed로 만든다."
   type        = string

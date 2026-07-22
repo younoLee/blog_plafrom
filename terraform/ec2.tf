@@ -52,12 +52,16 @@ resource "aws_security_group" "ec2" {
     prefix_list_ids = ["pl-22a6434b"] # com.amazonaws.global.cloudfront.origin-facing
   }
 
-  # SSH (내 IP만)
+  # SSH (내 IP만). 값은 저장소에 두지 않는다 — 공개 저장소에 운영자의 실제 공인 IP를
+  # 박아두면 "어디를 노려야 SSH 경계가 뚫리는지"를 알려주는 셈이고, 거주지 노출이기도
+  # 하다(2026-07-22 보안검사 지적). terraform.tfvars(gitignore됨)로 주입한다.
+  # 기본값을 두지 않으므로 값이 없으면 apply가 **실패한다** — 0.0.0.0/0으로 조용히
+  # 넓어지는 것보다 낫다. 재해 복구 절차는 RECOVERY.md 참고.
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["220.116.54.206/32"]
+    cidr_blocks = [var.ssh_cidr]
   }
 
   egress {

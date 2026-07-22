@@ -60,6 +60,18 @@ def register(request: Request, data: RegisterRequest, background: BackgroundTask
         background.add_task(send_verification_email, user.email, link)
     elif not existing.email_verified:
         # 기존이지만 아직 미인증: 인증메일 재발송 (가입 완료 못 한 사람 도움)
+        #
+        # ⚠️ 비밀번호 해시를 **반드시 갱신**한다. 안 하면 계정 선점이 된다:
+        #   공격자가 victim@x.com으로 먼저 가입(해시 = 공격자 비번) → 진짜 피해자가
+        #   같은 주소로 가입하면 이 분기를 타고 인증 메일만 피해자에게 간다 →
+        #   피해자가 링크를 누르면 email_verified=True가 되는데 **비밀번호는 공격자 것**.
+        #   그 순간 공격자가 피해자 신원의 '검증된' 계정으로 로그인한다.
+        # 미인증 계정은 아직 아무 데이터도 없으므로 마지막 요청의 비번으로 덮어써도 안전하다.
+        # token_version도 올려 그전에 발급된 링크를 무효화한다.
+        existing.hashed_password = hash_password(data.password)
+        existing.token_version += 1
+        db.commit()
+        db.refresh(existing)
         token = create_email_token(existing.id, purpose="verify")
         link = f"{settings.frontend_base_url}/verify?token={token}"
         background.add_task(send_verification_email, existing.email, link)
