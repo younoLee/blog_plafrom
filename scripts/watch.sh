@@ -44,6 +44,21 @@ MAX_UPTIME_H=6
 # 백업이 이만큼 오래되면 본다. 서버를 안 켰으면 정상일 수 있지만 확인은 필요하다.
 MAX_BACKUP_AGE_D=30
 
+# SES 샌드박스를 '정상 기대치'로 볼 것인가.
+#
+# true = 샌드박스인 게 의도다. 2026-07-22에 확인한 결정 사항 — 프로덕션으로 열면
+#        봇 가입을 막을 장치(캡차 등)가 아직 없다는 판단이다. 그 상태를 매시간
+#        실패로 알리면 영구 빨간불이 되고, 영구 빨간불은 아무도 안 보는 신호가 된다.
+#        대신 **상태가 바뀌면** 알린다 — 승인됐거나 누가 설정을 건드렸다는 뜻이니
+#        그것도 알아야 할 변화다.
+# false = 프로덕션이 정상 기대치. 캡차를 붙여 가입을 열기로 하면 이걸 false로 바꾼다.
+#
+# ⚠️ 봇 위험을 다시 판단할 때 참고: 인증을 마쳐도 role은 pending에 머물고
+#    글쓰기·업로드·AI 초안은 전부 require_writer로 잠겨 있다. 댓글은 애초에
+#    비로그인도 가능하다(IP당 20/시간). 즉 봇이 계정을 만들어 얻는 건 users 테이블의
+#    행뿐이고, 미인증이면 24시간 뒤 cleanup이 지운다.
+SES_SANDBOX_EXPECTED=true
+
 FAIL=0
 WARN=0
 fail() { printf '❌ %s\n' "$*"; FAIL=$((FAIL + 1)); }
@@ -175,12 +190,20 @@ fi
 # 한 통도 안 가는 4주 동안 25,826번 "정상"이라고 답했다. 그 구멍이 여기다.
 prod_access=$(aws sesv2 get-account --region "$REGION" --query 'ProductionAccessEnabled' --output text 2>/dev/null)
 if [ "$prod_access" = "True" ]; then
-  ok "SES 프로덕션 액세스 활성 — 누구에게나 발송 가능"
+  if [ "$SES_SANDBOX_EXPECTED" = "true" ]; then
+    warn "SES가 프로덕션으로 바뀌었다 — 샌드박스를 기대하고 있었다."
+    echo "     의도한 변경이면 watch.sh의 SES_SANDBOX_EXPECTED를 false로 바꾸세요."
+  else
+    ok "SES 프로덕션 액세스 활성 — 누구에게나 발송 가능"
+  fi
 elif [ -z "$prod_access" ]; then
   # '못 읽었다'를 경고로 두면 안 된다 — 감시가 눈이 먼 상태를 초록으로 보고하게 된다.
   # ses:GetAccount 권한이 사라지면 SES 샌드박스를 4주간 아무도 몰랐던 그 상태로
   # 정확히 되돌아가면서 알림은 한 통도 안 간다. EC2 읽기 실패도 이미 fail이다.
   fail "SES 상태를 못 읽었다 — 감시가 눈이 먼 상태다(권한 확인: ses:GetAccount)"
+elif [ "$SES_SANDBOX_EXPECTED" = "true" ]; then
+  echo "--   SES 샌드박스 (의도된 상태) — 제3자 가입은 막혀 있다."
+  echo "     열려면 봇 방어(캡차)부터. 재신청 사유서: docs/ses-production-access.md"
 else
   fail "SES가 아직 샌드박스다 → 검증된 주소 외에는 인증·비번재설정 메일이 안 간다."
   echo "     가입자는 성공 응답만 받고 메일을 못 받으며, 24시간 뒤 계정이 삭제된다."
