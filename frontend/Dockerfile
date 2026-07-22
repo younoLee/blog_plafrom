@@ -1,5 +1,5 @@
 # --- 1단계: 빌드 (node로 정적 파일 dist/ 생성) ---
-FROM node:22-alpine AS build
+FROM node:20-alpine AS build
 WORKDIR /app
 # lockfile까지 먼저 복사 → npm ci 레이어 캐시 활용 (코드만 바뀌면 재설치 안 함)
 COPY package.json package-lock.json ./

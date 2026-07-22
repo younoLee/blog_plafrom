@@ -17,6 +17,34 @@ jobs:
     steps:
       - name: 코드 체크아웃
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # 아래 게이트가 push 범위를 diff 하려면 이력이 필요하다
+
+      # 프론트는 자동 배포인데 백엔드는 사람이 손으로 한다. 그래서 같은 push에 둘 다
+      # 들어 있으면 **프론트가 먼저 나가** 아직 없는 API를 호출한다 — 2026-07-11에
+      # 실제로 겪었고(PROGRESS.md:1147) 그때 결론이 "규칙을 적는 것과 작업 흐름에
+      # 끼워넣는 것은 다르다"였는데, 정작 끼워넣지는 않았다. 이게 그 장치다.
+      #
+      # 막히면: scripts/deploy_backend.sh 로 백엔드를 먼저 올린 뒤,
+      # Actions 탭에서 이 워크플로를 'Run workflow'(workflow_dispatch)로 돌리면 통과한다.
+      - name: 백엔드 동시 변경 게이트
+        if: github.event_name == 'push'
+        run: |
+          before='${{ github.event.before }}'
+          # 새 브랜치의 첫 push면 before가 0으로 채워져 diff 대상이 없다 → 건너뛴다
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            echo "비교 대상 커밋이 없어 게이트를 건너뜁니다."
+            exit 0
+          fi
+          changed=$(git diff --name-only "$before" '${{ github.sha }}' -- backend/app backend/alembic || true)
+          if [ -n "$changed" ]; then
+            echo "::error::이 push에 백엔드 코드 변경이 함께 있습니다. 프론트를 먼저 배포하면 아직 없는 API를 호출하게 됩니다."
+            echo "변경된 백엔드 파일:"
+            echo "$changed"
+            echo "→ scripts/deploy_backend.sh 로 백엔드를 먼저 배포한 뒤, 이 워크플로를 수동 실행(workflow_dispatch)하세요."
+            exit 1
+          fi
+          echo "백엔드 변경 없음 — 진행합니다."
 
       - name: Node 설치
         uses: actions/setup-node@v7

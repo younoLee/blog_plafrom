@@ -580,7 +580,12 @@
       "Bash(echo \"    액세스키: $\\(aws iam list-access-keys --user-name github-actions-deploy --query 'length\\(AccessKeyMetadata\\)' --output text\\)\")",
       "Bash(echo \"    인라인정책: $\\(aws iam list-user-policies --user-name github-actions-deploy --query 'length\\(PolicyNames\\)' --output text\\)\")",
       "Bash(echo \"    첨부정책: $\\(aws iam list-attached-user-policies --user-name github-actions-deploy --query 'AttachedPolicies[].PolicyName' --output text\\)\")",
-      "Bash(echo \"    그룹: $\\(aws iam list-groups-for-user --user-name github-actions-deploy --query 'length\\(Groups\\)' --output text\\)\")"
+      "Bash(echo \"    그룹: $\\(aws iam list-groups-for-user --user-name github-actions-deploy --query 'length\\(Groups\\)' --output text\\)\")",
+      "Bash(chmod +x scripts/deploy_backend.sh)",
+      "Bash(bash -n scripts/deploy_backend.sh)",
+      "Bash(terraform -chdir=/home/es0764/blog_plafrom/terraform state list)",
+      "Bash(timeout 300 terraform -chdir=/home/es0764/blog_plafrom/terraform plan -no-color)",
+      "Bash(echo \"  종료코드 $?\")"
     ]
   }
 }

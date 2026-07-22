@@ -45,6 +45,27 @@ jobs:
         working-directory: backend
         run: pytest
 
+      # 테스트는 conftest의 Base.metadata.create_all로 스키마를 만든다. 편하지만
+      # **마이그레이션을 한 번도 안 돌린다** — 그래서 alembic이 깨져 있어도 CI는
+      # 초록이고, 프로드 컨테이너가 뜨면서 `alembic upgrade head`를 할 때 처음
+      # 드러난다(그때는 이미 배포 중이다). 빈 DB에 실제로 올려서 그 구멍을 막는다.
+      - name: 마이그레이션이 빈 DB에서 실제로 올라가는가
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/blog_migr
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" -c 'create database blog_migr;'
+          alembic upgrade head
+          alembic current
+
+      # 모델에만 컬럼을 추가하고 마이그레이션을 안 만들면 create_all 덕에 테스트는
+      # 통과한다. `alembic check`은 모델과 마이그레이션의 차이를 보고 실패한다.
+      - name: 모델 ↔ 마이그레이션 드리프트
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/blog_migr
+        run: alembic check
+
   frontend:
     runs-on: ubuntu-latest
     # 유닛테스트(vitest) + tsc·빌드 통과를 게이트로.
@@ -67,3 +88,32 @@ jobs:
       - name: 빌드(타입체크 포함)
         working-directory: frontend
         run: npm run build
+
+  scripts:
+    runs-on: ubuntu-latest
+    # 이 저장소의 안전장치(백업·복원·정지·감시)는 전부 셸 스크립트인데 여태
+    # 아무도 검사하지 않았다. 2026-07-22에 나온 버그 대부분이 여기 있었다 —
+    # `head -1`의 EPIPE, `docker compose exec -T`의 stdin 삼킴, 미인용 변수.
+    steps:
+      - uses: actions/checkout@v7
+      - name: 문법(bash -n)
+        run: |
+          for f in scripts/*.sh; do bash -n "$f"; done
+      - name: shellcheck
+        uses: docker://koalaman/shellcheck:stable
+        with:
+          args: -S warning scripts/blog-db-backup.sh scripts/env_escrow.sh scripts/restore_drill.sh scripts/stop_server.sh scripts/watch.sh
+
+  terraform:
+    runs-on: ubuntu-latest
+    # 인프라도 코드다. fmt·validate가 없으면 문법 오류를 apply 할 때 처음 안다.
+    # (plan은 AWS 자격증명이 필요하고 상태를 읽으므로 CI에서는 하지 않는다)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+      - name: 포맷
+        run: terraform -chdir=terraform fmt -check -recursive
+      - name: 검증
+        run: |
+          terraform -chdir=terraform init -backend=false
+          terraform -chdir=terraform validate
