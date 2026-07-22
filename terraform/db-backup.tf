@@ -49,6 +49,9 @@ resource "aws_s3_bucket_versioning" "db_backups" {
 # (휴가·중단) 데이터는 EBS에 멀쩡한데 백업만 0개가 된다. cron이 한 번도 안 돌던 것과
 # 똑같은 '조용한 소멸'이다. 그래서 두 가지를 바꿨다 —
 #   ① 날짜별 덤프의 수명을 180일로 늘렸다(수 MB짜리라 비용은 여전히 월 $0.01 미만).
+#      ※ 버저닝이 켜져 있으므로 180일에 지워지는 건 '현재 버전'이 아니라 delete marker가
+#        얹히는 것이고, 실제 바이트는 그 뒤 expire-noncurrent(90일)가 마저 지운다.
+#        그래서 실보관은 180일이 아니라 **최장 270일**이다(비용은 여전히 무시할 수준).
 #   ② 만료 대상을 `blog-` 접두사로 좁혔다. `keep/latest.sql.gz`(정지 절차가 매번
 #      최신 덤프를 승격해 두는 자리)와 `uploads/`(이미지 사본)는 만료되지 않는다.
 #      → 얼마나 오래 손을 놓든 '최소 한 벌'은 항상 남는다.
@@ -82,6 +85,22 @@ resource "aws_s3_bucket_lifecycle_configuration" "db_backups" {
 
     noncurrent_version_expiration {
       noncurrent_days = 90
+      # 날짜만으로 자르면 `keep/latest.sql.gz`가 위험해진다 — 정지할 때마다 덮어써서
+      # 옛 버전이 되므로, 나쁜 덤프가 한 번 승격되고 90일이 지나면 마지막 '좋은' 사본이
+      # 사라진다. 나이와 무관하게 직전 3개는 항상 남긴다.
+      newer_noncurrent_versions = 3
+    }
+  }
+
+  # 만료로 얹힌 delete marker는 그 아래 버전이 다 없어져도 혼자 남아 목록을 어지럽힌다.
+  rule {
+    id     = "clean-expired-delete-markers"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      expired_object_delete_marker = true
     }
   }
 
@@ -113,24 +132,50 @@ resource "aws_iam_role" "ec2_backup" {
   })
 }
 
-# 권한은 이 버킷에 '올리기'만. 역할이 탈취돼도 백업 업로드 외엔 못 한다
-# (다른 버킷 접근·삭제·읽기 불가). rds-autostop이 StopDBInstance 하나로 좁힌 것과 같은 원칙.
+# 이 역할이 인스턴스에 붙는 유일한 프로파일이라, EC2가 S3에 하는 일이 전부 여기 모인다.
+# 준 것은 '올리기(PutObject)' 두 자리뿐 — 읽기·삭제·목록은 어디에도 없다.
 #
-# 대상을 `blog-*`로 더 좁혔다: 백업 스크립트가 쓰는 건 날짜별 덤프뿐이고,
-# `keep/latest.sql.gz`(마지막 보루)와 `uploads/`(이미지 사본)는 운영자 자격증명으로만
-# 만든다. 이렇게 두면 EC2가 탈취돼도 그 두 자리는 손대지 못한다 — 버저닝이 '되돌릴 수
-# 있게' 한다면 이건 애초에 '건드리지 못하게' 하는 쪽이다.
+#  ① 백업 버킷의 `blog-*` — 날짜별 덤프. `keep/latest.sql.gz`(마지막 보루)와
+#     `uploads/`(이미지 사본)는 일부러 뺐다. 그 둘은 운영자 자격증명으로만 만들므로
+#     EC2가 탈취돼도 손대지 못한다. 버저닝이 '되돌릴 수 있게' 하는 쪽이라면
+#     이 접두사 제한은 애초에 '건드리지 못하게' 하는 쪽이다.
+#  ② 프론트 버킷의 `uploads/*` — 사용자가 올리는 이미지(아래 주석 참고).
+#
+# 읽기를 안 주는 게 핵심이다: 웹서버가 탈취돼도 과거 백업 전체(비밀번호 해시 포함)를
+# 읽어갈 수 없다. 그 대가로 복원할 땐 운영자가 내려받아 서버로 올려야 한다
+# (scripts/restore_drill.sh가 그 순서다).
 resource "aws_iam_role_policy" "ec2_backup" {
   name = "s3-put-backups"
   role = aws_iam_role.ec2_backup.id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "s3:PutObject"
-      Resource = "${aws_s3_bucket.db_backups.arn}/blog-*"
-    }]
+    Statement = [
+      {
+        Sid      = "PutDbBackups"
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.db_backups.arn}/blog-*"
+      },
+      # 업로드 이미지. 이게 없으면 글쓰기 화면의 이미지 업로드가 AccessDenied로 죽는다.
+      #
+      # 왜 여기 있어야 하나 — routers/uploads.py는 키 없이 **인스턴스 역할**로 S3에 올린다
+      # (ec2.tf의 IMDSv2 주석도 그 전제로 쓰여 있다). 원래 이 권한은 별도 역할
+      # `blog-ec2-role`에 CLI로 만들어져 있었는데(PROGRESS.md:525, "Terraform 미관리 =
+      # 드리프트"라고 스스로 적어둔 그것), 백업용 프로파일 `blog-backend`를 terraform이
+      # 인스턴스에 붙이면서 그 역할이 교체됐다. EC2는 프로파일을 하나만 가질 수 있다.
+      # 그래서 **이미지 업로드가 조용히 깨진 채로 남아 있었다**(2026-07-22 코드검사에서
+      # 실제 AccessDenied 확인). 이제 terraform이 관리하므로 재건해도 같이 따라온다.
+      #
+      # 범위는 그 버킷의 uploads/ 접두사 하나뿐이다 — 프론트 번들(assets/·index.html)은
+      # 못 건드리므로, 웹서버가 탈취돼도 사이트를 갈아치울 수는 없다.
+      {
+        Sid      = "PutUploadedImages"
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.frontend.arn}/uploads/*"
+      },
+    ]
   })
 }
 

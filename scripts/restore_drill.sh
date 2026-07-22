@@ -159,8 +159,10 @@ echo "  --- 스키마 구조 ---"
 # 그러면 실제로는 같은 집합인데 comm이 차이가 있다고 말한다.
 src "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" | LC_ALL=C sort > /tmp/drill_tables
 dst "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" | LC_ALL=C sort > /tmp/drill_tables.dst
-only_src=$(comm -23 /tmp/drill_tables /tmp/drill_tables.dst | tr '\n' ' ')
-only_dst=$(comm -13 /tmp/drill_tables /tmp/drill_tables.dst | tr '\n' ' ')
+# comm도 같은 로케일로 돌려야 한다 — 파일만 LC_ALL=C로 정렬하고 comm은 호출자 로케일로
+# 두면 정렬 기준이 어긋나 차이 목록이 엉뚱하게 나온다.
+only_src=$(LC_ALL=C comm -23 /tmp/drill_tables /tmp/drill_tables.dst | tr '\n' ' ')
+only_dst=$(LC_ALL=C comm -13 /tmp/drill_tables /tmp/drill_tables.dst | tr '\n' ' ')
 rm -f /tmp/drill_tables.dst
 if [ -z "$only_src" ] && [ -z "$only_dst" ]; then
   printf "  OK   %-22s %s개 전부 일치\n" "테이블 집합" "$(wc -l < /tmp/drill_tables)"
@@ -197,6 +199,7 @@ dst "select table_name||'|'||column_name from information_schema.columns where t
 # 루프의 stdin(=이 파일)을 삼켜 목록이 잘린다. mapfile은 루프 전에 다 읽는다.
 mapfile -t SERIALS < /tmp/drill_serials
 seq_ok=0
+seq_bad=0
 for row in "${SERIALS[@]}"; do
   [ -n "$row" ] || continue
   t=${row%%|*}; c=${row#*|}
@@ -208,13 +211,17 @@ for row in "${SERIALS[@]}"; do
     seq_ok=$((seq_ok+1))
   else
     printf "  FAIL %-22s seq=%s < max(%s)=%s → 다음 INSERT 충돌\n" "$t" "${last:-없음}" "$c" "$maxid"
-    FAIL=1
+    seq_bad=$((seq_bad+1)); FAIL=1
   fi
 done
 if [ "$seq_ok" -eq "${#SERIALS[@]}" ]; then
   printf "  OK   %-22s %s개 전부 max(id) 이상\n" "시퀀스" "$seq_ok"
+elif [ "$seq_bad" -gt 0 ]; then
+  printf "  --   %-22s %s/%s개 정상(위 FAIL 참고)\n" "시퀀스" "$seq_ok" "${#SERIALS[@]}"
 else
-  printf "  --   %-22s %s/%s개만 정상(위 FAIL 참고)\n" "시퀀스" "$seq_ok" "${#SERIALS[@]}"
+  # 소유 시퀀스를 못 찾아 건너뛴 것뿐이라 FAIL이 아니다. 예전엔 이 경우에도
+  # "위 FAIL 참고"라고 찍어서, 위에 FAIL이 없는데 실패한 것처럼 보였다.
+  printf "  --   %-22s %s/%s개 확인(나머지는 소유 시퀀스 없음 — 정상)\n" "시퀀스" "$seq_ok" "${#SERIALS[@]}"
 fi
 
 # '행이 있다'가 아니라 '쓸 수 있다'까지 본다. RETURNING은 값 다음 줄에 커맨드 태그가
@@ -241,23 +248,26 @@ echo "  --- BYOK 복호화 (키와 데이터가 맞는지) ---"
 enc=$(dst "select encrypted_key from llm_credentials order by id limit 1")
 if [ -z "$enc" ]; then
   echo "  --   저장된 BYOK 자격증명이 없어 생략(검사할 암호문 자체가 없음)"
+# 판정 토큰은 서로의 부분문자열이 되면 안 된다. 예전엔 OK/NOKEY/MISMATCH를 썼는데
+# **"NOKEY"가 `*OK*`에 매치돼** 키가 아예 없는 경우를 "통과"로 찍었다(2026-07-22 코드검사에서
+# 발견). 하필 이 카나리아가 존재하는 유일한 이유가 그 경우다. 겹치지 않는 토큰을 쓴다.
 elif res=$($DC exec -T backend python -c '
 import os, sys
 from cryptography.fernet import Fernet
 k = os.environ.get("LLM_ENCRYPTION_KEY", "")
 if not k:
-    print("NOKEY"); raise SystemExit(0)
+    print("RESULT=NO_KEY"); raise SystemExit(0)
 try:
     Fernet(k.encode()).decrypt(sys.argv[1].encode())
-    print("OK")
+    print("RESULT=DECRYPTED")
 except Exception:
-    print("MISMATCH")
+    print("RESULT=BAD_KEY")
 ' "$enc" 2>&1); then
   case "$res" in
-    *OK*)       echo "  OK   복원된 암호문이 현재 키로 풀린다" ;;
-    *NOKEY*)    echo "  FAIL 서버에 LLM_ENCRYPTION_KEY가 없다 → BYOK 키 전부 복구 불가"; FAIL=1 ;;
-    *MISMATCH*) echo "  FAIL 현재 키로 복호화 실패 → 키가 바뀌었다. 옛 키를 찾아야 한다"; FAIL=1 ;;
-    *)          echo "  FAIL 카나리아 검사 결과를 해석 못 함: $res"; FAIL=1 ;;
+    *RESULT=DECRYPTED*) echo "  OK   복원된 암호문이 현재 키로 풀린다" ;;
+    *RESULT=NO_KEY*)    echo "  FAIL 서버에 LLM_ENCRYPTION_KEY가 없다 → BYOK 키 전부 복구 불가"; FAIL=1 ;;
+    *RESULT=BAD_KEY*)   echo "  FAIL 현재 키로 복호화 실패 → 키가 바뀌었다. 옛 키를 찾아야 한다"; FAIL=1 ;;
+    *)                  echo "  FAIL 카나리아 검사 결과를 해석 못 함: $res"; FAIL=1 ;;
   esac
 else
   echo "  FAIL 카나리아 검사를 실행하지 못함(backend 컨테이너 확인): $res"
@@ -344,7 +354,11 @@ say "4/4 DB 바깥 — 이미지와 백업 저장소"
 # DB만 완벽히 복원돼도 이 파일들이 없으면 글은 깨진 이미지로 뜬다. 이미지는 덤프에
 # 안 들어가고, 하필 프론트 배포와 같은 버킷(`s3 sync --delete`의 사정권)에 산다.
 mapfile -t IMGS < <(sed -n 's/^  IMG \(..*\)$/\1/p' "$STAGE/remote.out")
-if [ "${#IMGS[@]}" -eq 0 ]; then
+if [ "$rc" -ne 0 ] && ! grep -q '참조하는 이미지' "$STAGE/remote.out"; then
+  # 원격이 목록을 뱉기 전에 죽었다. 이걸 "이미지 없음"으로 찍으면 확인을 못 한 것을
+  # 확인해서 문제없는 것처럼 읽힌다 — 초록 문구를 섞지 않는다.
+  echo "  --   원격 단계가 목록을 내기 전에 끝나 이미지 확인을 못 했습니다"
+elif [ "${#IMGS[@]}" -eq 0 ]; then
   echo "  --   참조된 이미지가 없습니다(확인할 것 없음)"
 else
   checked=0; missing=0
@@ -353,15 +367,19 @@ else
     if [ "$checked" -ge "$IMG_CHECK_MAX" ]; then break; fi
     checked=$((checked+1))
     if ! aws s3api head-object --bucket "$IMAGE_BUCKET" --key "uploads/$name" >/dev/null 2>&1; then
-      echo "  FAIL 이미지 없음: s3://$IMAGE_BUCKET/uploads/$name"
+      echo "  WARN 이미지 없음: s3://$IMAGE_BUCKET/uploads/$name"
       missing=$((missing+1))
-      rc=1
     fi
   done
   if [ "$missing" -eq 0 ]; then
     echo "  OK   참조 이미지 $checked개 모두 S3에 존재"
   else
-    echo "  FAIL 참조 이미지 $checked개 중 $missing개가 없습니다 → 복원해도 그 글은 이미지가 깨집니다"
+    # 불합격시키지 않는 이유: 이건 백업/복원의 결함이 아니라 '이미 깨져 있는 글'이다.
+    # (지금 라이브에서도 똑같이 깨져 보인다.) 여기서 FAIL을 내면 옛 글 하나 때문에
+    # 훈련이 영구 빨간불이 되고, 영구 빨간불은 아무도 안 보는 신호와 같다.
+    # 고치는 방법은 그 글을 정리하거나 이미지를 다시 올리는 것이지 백업을 바꾸는 게 아니다.
+    echo "  WARN 참조 이미지 $checked개 중 $missing개가 없습니다 → 그 글은 지금도 이미지가 깨져 있습니다"
+    echo "       (백업 결함이 아니라 데이터 문제 — 해당 글을 정리하거나 이미지를 재업로드하세요)"
   fi
   # 상한 때문에 덜 봤으면 반드시 말한다. 조용히 자르면 '전부 확인했다'로 읽힌다.
   if [ "${#IMGS[@]}" -gt "$IMG_CHECK_MAX" ]; then

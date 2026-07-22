@@ -36,10 +36,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$(cd "$SCRIPT_DIR/../terraform" && pwd)"
 
 STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
+PARKED=false   # 주차를 이미 했는가 — 실패 안내를 낼지 판단한다
+
+# 주차 이후 어느 단계에서 죽든 사이트는 /api 504인 채로 남는다. 예전엔 백업 분기에서만
+# 안내했고, keep/ 복사·이미지 미러·stop-instances에서 죽으면 aws CLI 에러 한 줄만 보였다.
+# (2026-07-22 코드검사에서 지적됨) 종료 훅에서 한 번만 안내한다.
+cleanup() {
+  rc=$?
+  rm -rf "$STAGE"
+  if [ "$rc" -ne 0 ] && [ "$PARKED" = true ]; then unpark_hint; fi
+  exit "$rc"
+}
+trap cleanup EXIT
 
 SKIP_BACKUP=false
-[[ "${1:-}" == "--skip-backup" ]] && SKIP_BACKUP=true
+case "${1:-}" in
+  "")            ;;
+  --skip-backup) SKIP_BACKUP=true ;;
+  # 오타(--skip_backup 등)를 조용히 무시하면 의도와 다른 절차가 돈다.
+  *) echo "알 수 없는 인자: $1" >&2; echo "사용법: $0 [--skip-backup]" >&2; exit 64 ;;
+esac
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
@@ -51,14 +67,44 @@ unpark_hint() {
   echo "       --query 'Reservations[0].Instances[0].PublicDnsName' --output text)\""
 }
 
+# terraform apply는 '그 시점의 전체 플랜'을 적용한다. 여기서 원하는 건 오리진 주차뿐인데,
+# ec2.tf에 인스턴스를 교체(replace)하는 변경이 섞여 있으면 그것까지 실행된다. 루트 볼륨이
+# delete_on_termination=true이고 pgdata가 그 위에 있으니 그건 곧 DB 소멸이고, 이 단계는
+# 하필 백업보다 '먼저'다. 그래서 플랜을 먼저 뽑아 인스턴스 변경이 있으면 멈춘다.
+park_origin() {
+  local plan="$STAGE/park.tfplan"
+  if ! terraform -chdir="$TF_DIR" plan -no-color -out="$plan" > "$STAGE/plan.txt" 2>&1; then
+    cat "$STAGE/plan.txt"
+    echo "❌ terraform plan 실패 — 아무것도 적용하지 않고 멈춥니다." >&2
+    return 1
+  fi
+  # `terraform show | grep -q`로 받으면 grep이 첫 매치에서 파이프를 닫아 앞단이 EPIPE로
+  # 죽고 pipefail이 그걸 실패로 잡는다. 파일로 받아서 검사한다.
+  terraform -chdir="$TF_DIR" show -no-color "$plan" > "$STAGE/plan_show.txt"
+  if grep -qE '^  # aws_instance\.' "$STAGE/plan_show.txt"; then
+    echo "❌ 플랜에 EC2 인스턴스 변경이 들어 있습니다 — 정지 절차를 중단합니다." >&2
+    grep -E '^  # aws_instance\.' "$STAGE/plan_show.txt" >&2
+    echo "   인스턴스가 교체되면 루트 볼륨(pgdata)째 사라집니다. 직접 확인하세요:" >&2
+    echo "     terraform -chdir=$TF_DIR plan" >&2
+    return 1
+  fi
+  terraform -chdir="$TF_DIR" apply -no-color "$plan"
+}
+
 # ── 0. 상태 확인 ────────────────────────────────────────────────────────────
 state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
   --query 'Reservations[0].Instances[0].State.Name' --output text)
+if [[ "$state" == "pending" ]]; then
+  # 방금 켜는 중인 서버를 주차하면 올라오자마자 API가 죽는다. 정지 의도가 맞다면
+  # running이 된 뒤에 다시 부르는 게 맞다.
+  say "EC2가 'pending'(켜는 중)입니다. running이 된 뒤에 다시 실행하세요."
+  exit 1
+fi
 if [[ "$state" != "running" ]]; then
   say "EC2가 이미 '$state' 상태입니다."
   # 켜져 있지 않아도 주차는 해둬야 한다(꺼진 채 오리진만 옛 주소인 경우 방지).
   say "오리진 주차만 확인합니다."
-  terraform -chdir="$TF_DIR" apply -auto-approve
+  park_origin
   exit 0
 fi
 
@@ -67,7 +113,8 @@ DNS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
 
 # ── 1. 오리진 주차 (반드시 백업·정지보다 먼저) ──────────────────────────────
 say "1/6 오리진 주차 — terraform apply (기본값 → S3 주차 주소)"
-terraform -chdir="$TF_DIR" apply -auto-approve
+park_origin
+PARKED=true
 echo "   /api/*가 fail closed. 이제부터 들어오는 쓰기는 없습니다."
 
 # ── 2. 백업 ─────────────────────────────────────────────────────────────────
@@ -83,9 +130,13 @@ else
 
   # 저장소 판본을 매번 올려 덮어쓴다 — 서버에만 있던 시절엔 인스턴스를 새로
   # 만들면 백업 능력이 조용히 사라졌다(버전 관리도 안 됐다).
+  # 파일을 미리 만들어 둔다. scp가 실패하면 `||`가 단락돼 ssh가 안 돌고, 그러면 이 파일이
+  # 없어서 아래 cat이 죽는다 → set -e로 스크립트가 끝나 실패 안내가 한 줄도 안 나왔다
+  # (2026-07-22 코드검사에서 발견). scp 실패는 흔하다(막 켠 인스턴스, sshd 준비 전 등).
+  : > "$STAGE/backup.out"
   if ! scp -o StrictHostKeyChecking=no -i "$SSH_KEY" \
         "$SCRIPT_DIR/blog-db-backup.sh" "ec2-user@$DNS:/tmp/blog-db-backup.sh" \
-     || ! ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
+     || ! ssh -n -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
         'sudo install -m 755 /tmp/blog-db-backup.sh /usr/local/bin/blog-db-backup.sh \
          && sudo /usr/local/bin/blog-db-backup.sh' > "$STAGE/backup.out" 2>&1; then
     cat "$STAGE/backup.out"
@@ -93,7 +144,6 @@ else
     echo "   사본 없이 끄지 않으려는 의도적 중단입니다. 원인을 보고 판단하세요:"
     echo "     - 다시 시도: $0"
     echo "     - 백업 없이 강행: $0 --skip-backup"
-    unpark_hint
     exit 1
   fi
   cat "$STAGE/backup.out"
@@ -103,7 +153,6 @@ else
   NEW_KEY=$(sed -n 's/^BACKUP_KEY=//p' "$STAGE/backup.out" | tail -1)
   if [ -z "$NEW_KEY" ]; then
     say "❌ 백업 스크립트가 키 이름을 알려주지 않았습니다 — 정지하지 않습니다."
-    unpark_hint
     exit 1
   fi
 
@@ -111,7 +160,6 @@ else
                 --query 'ContentLength' --output text 2>/dev/null); then
     say "❌ 스크립트는 성공했는데 S3에 $NEW_KEY 가 없습니다 — 정지하지 않습니다."
     echo "   버킷을 직접 확인하세요: aws s3 ls s3://$BUCKET/"
-    unpark_hint
     exit 1
   fi
 
@@ -122,7 +170,6 @@ else
       say "❌ 새 백업이 직전보다 크게 작습니다($prev → $size 바이트) — 정지하지 않습니다."
       echo "   글을 대량 삭제한 게 아니라면 덤프가 잘렸을 수 있습니다. 직접 확인하세요."
       echo "   확인 후 강행: $0 --skip-backup"
-      unpark_hint
       exit 1
     fi
     echo "   크기 $size 바이트 (직전 $prev — 정상 범위)"
