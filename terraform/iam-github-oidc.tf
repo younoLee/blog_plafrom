@@ -36,9 +36,50 @@ resource "aws_iam_role" "github_deploy" {
 
 # 기존 배포 유저가 쓰던 최소권한 정책(github-brench: S3 배포 + CloudFront 무효화)을 역할에 그대로 부착.
 # → 권한 범위는 동일하게 유지하고, 인증 방식만 키에서 OIDC로 바꾼다.
+# 프론트 배포 권한. 원래 콘솔에서 만들어 **terraform 밖**에 있었다 —
+# 즉 배포가 무슨 권한으로 도는지가 저장소 어디에도 없었다.
+#
+# 2026-07-22에 정확히 그 종류의 드리프트가 사고를 냈다: 이미지 업로드 권한을 담은
+# 역할 `blog-ec2-role`이 CLI로 만들어져 있었는데 terraform이 다른 프로파일을 붙이면서
+# 조용히 교체돼 업로드가 AccessDenied로 죽어 있었다. 남아 있던 같은 클래스가 이거라
+# `terraform import`로 회수했다(내용은 그대로, plan 무변경으로 확인).
+#
+# 범위 주의: 이 정책은 `blogplafromops` 버킷 전체에 DeleteObject를 준다. 그 버킷엔
+# 업로드 이미지(`uploads/`)도 같이 살고 그건 DB 덤프에 안 들어간다. 배포가
+# `--exclude "uploads/*"`를 지키는 게 그래서 중요하다(.github/workflows/deploy.yml).
+resource "aws_iam_policy" "github_deploy" {
+  name = "github-brench" # 콘솔에서 붙인 이름 그대로(바꾸면 재생성된다)
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "S3Deploy"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = [
+          aws_s3_bucket.frontend.arn,
+          "${aws_s3_bucket.frontend.arn}/*",
+        ]
+      },
+      {
+        Sid      = "CloudFrontInvalidate"
+        Effect   = "Allow"
+        Action   = "cloudfront:CreateInvalidation"
+        Resource = aws_cloudfront_distribution.main.arn
+      },
+    ]
+  })
+}
+
 resource "aws_iam_role_policy_attachment" "github_deploy" {
   role       = aws_iam_role.github_deploy.name
-  policy_arn = "arn:aws:iam::181568979775:policy/github-brench"
+  policy_arn = aws_iam_policy.github_deploy.arn
 }
 
 # deploy.yml의 role-to-assume 에 넣을 역할 ARN (apply 후 출력됨)

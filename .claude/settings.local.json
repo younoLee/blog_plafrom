@@ -593,7 +593,10 @@
       "WebFetch(domain:aws.amazon.com)",
       "Bash(bash -n scripts/env_escrow.sh)",
       "Bash(timeout 300 docker run --rm -v __TRACKED_VAR__:/mnt -w /mnt koalaman/shellcheck:stable -S warning scripts/env_escrow.sh)",
-      "Bash(aws kms *)"
+      "Bash(aws kms *)",
+      "Bash(terraform import *)",
+      "Bash(terraform -chdir=terraform fmt -check -recursive)",
+      "Bash(timeout 300 terraform -chdir=terraform plan -no-color)"
     ]
   }
 }

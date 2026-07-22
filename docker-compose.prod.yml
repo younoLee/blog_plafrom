@@ -35,6 +35,24 @@ services:
     depends_on:
       db:
         condition: service_healthy   # DB 준비될 때까지 대기
+    # 백엔드에도 상태 체크. db에는 있는데 여기엔 없어서, 프로세스는 살아 있는데
+    # 응답만 못 하는 상태를 `docker compose ps`로도 알 수 없었다.
+    #
+    # ⚠️ 오해 금지: 이건 **가시성**이지 자동 복구가 아니다. plain Compose는
+    # unhealthy를 이유로 재시작하지 않는다(그건 Swarm/ECS의 몫). 실제 복구는
+    # 아직 사람이 하고, 감지는 scripts/watch.sh가 바깥에서 한다.
+    # ECS로 옮길 때 이 정의가 그대로 태스크 헬스체크가 된다.
+    #
+    # curl은 python:3.12-slim에 없다 → 표준 라이브러리로 때린다.
+    # 경로는 /api/health다. /health는 404이므로 그걸 쓰면 100% 실패한다.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # 기동 때 alembic upgrade가 먼저 돌아 uvicorn이 늦게 뜬다. 그 사이를
+      # 실패로 세지 않도록 start_period를 넉넉히 준다.
+      start_period: 60s
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
