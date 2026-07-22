@@ -101,9 +101,17 @@ for t in users posts comments; do
 done
 
 # '행이 있다'가 아니라 '쓸 수 있다'까지 본다. RETURNING은 값 다음 줄에 커맨드 태그가
-# 붙어 나오므로 head -1로 잘라야 한다(2026-07-22에 여기서 DELETE가 깨졌다).
+# 붙어 나오므로 첫 줄만 잘라 쓴다(2026-07-22에 여기서 DELETE가 깨졌다).
+#
+# 자를 때 `| head -1`을 쓰면 안 된다 — head가 첫 줄만 읽고 파이프를 닫으면 psql은 남은
+# 태그를 쓰다 EPIPE로 죽고, pipefail이 그걸 실패로 잡아 set -e가 스크립트를 여기서
+# 끝낸다. 그러면 아래 DELETE도 drop database도 못 돌아 restore_test가 통째로 남는다.
+# psql이 두 줄을 한 번의 write로 내보내면 통과하고 아니면 죽는 버퍼링 타이밍 문제라
+# 어떤 날은 되고 어떤 날은 안 된다(2026-07-22 두 번째 훈련에서 실제로 걸렸다).
+# 파이프 없이 셸 확장으로 자르면 psql이 끝까지 쓰고 정상 종료한다.
 echo "  --- 쓰기 가능 여부 ---"
-newid=$(dst "insert into users (email, hashed_password, role, token_version, email_verified) values ('drill@test.local','x','user',0,false) returning id" | head -1)
+newid=$(dst "insert into users (email, hashed_password, role, token_version, email_verified) values ('drill@test.local','x','user',0,false) returning id")
+newid=${newid%%$'\n'*}
 dst "delete from users where id=$newid" >/dev/null
 echo "  OK   INSERT/DELETE 성공 (새 id=$newid)"
 ext=$(dst "select count(*) from pg_extension where extname='pg_trgm'")
