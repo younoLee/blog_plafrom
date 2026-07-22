@@ -30,7 +30,7 @@
 |---|---|---|---|
 | DB | EC2 루트 볼륨의 `pgdata` 볼륨 | 글·계정·결제 전부 | S3 `blog-db-backups-181568979775` |
 | 업로드 이미지 | S3 `blogplafromops/uploads/` | 글 속 이미지 깨짐 | 같은 백업 버킷 `uploads/` 미러 + 버킷 버저닝 |
-| 시크릿(`.env`) | EC2 `~/blog/.env` | **BYOK 키 영구 복구 불가** | `~/.blog-secrets/prod.env` (`scripts/env_escrow.sh`) |
+| 시크릿(`.env`) | EC2 `~/blog/.env` (600) | **BYOK 키 영구 복구 불가** | ① 이 PC `~/.blog-secrets/prod.env` ② SSM SecureString `/blog/prod/env` — 둘 다 `scripts/env_escrow.sh save`가 함께 갱신 |
 | 코드 | 이 저장소 | — | GitHub |
 | 인프라 | `terraform/` | — | 저장소 |
 | terraform state | S3 `blog-tfstate-181568979775` (**terraform 관리 밖**, 버저닝 켜짐) | 시나리오 B의 1단계부터 못 밟는다 | 버킷 버저닝뿐 |
@@ -127,6 +127,11 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS 'cd ~/blog && tar xzf backend.tgz && rm
 
 # 4) 시크릿 복원 — 에스크로 사본에서. 이게 없으면 여기서 막힌다.
 scp -i ~/.ssh/blog-key.pem ~/.blog-secrets/prod.env ec2-user@$DNS:~/blog/.env
+ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS 'chmod 600 ~/blog/.env'
+
+# 이 PC까지 잃었다면 SSM 사본에서(계정이 살아 있는 한 여기 있다):
+#   aws ssm get-parameter --name /blog/prod/env --with-decryption \
+#     --query Parameter.Value --output text > /tmp/prod.env
 
 # 5) DB만 먼저 띄운다
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
@@ -181,7 +186,7 @@ aws s3api list-object-versions --bucket blogplafromops --prefix uploads/ \
 
 | 잃은 값 | 결과 | 복구 |
 |---|---|---|
-| `LLM_ENCRYPTION_KEY` | `llm_credentials`의 BYOK 키를 **영원히 못 푼다** | 없음. 해당 행을 지우고 사용자에게 재입력 요청 |
+| `LLM_ENCRYPTION_KEY` | `llm_credentials`의 BYOK 키를 **영원히 못 푼다** | 사본에서 복원(이 PC 또는 SSM). 셋 다 잃었으면 없음 — 해당 행을 지우고 사용자에게 재입력 요청 |
 | `SECRET_KEY` | 발급된 모든 세션 토큰 무효 | 새 값 생성. 사용자는 다시 로그인하면 됨 |
 | `DB_PASSWORD` | 컨테이너가 새로 뜨면 초기화됨 | 새 값으로 재설정 |
 | `ANTHROPIC_API_KEY` / 토스 키 | 해당 기능 정지 | 각 콘솔에서 재발급 |
@@ -194,8 +199,14 @@ aws s3api list-object-versions --bucket blogplafromops --prefix uploads/ \
 
 ```bash
 scripts/restore_drill.sh      # 복원되는지 + 이미지·사본·시크릿까지
-scripts/env_escrow.sh check   # .env 사본이 서버와 같은지
+scripts/env_escrow.sh check   # .env 사본(PC·SSM)이 서버와 같은지
+scripts/watch.sh              # 매시 자동으로도 돌지만 수동 확인도 가능
 ```
+
+시크릿 사본은 셋이다 — 서버 원본 · 이 PC · SSM SecureString(`/blog/prod/env`,
+Standard 티어라 무료). PC만 잃어도, 서버만 잃어도, 둘을 동시에 잃어도 복구된다.
+**다만 AWS 계정 자체를 잃으면 이 PC 사본만 남는다** — 그래서 비밀번호 관리자에
+한 벌 더 넣는 일은 여전히 사람이 해야 한다(자동화할 수 없다).
 
 훈련의 합격/불합격은 **구조 검사**(테이블 집합·인덱스·제약·시퀀스·alembic 버전·확장·
 쓰기 가능·BYOK 복호화)로만 판정한다. 나머지는 표시만 하고 불합격시키지 않는다:

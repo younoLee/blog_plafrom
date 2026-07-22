@@ -20,21 +20,42 @@
 #
 # 값은 어디에도 출력하지 않는다. 비교는 sha256 앞 12자리로만 한다.
 #
-# ⚠️ 여기까지는 '한 대 더 두는' 것뿐이다. 워크스테이션까지 잃는 경우까지 대비하려면
-#    ~/.blog-secrets/prod.env 를 비밀번호 관리자에 한 번 더 넣어두는 게 맞다.
-#    그건 자동화할 수 없어서 save가 끝날 때 안내만 한다.
+# 사본은 셋이 된다: 서버 원본 · 이 PC(~/.blog-secrets) · SSM SecureString.
+#   PC만 잃음   → 서버·SSM 생존      / 서버만 잃음 → PC·SSM 생존
+#   PC+서버 동시 → SSM 생존
+#   ⚠️ AWS 계정 자체를 잃으면 → 이 PC 사본만 남는다.
+# 그래서 비밀번호 관리자에 한 벌 더 넣는 일은 여전히 사람이 해야 한다(자동화 불가).
 
 set -euo pipefail
 
 INSTANCE_ID=i-06da19f44d1f38eff
 SSH_KEY=~/.ssh/blog-key.pem
 ESCROW_DIR="$HOME/.blog-secrets"
+# 세 번째 사본. PC와 서버를 **동시에** 잃는 경우를 위한 자리다.
+# SSM Standard 파라미터는 무료이고(AWS 요금표: "available at no additional charge"),
+# SecureString이 쓰는 AWS 관리 KMS 키도 생성·보관 무료에 요청은 월 2만 건까지 무료다.
+# 저장은 이 스크립트가 돌 때뿐이고 읽기는 재해 때뿐이라 사실상 0원이다.
+#
+# 이걸로도 못 막는 것: **AWS 계정 자체를 잃는 경우**. 그때 남는 건 이 PC 사본뿐이라,
+# 비밀번호 관리자에 한 벌 더 넣는 일은 여전히 사람이 해야 한다.
+SSM_PARAM=/blog/prod/env
 ESCROW="$ESCROW_DIR/prod.env"
 REMOTE_ENV=/home/ec2-user/blog/.env
 
 MODE=${1:-check}
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# SSM에 올린다. 로컬 사본이 이미 최신이어도 SSM은 비어 있을 수 있으므로
+# '값이 바뀐 경우'가 아니라 save를 부를 때마다 확인한다.
+push_ssm() {
+  if aws ssm put-parameter --name "$SSM_PARAM" --type SecureString --tier Standard \
+       --overwrite --value "file://$1" >/dev/null 2>&1; then
+    echo "  SSM 사본 최신화 — $SSM_PARAM (SecureString, Standard=무료)"
+  else
+    echo "  ⚠️  SSM 저장 실패 — 로컬 사본은 정상입니다. 나중에 다시 시도하세요."
+  fi
+}
 
 remote_dns() {
   local state
@@ -75,7 +96,8 @@ case "$MODE" in
     if [ -f "$ESCROW" ]; then
       old=$(sha256sum "$ESCROW" | cut -c1-12)
       if [ "$old" = "$new" ]; then
-        say "이미 최신입니다 (sha256 $new). 그대로 둡니다."
+        say "로컬 사본은 이미 최신입니다 (sha256 $new)."
+        push_ssm "$TMP"
         exit 0
       fi
       # 옛 사본을 지우면 안 된다 — 키를 교체한 경우, 그 전에 암호화된 데이터는
@@ -91,6 +113,9 @@ case "$MODE" in
     cp "$TMP" "$ESCROW"
     chmod 600 "$ESCROW"
     say "보관 완료 — $ESCROW (sha256 $new)"
+
+    # 따로 올리면 언젠가 어긋나고, 어긋난 백업은 없는 것보다 나쁘다(있다고 믿게 만든다).
+    push_ssm "$TMP"
     echo "  다음 한 가지는 손으로 해야 합니다:"
     echo "  이 파일 내용을 비밀번호 관리자에도 넣어두세요. 이 PC까지 잃으면"
     echo "  LLM_ENCRYPTION_KEY가 사라지고, DB 백업이 있어도 BYOK 키는 복구 불가입니다."
@@ -112,6 +137,27 @@ case "$MODE" in
 
     r=$(remote_hash "$DNS" | cut -c1-12)
     l=$(sha256sum "$ESCROW" | cut -c1-12)
+
+    # 세 번째 사본(SSM)도 같은 값인지. 값은 변수에 잠깐 담았다가 해시만 비교한다.
+    #
+    # 양쪽을 '끝 개행 제거' 기준으로 맞춰서 비교한다. 파일은 개행으로 끝나는데
+    # `$(aws ... --output text)`는 명령 치환이 끝 개행을 지워버려서, 내용이 같은데도
+    # 해시가 달라 "사본이 다릅니다"가 뜬다(2026-07-22에 실제로 겪었다).
+    if ssm_val=$(aws ssm get-parameter --name "$SSM_PARAM" --with-decryption \
+                   --query 'Parameter.Value' --output text 2>/dev/null); then
+      ssm_hash=$(printf '%s' "$ssm_val" | sha256sum | cut -c1-12)
+      unset ssm_val
+      l_norm=$(printf '%s' "$(cat "$ESCROW")" | sha256sum | cut -c1-12)
+      if [ "$ssm_hash" = "$l_norm" ]; then
+        echo "✅ SSM 사본도 일치합니다 ($SSM_PARAM)"
+      else
+        echo "⚠️  SSM 사본이 다릅니다 (SSM $ssm_hash / 사본 $l_norm) — scripts/env_escrow.sh save 로 갱신하세요."
+      fi
+    else
+      echo "⚠️  SSM에 사본이 없습니다($SSM_PARAM). PC와 서버를 동시에 잃으면 복구 불가:"
+      echo "   scripts/env_escrow.sh save"
+    fi
+
     if [ "$r" = "$l" ]; then
       echo "✅ .env 사본이 서버와 일치합니다 (sha256 $l)"
     else

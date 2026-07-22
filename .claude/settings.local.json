@@ -586,7 +586,14 @@
       "Bash(terraform -chdir=/home/es0764/blog_plafrom/terraform state list)",
       "Bash(timeout 300 terraform -chdir=/home/es0764/blog_plafrom/terraform plan -no-color)",
       "Bash(echo \"  종료코드 $?\")",
-      "Bash(timeout 600 ./scripts/deploy_backend.sh)"
+      "Bash(timeout 600 ./scripts/deploy_backend.sh)",
+      "Bash(awk '{print $1, $5\"바이트\", $6, $7, $8}')",
+      "Bash(aws ssm *)",
+      "Bash(echo \"  현재 저장된 파라미터: $\\(aws ssm describe-parameters --query 'length\\(Parameters\\)' --output text 2>&1\\)\")",
+      "WebFetch(domain:aws.amazon.com)",
+      "Bash(bash -n scripts/env_escrow.sh)",
+      "Bash(timeout 300 docker run --rm -v __TRACKED_VAR__:/mnt -w /mnt koalaman/shellcheck:stable -S warning scripts/env_escrow.sh)",
+      "Bash(aws kms *)"
     ]
   }
 }
