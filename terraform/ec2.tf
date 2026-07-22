@@ -1,4 +1,5 @@
-# EC2 백엔드 인스턴스 (Docker로 FastAPI 구동, RDS에 연결).
+# EC2 백엔드 인스턴스 (Docker로 FastAPI 구동. DB는 같은 호스트의 Postgres 컨테이너 —
+# RDS는 2026-07-18에 비용 때문에 들어냈다).
 resource "aws_instance" "backend" {
   ami                    = "ami-0436b3a61a7a7e22a"
   instance_type          = "t2.micro"

@@ -7,7 +7,8 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.55"
     }
-    # rds-autostop.tf의 Lambda 소스를 zip으로 묶는 데 사용
+    # 옛 rds-autostop.tf의 Lambda zip용이었다. 그 파일은 RDS 이전(2026-07-18) 때
+    # 삭제됐고 지금 archive를 쓰는 리소스는 없다.
     archive = {
       source  = "hashicorp/archive"
       version = "~> 2.0"

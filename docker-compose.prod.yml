@@ -1,7 +1,8 @@
 # 프로덕션(EC2) 스택. EC2 ~/blog/ 에 이 파일이 있고, .env(시크릿)는 깃 미포함.
 # DB는 RDS가 아니라 이 compose의 db 컨테이너(pgdata 볼륨=EBS에 영구 저장).
 # db 포트는 호스트에 노출하지 않는다 — backend가 compose 네트워크로 db:5432에 접속.
-# 업로드 이미지는 호스트 디스크(uploads)에 영구 저장.
+# 업로드 이미지는 **S3**(blogplafromops/uploads/)에 저장된다 — 2026-06-26 이전.
+# 아래 uploads 볼륨은 남아 있는 폴백이며 운영 트래픽은 타지 않는다.
 services:
   db:
     image: postgres:16-alpine
@@ -27,7 +28,8 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    # 업로드 이미지를 호스트 디스크에 영구 저장 → 컨테이너 재빌드해도 안 사라짐
+    # 폴백 겸 StaticFiles 마운트가 요구하는 폴더. 실제 이미지는 S3에 있다
+    # (여기를 '이미지의 집'으로 읽으면 안 된다 — 2026-07-22에 이 주석 때문에 오판했다).
     volumes:
       - ./uploads:/app/uploads
     depends_on:

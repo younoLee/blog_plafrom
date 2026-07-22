@@ -10,7 +10,8 @@ from app.models.user import User
 # POST는 /upload(단수), 저장된 파일 서빙은 /uploads/<파일>(StaticFiles)로 분리
 router = APIRouter(prefix="/upload", tags=["uploads"])
 
-# 업로드 파일을 저장할 로컬 폴더 (나중에 S3로 교체)
+# 로컬 개발용 저장 폴더. 운영은 S3_BUCKET이 설정돼 있어 아래에서 S3로 올린다
+# (2026-06-26에 이전 완료 — 인스턴스를 교체해도 이미지가 안 사라지게).
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 

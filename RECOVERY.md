@@ -32,7 +32,8 @@
 | 업로드 이미지 | S3 `blogplafromops/uploads/` | 글 속 이미지 깨짐 | 같은 백업 버킷 `uploads/` 미러 + 버킷 버저닝 |
 | 시크릿(`.env`) | EC2 `~/blog/.env` | **BYOK 키 영구 복구 불가** | `~/.blog-secrets/prod.env` (`scripts/env_escrow.sh`) |
 | 코드 | 이 저장소 | — | GitHub |
-| 인프라 | `terraform/` | — | 저장소 + `terraform.tfstate` |
+| 인프라 | `terraform/` | — | 저장소 |
+| terraform state | S3 `blog-tfstate-181568979775` (**terraform 관리 밖**, 버저닝 켜짐) | 시나리오 B의 1단계부터 못 밟는다 | 버킷 버저닝뿐 |
 
 두 가지를 특히 기억할 것:
 

@@ -11,7 +11,7 @@
 > 💤 **서버는 평소 꺼져 있습니다.** 개인 프로젝트라 안 쓸 땐 EC2를 정지해 비용을 아끼는데,
 > 그러면 글 목록이 안 뜹니다. 화면이 8초 안에 "절전 중"이라고 알려주니 고장은 아닙니다 —
 > 오리진을 fail-closed로 주차해두는 것까지 의도된 운영 방식입니다.
-> **글 내용은 서버 없이도 읽을 수 있습니다** → [`content/devlog/`](./content/devlog) (개발일지 16편)
+> **글 내용은 서버 없이도 읽을 수 있습니다** → [`content/devlog/`](./content/devlog) (개발일지 17편)
 
 > 이 프로젝트는 기능뿐 아니라 **왜 그렇게 만들었는지**를 개발일지로 남긴다 —
 > 비용 구조 분석, RDS→EC2 이전, 보안 하드닝 결정 등. → [`PROGRESS.md`](./PROGRESS.md)
@@ -36,7 +36,7 @@
 | **백엔드** | FastAPI, PostgreSQL, SQLAlchemy 2.0, Alembic, JWT(PyJWT), slowapi(레이트리밋), boto3(S3), Anthropic/OpenAI/Gemini SDK |
 | **프론트엔드** | React 19, TypeScript, Vite, React Router, Tailwind CSS v4, react-markdown |
 | **인프라** | AWS EC2(Docker), CloudFront + S3, SES, Terraform(IaC), GitHub Actions(CI/CD) |
-| **테스트** | pytest(114) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
+| **테스트** | pytest(116) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
 
 ## 아키텍처
 
@@ -44,13 +44,14 @@
 flowchart LR
     U[브라우저] -->|HTTPS| CF[CloudFront]
     CF -->|"/ · /blog · /status"| S3[(S3<br/>정적 프론트엔드)]
-    CF -->|"/api/* · /uploads/*"| EC2[EC2<br/>FastAPI 컨테이너]
+    CF -->|"/api/*"| EC2[EC2<br/>FastAPI 컨테이너]
+    CF -->|"/uploads/*"| S3
     EC2 --> PG[(PostgreSQL<br/>컨테이너 · EBS)]
-    EC2 -. 일일 pg_dump .-> BK[(S3<br/>DB 백업)]
+    EC2 -. 정지 직전 pg_dump .-> BK[(S3<br/>DB 백업)]
 ```
 
 - 프론트엔드는 S3 정적 호스팅, `/api/*`는 CloudFront가 EC2로 라우팅 → **전부 같은 HTTPS 도메인**(CORS·혼합콘텐츠 없음)
-- DB는 RDS가 아니라 **EC2 안 Postgres 컨테이너**(비용 최적화) + 일일 S3 백업 → 상세 배경은 [`PROGRESS.md`](./PROGRESS.md)
+- DB는 RDS가 아니라 **EC2 안 Postgres 컨테이너**(비용 최적화). 백업은 `pg_dump` → S3인데 **일일 cron이 아니라 '서버를 끌 때'** 돈다 — 이 서버는 필요할 때만 켜므로 cron 시각엔 늘 꺼져 있었고 2026-07-20까지 한 번도 실행되지 않았다. RPO는 '하루'가 아니라 **'마지막 정지 시점'**이다. 복구 절차는 [`RECOVERY.md`](./RECOVERY.md), 상세 배경은 [`PROGRESS.md`](./PROGRESS.md)
 - 모든 AWS 리소스는 `terraform/`에 코드화(import 방식으로 라이브 인프라 1:1 반영)
 
 ## 로컬에서 실행하기

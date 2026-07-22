@@ -96,7 +96,9 @@ app.include_router(payments.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 
 # 업로드된 이미지 파일 서빙: GET /uploads/<파일명> → uploads/ 폴더
-# (이미지 URL은 public_base_url 기준. CloudFront에서 /uploads/* 도 EC2로 넘김)
+# ⚠️ 이건 **로컬 개발용 폴백**이다. 운영에서는 S3_BUCKET이 설정돼 있어 이미지가 S3에
+# 저장되고(routers/uploads.py), CloudFront의 /uploads/* 전용 동작은 2026-06-26에
+# 제거돼 기본 S3 오리진이 직접 서빙한다 — 즉 운영 트래픽은 이 마운트를 타지 않는다.
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
