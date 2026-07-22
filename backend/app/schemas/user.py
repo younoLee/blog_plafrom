@@ -2,7 +2,11 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-# bcrypt는 72바이트 초과 비번에서 에러 → 상한 72. 가입/재설정은 최소 8자 요구.
+# 상한 72는 '글자 수'다(Pydantic max_length). bcrypt의 72는 '바이트'라 단위가 다르다 —
+# 한글은 글자당 3바이트라 이 상한을 통과한 값도 bcrypt엔 최대 216바이트로 들어간다.
+# 그래서 bcrypt 안전은 여기가 아니라 core/security.py의 _bcrypt_input()이 책임진다
+# (72바이트로 절삭). 두 값이 같은 72라 같은 제약처럼 보이는 게 함정이라 적어둔다.
+# 가입/재설정은 최소 8자 요구.
 PW_MIN = 8
 PW_MAX = 72
 
