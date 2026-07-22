@@ -21,6 +21,12 @@
 #
 # 종료코드: 문제가 하나라도 있으면 1. Actions가 빨간불이 되고 알림이 간다.
 #
+# **경고도 종료코드에 넣는다.** 알림 경로가 'Actions 실패 메일' 하나뿐이라,
+# 종료코드에 안 들어가는 경고는 아무에게도 도달하지 않는다 — 초록으로 끝나고
+# 신호가 0건이다. 그러면 "6시간째 켜둔 채 과금 중"이나 "감시가 SES를 못 읽는 중"
+# 같은, 정확히 조용히 방치되는 유형이 다시 조용해진다.
+# 메일 보낼 가치가 없는 항목이면 애초에 경고가 아니라 정보(`--`)여야 한다.
+#
 # `set -e`를 쓰지 않는다 — 첫 실패에서 멈추면 나머지 점검 결과를 못 본다.
 # 문제를 모아서 한 번에 보여주는 게 이 스크립트의 목적이다.
 set -uo pipefail
@@ -56,15 +62,42 @@ EOF
 
 if [ -z "${state:-}" ]; then
   fail "EC2 상태를 못 읽었다 (권한이나 인스턴스 ID 확인: $INSTANCE_ID)"
+elif [ "$state" = "terminated" ] || [ "$state" = "shutting-down" ]; then
+  # 이건 '꺼짐'이 아니라 '사라짐'이다. 루트 볼륨이 delete_on_termination이라 DB도 같이 간다.
+  fail "EC2가 '$state' — 인스턴스가 삭제되고 있거나 삭제됐다. RECOVERY.md 시나리오 B."
 elif [ "$state" != "running" ]; then
   ok "EC2 '$state' — 꺼져 있는 건 정상(필요할 때만 켜는 서버)"
 else
-  up_s=$(( now - $(date -u -d "$launch" +%s) ))
+  # date가 실패하면 산술식이 문법 오류가 되어 변수가 대입조차 안 되고,
+  # 그 뒤 `set -u`가 스크립트를 즉시 끝내 나머지 검사(이미지·SES)가 통째로 날아간다.
+  # 종료코드는 1이라 알림은 가지만 진단이 엉뚱해지므로 먼저 파싱을 검증한다.
+  if ! launch_s=$(date -u -d "${launch:-}" +%s 2>/dev/null) || [ -z "${launch:-}" ]; then
+    fail "LaunchTime을 해석하지 못했다(값: '${launch:-비어있음}')"
+    launch_s=$now
+  fi
+  up_s=$(( now - launch_s ))
   up_h=$(( up_s / 3600 ))
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 45 "$CF_URL/api/status")
+  body=$(curl -s --max-time 45 -w $'\n%{http_code}' "$CF_URL/api/status" || true)
+  code=${body##*$'\n'}
+  body=${body%$'\n'*}
 
   if [ "$code" = "200" ]; then
-    ok "EC2 running ${up_h}시간 · 공개 /api/status 200"
+    # 200만 보면 안 된다 — 앱은 떠 있는데 DB나 메일이 죽은 경우를 놓친다.
+    # status.py의 mail 점검을 STARTTLS+AUTH로 제대로 고쳐놨는데 바깥에서 그 결과를
+    # 안 읽으면 두 장치가 이어지지 않는다.
+    down=""
+    for svc in backend database mail; do
+      case "$body" in
+        *"\"$svc\":\"ok\""*) ;;
+        *) down="$down $svc" ;;
+      esac
+    done
+    if [ -n "$down" ]; then
+      fail "공개 API는 200인데 내부 상태가 비정상:$down"
+      echo "     응답: $body"
+    else
+      ok "EC2 running ${up_h}시간 · 공개 /api/status 200 (backend·database·mail 전부 ok)"
+    fi
   elif [ "$up_s" -lt $(( GRACE_MIN * 60 )) ]; then
     ok "EC2 running (막 켬, ${GRACE_MIN}분 유예 중) · /api/status $code"
   else
@@ -87,7 +120,11 @@ if [ -z "$latest" ] || [ "$latest" = "None" ]; then
 else
   key=${latest%%$'\t'*}
   mod=${latest##*$'\t'}
-  age_d=$(( (now - $(date -u -d "$mod" +%s)) / 86400 ))
+  if ! mod_s=$(date -u -d "$mod" +%s 2>/dev/null); then
+    fail "백업 시각을 해석하지 못했다(값: '$mod')"
+    mod_s=$now
+  fi
+  age_d=$(( (now - mod_s) / 86400 ))
   if [ "$age_d" -ge "$MAX_BACKUP_AGE_D" ]; then
     fail "최신 백업이 ${age_d}일 전이다($key). 백업은 정지 절차 때만 도니, 그동안 서버를 안 껐거나 백업이 깨졌다."
   else
@@ -106,9 +143,25 @@ fi
 # ── 3. 이미지 사본 ──────────────────────────────────────────────────────────
 # 이미지는 DB 덤프에 안 들어가고, 프론트 배포(`s3 sync --delete`)와 같은 버킷에 산다.
 # `aws s3 ls`는 결과가 0건이면 종료코드 1이라 감싸야 한다.
-src_n=$( { aws s3 ls "s3://$IMAGE_BUCKET/uploads/" --recursive || true; } | wc -l)
-dst_n=$( { aws s3 ls "s3://$BUCKET/uploads/" --recursive || true; } | wc -l)
-if [ "$src_n" -eq 0 ]; then
+# `aws s3 ls ... || true`로 받으면 안 된다 — 그건 '0건이면 exit 1'만 삼키는 게 아니라
+# AccessDenied·NoSuchBucket·자격증명 만료까지 전부 삼킨다. 그러면 개수가 0이 되어
+# **"권한이 없어서 못 봤다"가 "볼 게 없다"로 보고**된다(초록). 이 저장소가 07-22에
+# 당한 IAM 드리프트와 같은 계열이라, 호출 실패와 0건을 구분한다.
+count_objects() {  # $1=버킷 $2=접두사 → 개수를 출력, 호출 실패면 non-zero
+  aws s3api list-objects-v2 --bucket "$1" --prefix "$2" \
+    --query 'length(Contents || `[]`)' --output text
+}
+if ! src_n=$(count_objects "$IMAGE_BUCKET" "uploads/"); then
+  fail "원본 이미지 버킷을 읽지 못했다(s3://$IMAGE_BUCKET/uploads/) — 권한이나 자격증명 확인"
+  src_n=-1
+fi
+if ! dst_n=$(count_objects "$BUCKET" "uploads/"); then
+  fail "이미지 사본 버킷을 읽지 못했다(s3://$BUCKET/uploads/) — 권한이나 자격증명 확인"
+  dst_n=-1
+fi
+if [ "$src_n" -lt 0 ] || [ "$dst_n" -lt 0 ]; then
+  : # 위에서 이미 fail 처리
+elif [ "$src_n" -eq 0 ]; then
   ok "업로드 이미지 없음(확인할 것 없음)"
 elif [ "$dst_n" -ge "$src_n" ]; then
   ok "이미지 사본 $dst_n개 (원본 $src_n개)"
@@ -124,7 +177,10 @@ prod_access=$(aws sesv2 get-account --region "$REGION" --query 'ProductionAccess
 if [ "$prod_access" = "True" ]; then
   ok "SES 프로덕션 액세스 활성 — 누구에게나 발송 가능"
 elif [ -z "$prod_access" ]; then
-  warn "SES 상태를 못 읽었다(권한 확인: ses:GetAccount)"
+  # '못 읽었다'를 경고로 두면 안 된다 — 감시가 눈이 먼 상태를 초록으로 보고하게 된다.
+  # ses:GetAccount 권한이 사라지면 SES 샌드박스를 4주간 아무도 몰랐던 그 상태로
+  # 정확히 되돌아가면서 알림은 한 통도 안 간다. EC2 읽기 실패도 이미 fail이다.
+  fail "SES 상태를 못 읽었다 — 감시가 눈이 먼 상태다(권한 확인: ses:GetAccount)"
 else
   fail "SES가 아직 샌드박스다 → 검증된 주소 외에는 인증·비번재설정 메일이 안 간다."
   echo "     가입자는 성공 응답만 받고 메일을 못 받으며, 24시간 뒤 계정이 삭제된다."
@@ -138,4 +194,4 @@ if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then
 else
   echo "== 실패 $FAIL건 / 경고 $WARN건 =="
 fi
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]

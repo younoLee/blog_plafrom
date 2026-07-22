@@ -596,7 +596,24 @@
       "Bash(aws kms *)",
       "Bash(terraform import *)",
       "Bash(terraform -chdir=terraform fmt -check -recursive)",
-      "Bash(timeout 300 terraform -chdir=terraform plan -no-color)"
+      "Bash(timeout 300 terraform -chdir=terraform plan -no-color)",
+      "Bash(echo \" 종료코드 $?\")",
+      "Bash(echo \"  keep/latest 갱신 시각: $\\(aws s3api head-object --bucket blog-db-backups-181568979775 --key keep/latest.sql.gz --query LastModified --output text\\)\")",
+      "Bash(echo \"fmt exit=$?\")",
+      "Bash(timeout 300 docker run --rm -v __TRACKED_VAR__:/mnt -w /mnt koalaman/shellcheck:stable -S warning scripts/blog-db-backup.sh scripts/env_escrow.sh scripts/restore_drill.sh scripts/stop_server.sh scripts/watch.sh)",
+      "Bash(echo \"shellcheck exit=$?\")",
+      "Bash(timeout 300 docker run --rm -v __TRACKED_VAR__:/mnt -w /mnt koalaman/shellcheck:stable -S info scripts/deploy_backend.sh scripts/watch.sh scripts/env_escrow.sh)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(timeout 300 terraform -chdir=terraform init -backend=false -no-color)",
+      "Bash(timeout 300 terraform -chdir=terraform validate -no-color)",
+      "Bash(echo \"validate exit=$?\")",
+      "Bash(docker rm *)",
+      "Bash(docker run *)",
+      "Bash(docker exec *)",
+      "Bash(echo \"exit=$? \\(expect nonzero, connection refused\\)\")",
+      "Bash(timeout 180 bash scripts/watch.sh)",
+      "Bash(echo \"=== watch.sh exit=$? ===\")",
+      "Bash(DB_PASSWORD=x timeout 120 docker compose -f docker-compose.prod.yml config)"
     ]
   }
 }

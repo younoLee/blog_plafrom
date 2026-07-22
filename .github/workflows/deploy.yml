@@ -39,7 +39,7 @@ jobs:
           # `|| true`로 받으면 안 된다 — diff가 실패해도(force push로 before가
           # 사라졌거나 fetch가 얕은 경우) changed가 비어 **게이트가 조용히 통과**한다.
           # 안전장치가 fail-open이면 없느니만 못하다. 확인 못 하면 막는다.
-          if ! changed=$(git diff --name-only "$before" '${{ github.sha }}' -- backend/app backend/alembic 2>&1); then
+          if ! changed=$(git diff --name-only "$before" '${{ github.sha }}' -- backend/app backend/alembic backend/requirements.txt backend/Dockerfile docker-compose.prod.yml 2>&1); then
             echo "::error::백엔드 변경 여부를 확인하지 못했습니다(git diff 실패). 안전하게 중단합니다."
             echo "$changed"
             echo "→ 백엔드 상태를 확인한 뒤 이 워크플로를 수동 실행(workflow_dispatch)하세요."

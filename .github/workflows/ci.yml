@@ -102,7 +102,9 @@ jobs:
       - name: shellcheck
         uses: docker://koalaman/shellcheck:stable
         with:
-          args: -S warning scripts/blog-db-backup.sh scripts/env_escrow.sh scripts/restore_drill.sh scripts/stop_server.sh scripts/watch.sh
+          # 목록을 하드코딩하면 새로 추가된 스크립트가 첫날부터 검사 밖에 있게 된다
+          # (실제로 deploy_backend.sh가 그랬다). glob으로 전부 잡는다.
+          args: -S warning scripts/blog-db-backup.sh scripts/deploy_backend.sh scripts/env_escrow.sh scripts/restore_drill.sh scripts/stop_server.sh scripts/watch.sh
 
   terraform:
     runs-on: ubuntu-latest

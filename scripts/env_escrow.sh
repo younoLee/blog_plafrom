@@ -48,13 +48,19 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 # SSM에 올린다. 로컬 사본이 이미 최신이어도 SSM은 비어 있을 수 있으므로
 # '값이 바뀐 경우'가 아니라 save를 부를 때마다 확인한다.
+# 실패하면 non-zero를 돌려주고 **사유를 보여준다**. 예전엔 2>/dev/null로 원인을 지우고
+# 실패해도 save가 "보관 완료"로 끝나서, 헤더가 약속한 "사본은 셋이 된다"가 보장이
+# 아니라 희망이 됐다(2026-07-22 코드검사에서 지적됨).
 push_ssm() {
-  if aws ssm put-parameter --name "$SSM_PARAM" --type SecureString --tier Standard \
-       --overwrite --value "file://$1" >/dev/null 2>&1; then
+  local err
+  if err=$(aws ssm put-parameter --name "$SSM_PARAM" --type SecureString --tier Standard \
+             --overwrite --value "file://$1" 2>&1 >/dev/null); then
     echo "  SSM 사본 최신화 — $SSM_PARAM (SecureString, Standard=무료)"
-  else
-    echo "  ⚠️  SSM 저장 실패 — 로컬 사본은 정상입니다. 나중에 다시 시도하세요."
+    return 0
   fi
+  echo "  ❌ SSM 저장 실패 — 세 번째 사본이 없습니다(PC와 서버를 동시에 잃으면 복구 불가)." >&2
+  echo "     $err" >&2
+  return 1
 }
 
 remote_dns() {
@@ -97,7 +103,7 @@ case "$MODE" in
       old=$(sha256sum "$ESCROW" | cut -c1-12)
       if [ "$old" = "$new" ]; then
         say "로컬 사본은 이미 최신입니다 (sha256 $new)."
-        push_ssm "$TMP"
+        push_ssm "$TMP" || exit 1
         exit 0
       fi
       # 옛 사본을 지우면 안 된다 — 키를 교체한 경우, 그 전에 암호화된 데이터는
@@ -115,13 +121,16 @@ case "$MODE" in
     say "보관 완료 — $ESCROW (sha256 $new)"
 
     # 따로 올리면 언젠가 어긋나고, 어긋난 백업은 없는 것보다 나쁘다(있다고 믿게 만든다).
-    push_ssm "$TMP"
+    push_ssm "$TMP" || exit 1
     echo "  다음 한 가지는 손으로 해야 합니다:"
     echo "  이 파일 내용을 비밀번호 관리자에도 넣어두세요. 이 PC까지 잃으면"
     echo "  LLM_ENCRYPTION_KEY가 사라지고, DB 백업이 있어도 BYOK 키는 복구 불가입니다."
     ;;
 
   check)
+    # 하나라도 어긋나면 non-zero로 끝낸다. 예전엔 SSM이 없거나 달라도 ⚠️만 찍고
+    # exit 0이라, "세 사본 대조"라는 이름과 달리 세 번째가 종료코드에 없었다.
+    RC=0
     if [ ! -f "$ESCROW" ]; then
       echo "⚠️  운영 .env 사본이 없습니다 ($ESCROW)."
       echo "   LLM_ENCRYPTION_KEY를 잃으면 DB 백업이 있어도 BYOK 키는 복구 불가입니다."
@@ -129,16 +138,11 @@ case "$MODE" in
       exit 1
     fi
 
-    if ! DNS=$(remote_dns); then
-      echo "⚠️  서버가 꺼져 있어 대조는 못 했습니다. 사본 자체는 있습니다:"
-      echo "   $ESCROW (sha256 $(sha256sum "$ESCROW" | cut -c1-12))"
-      exit 2
-    fi
-
-    r=$(remote_hash "$DNS" | cut -c1-12)
     l=$(sha256sum "$ESCROW" | cut -c1-12)
 
-    # 세 번째 사본(SSM)도 같은 값인지. 값은 변수에 잠깐 담았다가 해시만 비교한다.
+    # SSM 대조를 서버보다 **먼저** 한다. 이 서버는 필요할 때만 켜므로 대부분 꺼져 있는데,
+    # 예전엔 서버에 못 닿으면 여기까지 오기 전에 빠져나가 세 번째 사본을 아예 안 봤다.
+    # 로컬과 SSM은 서버 상태와 무관하게 언제나 대조할 수 있다.
     #
     # 양쪽을 '끝 개행 제거' 기준으로 맞춰서 비교한다. 파일은 개행으로 끝나는데
     # `$(aws ... --output text)`는 명령 치환이 끝 개행을 지워버려서, 내용이 같은데도
@@ -152,11 +156,20 @@ case "$MODE" in
         echo "✅ SSM 사본도 일치합니다 ($SSM_PARAM)"
       else
         echo "⚠️  SSM 사본이 다릅니다 (SSM $ssm_hash / 사본 $l_norm) — scripts/env_escrow.sh save 로 갱신하세요."
+        RC=1
       fi
     else
       echo "⚠️  SSM에 사본이 없습니다($SSM_PARAM). PC와 서버를 동시에 잃으면 복구 불가:"
       echo "   scripts/env_escrow.sh save"
+      RC=1
     fi
+
+    # 서버는 꺼져 있을 수 있다. 그건 이상이 아니므로 RC를 올리지 않는다.
+    if ! DNS=$(remote_dns 2>/dev/null); then
+      echo "--   서버가 꺼져 있어 원본과의 대조는 생략(사본 자체는 위에서 확인함)"
+      exit "$RC"
+    fi
+    r=$(remote_hash "$DNS" | cut -c1-12)
 
     if [ "$r" = "$l" ]; then
       echo "✅ .env 사본이 서버와 일치합니다 (sha256 $l)"
@@ -164,8 +177,9 @@ case "$MODE" in
       echo "⚠️  .env가 서버와 다릅니다 (서버 $r / 사본 $l)."
       echo "   서버에서 값이 바뀐 뒤 사본을 안 떴다는 뜻입니다. 갱신하세요:"
       echo "   scripts/env_escrow.sh save"
-      exit 1
+      RC=1
     fi
+    exit "$RC"
     ;;
 
   *)

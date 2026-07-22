@@ -39,26 +39,47 @@ resource "aws_s3_bucket_versioning" "frontend" {
 # (`index-kduWxvLj.js` 등). 규칙은 있는데 대상이 0개인, 이 저장소가 계속 당해온
 # "설정했는데 동작 안 함"을 내가 그대로 재현한 것이었다.
 #
-# 그래서 접두사로 고르는 대신 **버전 개수**로 고른다. `newer_noncurrent_versions = 3`은
-# "더 최신인 옛 버전이 3개보다 많을 때만 지운다"는 뜻이라:
-#   · 배포마다 갈리는 SPA 번들 → 버전이 계속 쌓이므로 오래된 것부터 정리된다.
-#   · `uploads/` 이미지 → 파일명이 uuid라 덮어쓸 일이 없고 버전이 1개뿐이라
-#     조건에 걸리지 않는다 = **지워진 이미지도 영구 보존**된다.
-# 접두사를 추측하지 않으므로 빌드 산출물 구조가 바뀌어도 안 깨진다.
+# 두 번째 시도(`newer_noncurrent_versions = 3`)도 **번들엔 안 걸렸다**(2026-07-22
+# 코드검사에서 지적). 번들은 content hash가 파일명에 들어가서 배포마다 **키 자체가
+# 바뀌고**, `s3 sync --delete`가 옛 키에 삭제 표식을 얹으면 그 키의 옛 버전은 딱
+# **1개**가 된다. "더 최신인 옛 버전이 3개 넘을 때만 지운다"는 조건에 영원히 안 걸린다.
+#
+# 그래서 접두사로 돌아오되 **실제 산출물 이름**에 맞춘다. vite가 `assetsDir: ''`라
+# 번들이 최상위에 `index-<hash>.js|css`로 떨어지고 `index.html`도 매번 갈린다 →
+# 접두사 `index` 하나가 셋을 다 덮는다.
+#   · `uploads/`는 이 규칙 밖이다 → 만료 규칙이 아예 없으므로 **지워진 이미지도 영구 보존**.
+#     (전에는 newer_noncurrent_versions가 우연히 지켜준 것이었는데, 이제는 명시적이다)
+#   · favicon.svg·icons.svg·og-image.png는 규칙 밖이라 옛 버전이 쌓인다. 거의 안 바뀌고
+#     합쳐서 30KB 미만이라 그대로 둔다.
+# 빌드 산출물 이름이 바뀌면 이 규칙이 다시 헛돈다 — 그때 실패 모드는 데이터 손실이
+# 아니라 '옛 버전 누적'이라 비용만 조금 는다.
 resource "aws_s3_bucket_lifecycle_configuration" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
   depends_on = [aws_s3_bucket_versioning.frontend]
 
   rule {
-    id     = "expire-old-versions"
+    id     = "expire-old-spa-bundles"
+    status = "Enabled"
+
+    filter {
+      prefix = "index"
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+  }
+
+  # 삭제 표식만 남은 키를 정리한다(백업 버킷엔 이미 같은 규칙이 있다).
+  rule {
+    id     = "clean-expired-delete-markers"
     status = "Enabled"
 
     filter {}
 
-    noncurrent_version_expiration {
-      noncurrent_days           = 30
-      newer_noncurrent_versions = 3
+    expiration {
+      expired_object_delete_marker = true
     }
   }
 

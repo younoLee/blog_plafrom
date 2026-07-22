@@ -67,9 +67,13 @@ def _check_mail() -> bool:
     성공하고, 검증 안 된 수신자에게 보낼 때 비로소 거부된다. 그건 계정 설정이라
     앱이 아니라 바깥에서 봐야 한다 → `scripts/watch.sh`가 ses:GetAccount로 확인한다.
     """
+    # TLS를 쓰는 구성(=SES 같은 인증 SMTP)인데 사용자명이 비어 있으면 로그인을 건너뛰게
+    # 되고, 그러면 "고쳤다고 생각한 가짜 정상"이 다른 입구로 돌아온다. 설정 오류로 본다.
+    if settings.smtp_use_tls and not settings.smtp_user:
+        return False
     try:
         # 로컬 Mailpit = 평문/무인증, 프로드 SES = STARTTLS + 로그인 (email.py와 같은 분기)
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=3) as smtp:
             if settings.smtp_use_tls:
                 smtp.starttls()
             if settings.smtp_user:
