@@ -36,7 +36,15 @@ jobs:
             echo "비교 대상 커밋이 없어 게이트를 건너뜁니다."
             exit 0
           fi
-          changed=$(git diff --name-only "$before" '${{ github.sha }}' -- backend/app backend/alembic || true)
+          # `|| true`로 받으면 안 된다 — diff가 실패해도(force push로 before가
+          # 사라졌거나 fetch가 얕은 경우) changed가 비어 **게이트가 조용히 통과**한다.
+          # 안전장치가 fail-open이면 없느니만 못하다. 확인 못 하면 막는다.
+          if ! changed=$(git diff --name-only "$before" '${{ github.sha }}' -- backend/app backend/alembic 2>&1); then
+            echo "::error::백엔드 변경 여부를 확인하지 못했습니다(git diff 실패). 안전하게 중단합니다."
+            echo "$changed"
+            echo "→ 백엔드 상태를 확인한 뒤 이 워크플로를 수동 실행(workflow_dispatch)하세요."
+            exit 1
+          fi
           if [ -n "$changed" ]; then
             echo "::error::이 push에 백엔드 코드 변경이 함께 있습니다. 프론트를 먼저 배포하면 아직 없는 API를 호출하게 됩니다."
             echo "변경된 백엔드 파일:"
