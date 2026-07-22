@@ -4,17 +4,25 @@
 앞엣것만 증명한다 — 같은 서버, 이미 떠 있는 Postgres, 곁가지 DB에 복원하는 훈련이라
 정작 **서버가 통째로 없어진 상황**은 한 번도 밟아본 적이 없다. 이 문서가 그 경로다.
 
-> ⚠️ 어디까지 실증했는지 (2026-07-22 기준)
+> ✅ **시나리오 B를 2026-07-22에 처음부터 끝까지 실제로 밟았다.** 운영은 건드리지 않고
+> 임시 인스턴스(`t2.micro`, 전용 보안그룹)를 띄워 맨바닥에서 재건한 뒤 지웠다.
+> 실제 운영 백업으로 **글 27건·유저 5명**이 복원되고, `/api/status`·`/api/posts`가 200,
+> 복원된 글이 API로 그대로 나오는 것까지 확인했다. `alembic upgrade head`는 no-op이었다.
 >
-> - **검증됨**: 실제 운영 백업(`blog-2026-07-22-0230.sql.gz`)을 빈 DB에 부어 **글 27건·
->   유저 5명 복원**, 그 위에서 `alembic current` = `b7f1c4e29a03 (head)`, `upgrade head`는
->   no-op. 아래 시나리오 B의 5~7번 순서가 실제로 성립한다.
-> - **검증됨**: 순서를 뒤집으면 정말 깨진다. 백엔드를 먼저 띄워 alembic이 빈 스키마를
->   만든 뒤 덤프를 부으면 `ERROR: relation "ai_hourly_usage" already exists`로 복원이
->   중단되고 **글 0건짜리 빈 DB가 남는다**. 추론이 아니라 재현한 결과다.
-> - **아직 아님**: 인스턴스 재생성과 맨바닥 부트스트랩(2~4번 — docker 설치, 코드 업로드,
->   `.env` 배치). 운영 인스턴스를 terminate해야 밟히는 경로라 일부러 안 했다.
->   임시 인스턴스를 하나 띄워 한 번 끝까지 해보는 게 이 문서의 다음 할 일이다.
+> **그 과정에서 이 문서의 버그를 둘 찾아 고쳤다** — 종이 위에서는 안 보였던 것들이다:
+>
+> 1. **buildx가 없어서 빌드가 아예 안 됐다.** 맨바닥 AL2023에는 buildx 0.12.1만 있고,
+>    최신 compose가 `compose build requires buildx 0.17.0 or later`로 거부한다.
+>    → 2단계에 buildx 설치를 추가했다(운영과 같은 v0.35.0).
+> 2. **`.dockerignore`를 안 올려서 앱이 죽었고, 시크릿이 이미지에 구워졌다.** 이게 더
+>    나쁘다. 3단계 tar에 `.dockerignore`가 빠져 있으면 `COPY . .`가 **`.env`를 이미지
+>    안에 굽는다**. 그러면 pydantic이 dotenv의 여분 키(`DB_PASSWORD`·`ADMIN_EMAIL` —
+>    `Settings`에 없는 필드다)를 `extra_forbidden`으로 거부해 백엔드가 재시작 루프에
+>    빠진다. 운영은 예전 배포 때 올라간 `.dockerignore`가 이미 있어서 멀쩡했고,
+>    **새 인스턴스에서만** 터진다. → 3단계 tar에 `.dockerignore`를 넣었다.
+>
+> 남은 미검증은 없다. 다만 위 두 개처럼 **문서가 맞는지는 밟아봐야만 안다**는 게
+> 이번의 교훈이라, 인프라를 크게 바꾸면 다시 한 번 돌려보는 게 좋다.
 
 ## 0. 무엇이 어디에 있나
 
@@ -82,11 +90,21 @@ sudo mkdir -p /usr/local/lib/docker/cli-plugins && \
   sudo curl -sSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
   https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 && \
   sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+# buildx도 깔아야 한다. AMI에 딸려오는 건 0.12.1인데 요즘 compose는 0.17 이상을 요구해
+# `compose build requires buildx 0.17.0 or later`로 빌드가 시작조차 안 된다.
+# 버전은 운영과 맞춘다(2026-07-22 기준 v0.35.0).
+sudo curl -sSL -o /usr/local/lib/docker/cli-plugins/docker-buildx \
+  https://github.com/docker/buildx/releases/download/v0.35.0/buildx-v0.35.0.linux-amd64
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 mkdir -p ~/blog/uploads
 
 # 3) 코드와 compose 파일 올리기 (평소 배포와 같은 모양)
+#    ⚠️ `.dockerignore`를 반드시 같이 넣는다. 이게 빠지면 빌드 컨텍스트의 `.env`가
+#    `COPY . .`로 이미지에 구워지고(시크릿 유출), 게다가 pydantic이 dotenv의 여분 키를
+#    extra_forbidden으로 거부해 백엔드가 재시작 루프에 빠진다. 운영은 이미 파일이
+#    있어서 안 겪지만 새 인스턴스는 반드시 겪는다.
 #    로컬에서:
-tar czf /tmp/backend.tgz -C backend app alembic alembic.ini requirements.txt Dockerfile
+tar czf /tmp/backend.tgz -C backend .dockerignore app alembic alembic.ini requirements.txt Dockerfile
 scp -i ~/.ssh/blog-key.pem /tmp/backend.tgz docker-compose.prod.yml ec2-user@$DNS:~/blog/
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS 'cd ~/blog && tar xzf backend.tgz && rm backend.tgz'
 
