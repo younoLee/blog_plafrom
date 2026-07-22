@@ -45,3 +45,54 @@ resource "aws_iam_role_policy_attachment" "github_deploy" {
 output "github_deploy_role_arn" {
   value = aws_iam_role.github_deploy.arn
 }
+
+# 감시 워크플로(.github/workflows/watch.yml)가 쓰는 읽기 전용 권한.
+#
+# 왜 배포 정책(`github-brench`)에 얹지 않고 따로 두는가 — 그 정책은 terraform 밖에서
+# 만들어진 것이라(콘솔 생성) 내용이 저장소에 없다. 2026-07-22에 그 종류의 드리프트로
+# 이미지 업로드가 조용히 깨져 있었던 걸 발견했으므로, 새로 더하는 권한만이라도
+# 코드에 남긴다. 나중에 `github-brench`도 여기로 회수하는 게 맞다.
+#
+# 전부 읽기다. 감시가 뭔가를 고치면 그건 더 이상 감시가 아니다.
+resource "aws_iam_role_policy" "github_watch" {
+  name = "watch-readonly"
+  role = aws_iam_role.github_deploy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # EC2가 켜져 있는지 + 언제부터인지. 켜져 있는데 공개 API가 죽은 조합이 핵심 신호다.
+        Sid      = "ReadInstanceState"
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeInstances"]
+        Resource = "*"
+      },
+      {
+        # 백업이 실제로 쌓이는지, 만료 안 되는 사본이 있는지, 이미지 사본 개수.
+        Sid    = "ListBackupsAndImages"
+        Effect = "Allow"
+        Action = ["s3:ListBucket"]
+        Resource = [
+          aws_s3_bucket.db_backups.arn,
+          aws_s3_bucket.frontend.arn,
+        ]
+      },
+      {
+        # head-object로 keep/latest.sql.gz 존재 확인 (GetObject 권한이 필요하다).
+        Sid      = "HeadKeepCopy"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.db_backups.arn}/keep/*"
+      },
+      {
+        # SES 샌드박스 여부. 이 한 줄이 있었으면 '프로덕션 액세스 거부'를
+        # 4주가 아니라 한 시간 만에 알았다.
+        Sid      = "ReadSesAccountState"
+        Effect   = "Allow"
+        Action   = ["ses:GetAccount"]
+        Resource = "*"
+      },
+    ]
+  })
+}

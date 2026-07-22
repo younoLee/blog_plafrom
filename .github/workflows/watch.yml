@@ -1,0 +1,43 @@
+# 감시 — 매시 자동 점검. 실패하면 GitHub이 메일로 알려준다.
+#
+# 왜 이게 필요한가: 이 계정에는 CloudWatch 알람·SNS·CloudTrail이 전부 0개였고,
+# 살아 있는 감시는 월 예산 알림 하나뿐이었다. 그래서 백업이 4개월간 0건인 것도,
+# 이미지 업로드가 AccessDenied인 것도, SES 프로덕션 액세스가 거부된 것도
+# 전부 사람이 우연히 발견할 때까지 몇 주씩 방치됐다.
+#
+# 왜 AWS가 아니라 GitHub Actions인가:
+#   · 이 저장소는 공개라 Actions 분 제한이 없다(무료).
+#   · 실패 알림 경로가 이미 있다(Actions 실패 → 계정 메일). SNS 토픽을 새로 만들 필요가 없다.
+#   · **AWS 바깥에서** 찔러야 의미가 있다. 서버 안 자가점검은 CloudFront도 오리진도 못 본다.
+#   · 상시 리소스가 안 늘어난다(Lambda·EventBridge 불필요).
+#
+# ⚠️ GitHub은 60일간 커밋이 없는 저장소의 스케줄 워크플로를 자동으로 멈춘다.
+#    오래 손을 놓을 거면 Actions 탭에서 다시 켜야 한다.
+name: 감시
+
+on:
+  schedule:
+    # 매시 17분. 정각은 GitHub 스케줄러가 붐벼 지연이 크다.
+    - cron: '17 * * * *'
+  workflow_dispatch: {}
+
+# OIDC로 역할을 맡는다(장기 키 없음). 신뢰 조건이 main 브랜치라
+# 스케줄 실행(기본 브랜치에서 돎)도 그대로 통과한다.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: AWS 자격증명 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-deploy
+          aws-region: ap-northeast-2
+
+      - name: 점검
+        run: bash scripts/watch.sh

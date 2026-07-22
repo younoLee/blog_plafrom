@@ -6,7 +6,7 @@
 - get_history(days): 일별 업타임 집계 (업타임 페이지가 사용)
 """
 
-import socket
+import smtplib
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -41,15 +41,7 @@ def run_checks() -> dict:
     except Exception:
         db_ok = False
 
-    # 메일 점검: Mailpit SMTP 포트에 소켓이 연결되는지만 확인
-    mail_ok = True
-    try:
-        with socket.create_connection(
-            (settings.smtp_host, settings.smtp_port), timeout=2
-        ):
-            pass
-    except Exception:
-        mail_ok = False
+    mail_ok = _check_mail()
 
     return {
         "backend_ok": True,  # 이 코드가 도는 것 자체가 백엔드 동작
@@ -58,6 +50,33 @@ def run_checks() -> dict:
         "posts": post_count,
         "subscribers": subscriber_count,
     }
+
+
+def _check_mail() -> bool:
+    """메일이 '실제로 나갈 수 있는' 상태인지 본다.
+
+    예전엔 SMTP 포트에 TCP 소켓이 붙는지만 봤다. 그건 "포트가 열려 있다"까지만
+    말해주는데, 우리가 알고 싶은 건 "send_mail이 성공하겠는가"다. 그 차이 때문에
+    2026-06-25부터 4주 동안 제3자에게 메일이 한 통도 안 나가는 상태였는데도
+    상태 페이지는 25,826번 "메일 정상"이라고 답했다.
+
+    그래서 email.py의 send_message 직전까지, 즉 STARTTLS와 로그인까지 똑같이 해본다.
+    이러면 자격증명 만료·비밀번호 오타·TLS 설정 오류가 잡힌다.
+
+    ⚠️ 이걸로도 못 잡는 게 하나 있다: **SES 샌드박스**. 샌드박스에서도 로그인은
+    성공하고, 검증 안 된 수신자에게 보낼 때 비로소 거부된다. 그건 계정 설정이라
+    앱이 아니라 바깥에서 봐야 한다 → `scripts/watch.sh`가 ses:GetAccount로 확인한다.
+    """
+    try:
+        # 로컬 Mailpit = 평문/무인증, 프로드 SES = STARTTLS + 로그인 (email.py와 같은 분기)
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:
+            if settings.smtp_use_tls:
+                smtp.starttls()
+            if settings.smtp_user:
+                smtp.login(settings.smtp_user, settings.smtp_password)
+        return True
+    except Exception:
+        return False
 
 
 def record_check() -> None:

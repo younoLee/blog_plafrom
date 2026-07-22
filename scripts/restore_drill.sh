@@ -194,6 +194,14 @@ else printf "  FAIL %-22s 운영 [%s] / 복원 [%s]\n" "확장" "$ea" "$eb"; FAI
 # 예전엔 users/posts/comments 셋만 하드코딩이라, 나머지 8개는 훈련이 영원히 안 봤다.
 # 이제 nextval 기본값을 가진 컬럼을 런타임에 전부 찾아 돈다.
 echo "  --- 시퀀스 (전수) ---"
+# 목록을 복원본에서만 뽑으면 안 된다 — 덤프에 시퀀스가 통째로 빠졌을 때 목록이 0건이 되고,
+# "0개 전부 정상"으로 통과해 버린다(2026-07-22 코드검사). 운영과 개수를 먼저 대조한다.
+SERIAL_Q="select count(*) from information_schema.columns where table_schema='public' and column_default like 'nextval(%'"
+sa=$(src "$SERIAL_Q"); sb=$(dst "$SERIAL_Q")
+if [ "$sa" != "$sb" ]; then
+  printf "  FAIL %-22s 운영 %s개 / 복원 %s개 → 시퀀스가 복원되지 않았다\n" "시퀀스 개수" "$sa" "$sb"
+  FAIL=1
+fi
 dst "select table_name||'|'||column_name from information_schema.columns where table_schema='public' and column_default like 'nextval(%' order by 1" > /tmp/drill_serials
 # 파일을 `while read`로 돌리면 안 된다 — 루프 몸통의 `docker compose exec -T`가
 # 루프의 stdin(=이 파일)을 삼켜 목록이 잘린다. mapfile은 루프 전에 다 읽는다.
@@ -342,8 +350,11 @@ scp -q -o StrictHostKeyChecking=no -i "$SSH_KEY" \
 
 # 출력은 그대로 보여주되(tee), 이미지 목록을 뽑아 쓰려고 파일로도 남긴다.
 # ssh가 실패해도 아래 ④를 돌려야 하므로 rc를 받아두고 마지막에 반영한다.
+# `-n`으로 원격에 stdin을 넘기지 않는다. 원격 스크립트 안의 `docker compose exec -T`가
+# 7군데인데, -n이 없으면 그 stdin이 **이 스크립트의 stdin**(터미널이나 파이프)이 된다.
+# 훈련을 래퍼/cron/리다이렉션 안에서 돌릴 때 psql이 그걸 먹는다(2026-07-22 코드검사).
 rc=0
-ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
+ssh -n -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
   'bash /tmp/restore_drill_remote.sh; rc=$?; rm -f /tmp/restore_drill_remote.sh; exit $rc' \
   | tee "$STAGE/remote.out" || rc=$?
 

@@ -185,10 +185,18 @@ fi
 # keep/ 접두사는 만료 규칙 대상이 아니다 → 여기에 최신 덤프를 복사해 두면 얼마나
 # 오래 손을 놓든 최소 한 벌은 항상 남는다. 버저닝이 켜져 있어 덮어써도 이력이 남는다.
 # 서버가 아니라 여기서 하는 이유: EC2 역할은 `blog-*`에만 쓸 수 있다(탈취 대비).
+# 3·4단계는 '있으면 좋은 사본'이지 안전한 종료의 전제조건이 아니다 — 이 시점엔 백업이
+# 이미 S3에 올라가 검증까지 끝났다. 그런데 처음엔 여기서 실패하면 set -e로 스크립트가
+# 끝나 **인스턴스가 안 꺼지고 계속 과금**됐다(2026-07-22 코드검사에서 내가 만든 결함).
+# 자리를 비운 사이라면 더 나쁘다. 그래서 경고만 하고 정지는 진행한다.
 if [ -n "$NEW_KEY" ]; then
   say "3/6 마지막 보루 — keep/latest.sql.gz 갱신 (만료되지 않는 자리)"
-  aws s3 cp "s3://$BUCKET/$NEW_KEY" "s3://$BUCKET/keep/latest.sql.gz" --only-show-errors
-  echo "   $NEW_KEY → keep/latest.sql.gz"
+  if aws s3 cp "s3://$BUCKET/$NEW_KEY" "s3://$BUCKET/keep/latest.sql.gz" --only-show-errors; then
+    echo "   $NEW_KEY → keep/latest.sql.gz"
+  else
+    echo "   ⚠️  승격 실패 — 정지는 계속합니다. 나중에 직접:"
+    echo "      aws s3 cp s3://$BUCKET/$NEW_KEY s3://$BUCKET/keep/latest.sql.gz"
+  fi
 else
   say "3/6 마지막 보루 — 새 덤프가 없어 건너뜀"
 fi
@@ -200,7 +208,10 @@ fi
 # 백업 버킷으로 미러해 두면 그 실수와 무관한 두 번째 사본이 생긴다.
 # --delete를 쓰지 않는 게 핵심: 원본에서 지워진 이미지도 사본에는 남는다.
 say "4/6 이미지 사본 + 시크릿 사본"
-aws s3 sync "s3://$IMAGE_BUCKET/uploads/" "s3://$BUCKET/uploads/" --only-show-errors
+if ! aws s3 sync "s3://$IMAGE_BUCKET/uploads/" "s3://$BUCKET/uploads/" --only-show-errors; then
+  echo "   ⚠️  이미지 미러 실패 — 정지는 계속합니다. 나중에 직접:"
+  echo "      aws s3 sync s3://$IMAGE_BUCKET/uploads/ s3://$BUCKET/uploads/"
+fi
 # `aws s3 ls`는 객체가 하나도 없으면 종료코드 1이다 — pipefail에 걸려 죽지 않게 감싼다.
 mirrored=$( { aws s3 ls "s3://$BUCKET/uploads/" --recursive || true; } | wc -l)
 echo "   이미지 사본 $mirrored 개 (s3://$BUCKET/uploads/)"
