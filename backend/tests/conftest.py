@@ -120,3 +120,55 @@ def auth_headers():
         return {"Authorization": f"Bearer {token}"}
 
     return _headers
+
+
+# ── 메일: 실제 SMTP에 붙지 않게 가로챈다 ─────────────────────────────────────
+@pytest.fixture(autouse=True)
+def no_smtp(monkeypatch):
+    """테스트가 SMTP 서버에 의존하지 않게 만든다.
+
+    왜 필요한가 (2026-07-22에 CI가 이것 때문에 하루 종일 빨간불이었다):
+    가입·비번재설정 라우터가 `BackgroundTasks`로 메일을 보낸다. TestClient는
+    백그라운드 작업을 응답 뒤에 **동기로** 실행하는데, starlette 1.3으로 올린 뒤부터
+    그 안에서 난 예외가 테스트까지 전파된다. 로컬에는 mailpit이 떠 있어 조용히
+    성공하지만 CI에는 메일 서버가 없어 `ConnectionRefusedError`로 3개가 깨졌다.
+    즉 **환경에 따라 결과가 갈리는 테스트**였고, 그게 로컬에서만 초록인 이유였다.
+
+    메일 서버를 CI에 띄우는 대신 SMTP만 가로챈다. 메시지 조립·제목 CRLF 제거·
+    HTML 이스케이프 같은 코드 경로는 그대로 지나가므로 검증 범위가 줄지 않는다.
+    보낸 메시지는 `sent_mail`로 확인할 수 있다.
+    """
+    import smtplib
+
+    sent: list = []
+
+    class _FakeSMTP:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self, *a, **kw):
+            pass
+
+        def login(self, *a, **kw):
+            pass
+
+        def send_message(self, msg, *a, **kw):
+            sent.append(msg)
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    return sent
+
+
+@pytest.fixture
+def sent_mail(no_smtp):
+    """가로챈 메일 목록. 필요하면 테스트에서 발송 여부·수신자를 확인한다."""
+    return no_smtp
