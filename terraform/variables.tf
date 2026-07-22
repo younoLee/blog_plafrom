@@ -15,13 +15,16 @@
 #                    --query 'Reservations[0].Instances[0].PublicDnsName' --output text)"
 #               ※ IP는 켤 때마다 바뀐다. 어디에도 적어두지 말고 항상 이 명령으로 읽을 것.
 #   EC2 끌 때:  scripts/stop_server.sh  ← 아래 ①~③을 순서대로 하고 검증까지 한다
-#               ① DB 백업(pg_dump → S3). 끄면 다음에 켤 때까지 사본을 만들 기회가 없다.
+#               ① terraform apply   # 기본값 "" → 주차. 반드시 정지보다 '먼저'.
+#               ② DB 백업(pg_dump → S3). 끄면 다음에 켤 때까지 사본을 만들 기회가 없다.
 #                 옛 cron(KST 03시)은 그 시각에 서버가 꺼져 있어 한 번도 안 돌았다 →
 #                 제거하고 여기로 옮겼다(2026-07-20에 0건인 걸 발견).
-#               ② terraform apply   # 기본값 "" → 주차. 반드시 정지보다 '먼저'.
 #               ③ 인스턴스 stop
-#               ※ ②③ 순서를 뒤집으면 정지로 IP가 반납된 뒤에도 오리진이 옛 ec2-<IP>...를
+#               ※ ①③ 순서를 뒤집으면 정지로 IP가 반납된 뒤에도 오리진이 옛 ec2-<IP>...를
 #                 가리키는 틈이 생기고, 그 사이 /api/*는 그 IP를 새로 받은 제3자에게 간다.
+#               ※ ①②도 순서가 있다(2026-07-22에 바꿨다). 백업이 먼저면 pg_dump가 스냅샷을
+#                 뜬 뒤 주차까지의 몇 분 동안 들어온 글·댓글·결제가 사본에 없는 채로 서버가
+#                 꺼진다. 주차를 먼저 해 /api/*를 fail closed로 만든 뒤에 사본을 떠야 한다.
 variable "backend_origin_dns" {
   description = "실행 중인 백엔드 EC2의 퍼블릭 DNS. 비우면 오리진을 주차해 /api/*를 fail closed로 만든다."
   type        = string

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EC2 정지 절차: 백업 → 오리진 주차 → 정지 → 검증.
+# EC2 정지 절차: 주차 → 백업 → 사본 굳히기 → 정지 → 검증.
 #
 # 왜 스크립트인가 —
 #   ① 순서가 안전에 직결된다. 주차(terraform apply)가 정지보다 '먼저' 와야 한다.
@@ -9,8 +9,17 @@
 #      서버가 꺼져 있어 2026-07-20까지 단 한 번도 실행되지 않았다(그래서 제거했다).
 #      DB가 바뀌는 건 EC2가 켜진 동안뿐이니, 백업의 올바른 자리는 '끄기 직전'이다.
 #
+# 왜 백업보다 주차가 먼저인가 (2026-07-22에 순서를 바꿨다) —
+#   예전엔 백업 → 주차 순이었다. 그러면 pg_dump가 스냅샷을 뜬 뒤 주차까지의 몇 분
+#   동안 들어온 글·댓글·결제가 **백업에 없는 채로** 서버가 꺼진다. 주차를 먼저 하면
+#   /api/*가 fail closed가 되어 사용자 쓰기가 멈춘 뒤에 사본을 뜨게 된다.
+#   (남는 쓰기는 1분마다 도는 자가점검 status_checks 정도 — 복원 훈련이 그 드리프트를
+#    방향으로 분류해 보여준다.)
+#   대가: 이 지점 이후 실패하면 사이트는 주차된 채(=/api 504) EC2만 켜져 있다.
+#   그래서 실패 메시지에 주차를 푸는 명령을 같이 적어둔다.
+#
 # 사용:
-#   scripts/stop_server.sh                # 백업 → 주차 → 정지
+#   scripts/stop_server.sh                # 주차 → 백업 → 정지
 #   scripts/stop_server.sh --skip-backup  # 백업 건너뜀(DB 무변경이 확실할 때만)
 #
 # 백업이 실패하면 정지하지 않고 멈춘다 — 사본 없이 끄지 않기 위해서다.
@@ -20,15 +29,27 @@ set -euo pipefail
 
 INSTANCE_ID=i-06da19f44d1f38eff
 BUCKET=blog-db-backups-181568979775
+IMAGE_BUCKET=blogplafromops        # 업로드 이미지가 사는 곳(프론트와 같은 버킷)
 SSH_KEY=~/.ssh/blog-key.pem
 CF_URL=https://d2j66m9udyg9yq.cloudfront.net
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$(cd "$SCRIPT_DIR/../terraform" && pwd)"
 
+STAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE"' EXIT
+
 SKIP_BACKUP=false
 [[ "${1:-}" == "--skip-backup" ]] && SKIP_BACKUP=true
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# 주차한 뒤 실패했을 때 사용자가 되돌릴 수 있게 알려준다.
+unpark_hint() {
+  echo "   사이트는 지금 '주차' 상태입니다(/api/* 504). 계속 서비스하려면 주차를 푸세요:"
+  echo "     terraform -chdir=$TF_DIR apply -var=\"backend_origin_dns=\$(aws ec2 describe-instances \\"
+  echo "       --instance-ids $INSTANCE_ID \\"
+  echo "       --query 'Reservations[0].Instances[0].PublicDnsName' --output text)\""
+}
 
 # ── 0. 상태 확인 ────────────────────────────────────────────────────────────
 state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
@@ -44,12 +65,21 @@ fi
 DNS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
   --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
 
-# ── 1. 백업 ─────────────────────────────────────────────────────────────────
+# ── 1. 오리진 주차 (반드시 백업·정지보다 먼저) ──────────────────────────────
+say "1/6 오리진 주차 — terraform apply (기본값 → S3 주차 주소)"
+terraform -chdir="$TF_DIR" apply -auto-approve
+echo "   /api/*가 fail closed. 이제부터 들어오는 쓰기는 없습니다."
+
+# ── 2. 백업 ─────────────────────────────────────────────────────────────────
+NEW_KEY=""
 if $SKIP_BACKUP; then
-  say "1/4 백업 — 건너뜀(--skip-backup)"
+  say "2/6 백업 — 건너뜀(--skip-backup)"
 else
-  say "1/4 백업 — pg_dump → S3"
-  before=$(aws s3 ls "s3://$BUCKET/" | wc -l)
+  say "2/6 백업 — pg_dump → 검증 → S3"
+
+  # 직전 백업의 크기를 미리 알아둔다. '올라갔다'만 보면 잘리거나 빈 덤프를 놓친다.
+  prev=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "blog-" \
+    --query 'sort_by(Contents,&LastModified)[-1].Size' --output text 2>/dev/null || echo "None")
 
   # 저장소 판본을 매번 올려 덮어쓴다 — 서버에만 있던 시절엔 인스턴스를 새로
   # 만들면 백업 능력이 조용히 사라졌다(버전 관리도 안 됐다).
@@ -57,40 +87,94 @@ else
         "$SCRIPT_DIR/blog-db-backup.sh" "ec2-user@$DNS:/tmp/blog-db-backup.sh" \
      || ! ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
         'sudo install -m 755 /tmp/blog-db-backup.sh /usr/local/bin/blog-db-backup.sh \
-         && sudo /usr/local/bin/blog-db-backup.sh'; then
+         && sudo /usr/local/bin/blog-db-backup.sh' > "$STAGE/backup.out" 2>&1; then
+    cat "$STAGE/backup.out"
     say "❌ 백업 실패 — 정지하지 않고 멈춥니다. EC2는 아직 켜져 있습니다."
     echo "   사본 없이 끄지 않으려는 의도적 중단입니다. 원인을 보고 판단하세요:"
     echo "     - 다시 시도: $0"
     echo "     - 백업 없이 강행: $0 --skip-backup"
+    unpark_hint
+    exit 1
+  fi
+  cat "$STAGE/backup.out"
+
+  # '스크립트가 성공했다'와 '그 객체가 S3에 있다'는 다르다 — 이름으로 직접 확인한다.
+  # (예전엔 목록 줄 수가 늘었는지만 봤는데, 그건 다른 키가 늘어도 통과한다.)
+  NEW_KEY=$(sed -n 's/^BACKUP_KEY=//p' "$STAGE/backup.out" | tail -1)
+  if [ -z "$NEW_KEY" ]; then
+    say "❌ 백업 스크립트가 키 이름을 알려주지 않았습니다 — 정지하지 않습니다."
+    unpark_hint
     exit 1
   fi
 
-  # '스크립트가 성공했다'와 '객체가 늘었다'는 다르다 — 산출물로 확인한다.
-  after=$(aws s3 ls "s3://$BUCKET/" | wc -l)
-  if (( after <= before )); then
-    say "❌ 백업 스크립트는 성공했는데 S3 객체가 늘지 않았습니다($before → $after)."
-    echo "   정지하지 않습니다. 버킷을 직접 확인하세요: aws s3 ls s3://$BUCKET/"
+  if ! size=$(aws s3api head-object --bucket "$BUCKET" --key "$NEW_KEY" \
+                --query 'ContentLength' --output text 2>/dev/null); then
+    say "❌ 스크립트는 성공했는데 S3에 $NEW_KEY 가 없습니다 — 정지하지 않습니다."
+    echo "   버킷을 직접 확인하세요: aws s3 ls s3://$BUCKET/"
+    unpark_hint
     exit 1
   fi
-  latest=$(aws s3 ls "s3://$BUCKET/" | sort | tail -1)
-  echo "   최신 백업: $latest"
+
+  # 크기 급감은 '성공했지만 내용이 빠진' 덤프의 신호다. 절반 밑이면 사람이 봐야 한다.
+  # (서버 쪽은 절대 하한만 본다 — 목록 읽기 권한이 일부러 없어서 비교를 못 한다.)
+  if [ "$prev" != "None" ] && [ "$prev" -gt 0 ] 2>/dev/null; then
+    if [ $((size * 2)) -lt "$prev" ]; then
+      say "❌ 새 백업이 직전보다 크게 작습니다($prev → $size 바이트) — 정지하지 않습니다."
+      echo "   글을 대량 삭제한 게 아니라면 덤프가 잘렸을 수 있습니다. 직접 확인하세요."
+      echo "   확인 후 강행: $0 --skip-backup"
+      unpark_hint
+      exit 1
+    fi
+    echo "   크기 $size 바이트 (직전 $prev — 정상 범위)"
+  else
+    echo "   크기 $size 바이트 (첫 백업 — 비교 대상 없음)"
+  fi
 fi
 
-# ── 2. 오리진 주차 (반드시 정지보다 먼저) ───────────────────────────────────
-say "2/4 오리진 주차 — terraform apply (기본값 → S3 주차 주소)"
-terraform -chdir="$TF_DIR" apply -auto-approve
+# ── 3. 마지막 보루 굳히기 ───────────────────────────────────────────────────
+# 왜 이게 따로 필요한가: 날짜별 덤프는 180일이 지나면 lifecycle이 지운다. 백업이
+# 도는 시점이 '서버를 끌 때'뿐이라, 한동안 서버를 안 켜면 마지막 백업만 남아 있다가
+# 그것마저 만료돼 **백업이 0개가 되는** 구간이 생긴다(옛 30일 설정에선 더 짧았다).
+# keep/ 접두사는 만료 규칙 대상이 아니다 → 여기에 최신 덤프를 복사해 두면 얼마나
+# 오래 손을 놓든 최소 한 벌은 항상 남는다. 버저닝이 켜져 있어 덮어써도 이력이 남는다.
+# 서버가 아니라 여기서 하는 이유: EC2 역할은 `blog-*`에만 쓸 수 있다(탈취 대비).
+if [ -n "$NEW_KEY" ]; then
+  say "3/6 마지막 보루 — keep/latest.sql.gz 갱신 (만료되지 않는 자리)"
+  aws s3 cp "s3://$BUCKET/$NEW_KEY" "s3://$BUCKET/keep/latest.sql.gz" --only-show-errors
+  echo "   $NEW_KEY → keep/latest.sql.gz"
+else
+  say "3/6 마지막 보루 — 새 덤프가 없어 건너뜀"
+fi
 
-# ── 3. 정지 ─────────────────────────────────────────────────────────────────
-say "3/4 EC2 정지"
+# ── 4. 이미지 사본 + 시크릿 사본 확인 ───────────────────────────────────────
+# 이미지는 DB 덤프에 안 들어간다. 2026-06-26에 S3로 옮긴 뒤로 인스턴스 교체에는
+# 안전해졌지만, 프론트 배포와 같은 버킷이라 `s3 sync --delete`의 사정권 안에 있다
+# (지금은 deploy.yml의 `--exclude "uploads/*"` 한 줄이 유일한 방어선이다).
+# 백업 버킷으로 미러해 두면 그 실수와 무관한 두 번째 사본이 생긴다.
+# --delete를 쓰지 않는 게 핵심: 원본에서 지워진 이미지도 사본에는 남는다.
+say "4/6 이미지 사본 + 시크릿 사본"
+aws s3 sync "s3://$IMAGE_BUCKET/uploads/" "s3://$BUCKET/uploads/" --only-show-errors
+# `aws s3 ls`는 객체가 하나도 없으면 종료코드 1이다 — pipefail에 걸려 죽지 않게 감싼다.
+mirrored=$( { aws s3 ls "s3://$BUCKET/uploads/" --recursive || true; } | wc -l)
+echo "   이미지 사본 $mirrored 개 (s3://$BUCKET/uploads/)"
+
+# .env는 서버에만 있고 백업 대상이 아니다. 특히 LLM_ENCRYPTION_KEY를 잃으면
+# DB를 완벽히 복원해도 BYOK 암호문을 영원히 못 푼다 → 사본 유무만 확인하고 알린다.
+# 여기서 정지를 막지는 않는다(사람이 손으로 해결해야 하는 일이라 막아도 못 고친다).
+"$SCRIPT_DIR/env_escrow.sh" check || true
+
+# ── 5. 정지 ─────────────────────────────────────────────────────────────────
+say "5/6 EC2 정지"
 aws ec2 stop-instances --instance-ids "$INSTANCE_ID" \
   --query 'StoppingInstances[0].CurrentState.Name' --output text
 aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"
 
-# ── 4. 검증 ─────────────────────────────────────────────────────────────────
-say "4/4 검증"
+# ── 6. 검증 ─────────────────────────────────────────────────────────────────
+say "6/6 검증"
 aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
   --query 'Reservations[0].Instances[0].{State:State.Name,PublicIp:PublicIpAddress}' --output json
 echo "EIP 개수 (0이어야 함):     $(aws ec2 describe-addresses --query 'length(Addresses)' --output text)"
 echo "프론트 홈 (200 기대):      $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$CF_URL/")"
 echo "/api/status (504 기대):    $(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$CF_URL/api/status")"
 say "완료 — 504는 주차가 fail closed로 동작한다는 뜻입니다(정상)."
+echo "다음에 복원까지 확인하려면: scripts/restore_drill.sh (EC2를 다시 켠 뒤)"
