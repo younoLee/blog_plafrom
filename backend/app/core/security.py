@@ -10,13 +10,30 @@ TOKEN_EXPIRE_HOURS = 12  # 노출 시간 축소 (예전 24h)
 
 
 # --- 비밀번호 해싱 ---
+# bcrypt의 입력 상한. 알고리즘 자체의 제약이라 우회할 수 없다.
+BCRYPT_MAX_BYTES = 72
+
+
+def _bcrypt_input(plain: str) -> bytes:
+    """bcrypt에 넣을 bytes. 72바이트를 넘으면 자른다.
+
+    자르는 이유: bcrypt 5.0부터 초과 입력을 ValueError로 거부한다(4.x는 조용히 잘랐다).
+    그대로 두면 긴 비밀번호로 이미 가입한 사용자가 로그인에서 500으로 잠긴다 —
+    저장된 해시는 4.x가 '잘라서' 만든 것이라 같은 방식으로 잘라야 검증이 맞는다.
+
+    schemas/user.py의 PW_MAX=72로 못 막는다: 그건 Pydantic max_length라 '글자 수'를
+    세는데 bcrypt의 72는 '바이트'다. 한글은 글자당 3바이트라 24글자만 넘어도 걸린다.
+    """
+    return plain.encode()[:BCRYPT_MAX_BYTES]
+
+
 def hash_password(plain: str) -> str:
     # bcrypt는 bytes를 받음. salt를 자동 생성해 해시
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(_bcrypt_input(plain), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    return bcrypt.checkpw(_bcrypt_input(plain), hashed.encode())
 
 
 # --- JWT 토큰 ---
