@@ -8,8 +8,18 @@ created_at을 서버가 now()로 채워서 소급이 불가능하다.
 
 멱등: 같은 제목의 글이 이미 있으면 내용을 갱신만 한다(재실행해도 중복 생성 없음).
 
-실행:
-  docker compose -f docker-compose.prod.yml exec -T backend python /tmp/publish_devlogs.py /tmp/devlog_posts.json
+실행 (EC2에 ssh로 들어가서, ~/blog 에서):
+  # ① 호스트 /tmp → 컨테이너 /tmp. 둘은 다른 파일시스템이라 scp만으론 안 들어간다.
+  docker compose -f docker-compose.prod.yml cp /tmp/publish_devlogs.py backend:/tmp/publish_devlogs.py
+  docker compose -f docker-compose.prod.yml cp /tmp/devlog_posts.json  backend:/tmp/devlog_posts.json
+  # ② PYTHONPATH=/app 이 필요하다 — python이 스크립트를 실행할 땐 sys.path[0]이
+  #    '스크립트가 있는 디렉터리'(=/tmp)라서, WORKDIR이 /app이어도 app 모듈을 못 찾는다
+  #    (ModuleNotFoundError: No module named 'app'). 2026-07-22에 걸렸다.
+  docker compose -f docker-compose.prod.yml exec -T -e PYTHONPATH=/app backend \
+      python /tmp/publish_devlogs.py /tmp/devlog_posts.json
+
+payload(devlog_posts.json) 형식 — 항목당:
+  date "2026-07-20" / title / content(마크다운, H1 제외) / tags(리스트) / series(선택)
 """
 
 import json
