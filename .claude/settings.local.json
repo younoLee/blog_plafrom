@@ -585,7 +585,8 @@
       "Bash(bash -n scripts/deploy_backend.sh)",
       "Bash(terraform -chdir=/home/es0764/blog_plafrom/terraform state list)",
       "Bash(timeout 300 terraform -chdir=/home/es0764/blog_plafrom/terraform plan -no-color)",
-      "Bash(echo \"  종료코드 $?\")"
+      "Bash(echo \"  종료코드 $?\")",
+      "Bash(timeout 600 ./scripts/deploy_backend.sh)"
     ]
   }
 }
