@@ -60,10 +60,8 @@ function Layout() {
                 <button type="button" onClick={logout} className={ui.btnGhost}>로그아웃</button>
               </>
             ) : (
-              <>
-                <Link to="/login" className={ui.btnGhost}>로그인</Link>
-                <Link to="/register" className={ui.btnPrimary}>회원가입</Link>
-              </>
+              // 가입은 초대제로 닫아둠 → 헤더엔 로그인만 노출 (자세한 안내는 /register 화면)
+              <Link to="/login" className={ui.btnPrimary}>로그인</Link>
             )}
           </nav>
         </div>

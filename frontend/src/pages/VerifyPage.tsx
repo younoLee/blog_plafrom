@@ -41,9 +41,9 @@ function VerifyPage() {
           <>
             <h1 className="mb-3 text-3xl font-semibold tracking-tight text-red-500">인증 실패</h1>
             <p className="text-sm text-gray-600 dark:text-gray-300">
-              링크가 유효하지 않거나 만료됐어. 다시 가입하거나 인증 메일을 새로 받아줘.
+              링크가 유효하지 않거나 만료됐어. 로그인해 보거나 관리자에게 문의해줘.
             </p>
-            <Link to="/register" className={`mt-6 inline-block ${ui.btnPrimary}`}>회원가입으로</Link>
+            <Link to="/login" className={`mt-6 inline-block ${ui.btnPrimary}`}>로그인하러 가기</Link>
           </>
         )}
       </div>
