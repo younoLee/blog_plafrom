@@ -90,11 +90,18 @@
   → `rds`(5432 ← Task SG만). 데이터소스로 기본 VPC·서브넷 참조(ALB/RDS 서브넷그룹이 Stage 3~4에서 재사용).
 - 검증: `terraform fmt/validate` 통과. 남은 실행(사용자): `terraform apply`(SG 3개 생성, 무비용).
 
-### Stage 3 — RDS (💸 ~$13/mo 시작)
-- RDS Postgres `db.t4g.micro` Single-AZ, 프라이빗 서브넷, SG는 Task에서만.
+### Stage 3 — RDS — **terraform 작성 완료 2026-07-24** (`rds.tf`) · apply=💸 첫 과금
+- RDS Postgres 16 `db.t4g.micro` Single-AZ, `publicly_accessible=false`, SG는 Task에서만.
+  gp3 20GB(암호화), 관리형 자동백업 7일(RDS 핵심 이점·SAA 소재).
+- **마스터 비번은 `manage_master_user_password=true`** → RDS가 Secrets Manager에 만들어 관리.
+  tfvars·state에 비번이 안 남는다. Stage 4 태스크 정의가 그 시크릿 ARN에서 password를 주입.
+- `db_name="blog"`. ⚠️ **이관 시 확인:** 현재 프로드 compose는 `POSTGRES_DB=postgres`라
+  실제 DB 이름/`DATABASE_URL` 경로를 확인해 dump를 이 `blog`로 적재할지 정한다.
 - 데이터 이관: 현재 EC2에서 `pg_dump` → RDS로 restore(**`restore_drill.sh` 도구 재사용**).
   ← 복원 훈련에 쏟은 작업이 여기서 값을 한다(일지 연결점).
-- ⏪ RDS destroy. 원본 데이터는 EC2 EBS + S3 덤프에 그대로.
+- 검증: `terraform fmt/validate` 통과.
+- 남은 실행(사용자): `terraform apply`(💸 RDS 생성, ~$13/mo 시작) → 데이터 이관.
+- ⏪ RDS destroy(skip_final_snapshot·deletion_protection off라 매끄럽게). 원본은 EC2 EBS + S3 덤프에 그대로.
 
 ### Stage 4 — ECS 클러스터 + 태스크 + 서비스 + ALB (💸 ALB ~$16/mo + Fargate 시작)
 - 클러스터(Fargate). **태스크 정의**: ECR 이미지, 시크릿은 **SSM**(이미 SecureString 사본 있음)에서.
