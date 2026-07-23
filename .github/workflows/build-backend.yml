@@ -1,0 +1,48 @@
+name: Build Backend Image
+
+# ECS 이전용. 백엔드 이미지를 빌드해 ECR에 push한다.
+# **서비스 배포(태스크 교체)는 하지 않는다** — 그건 프로덕션 상태 변경(규칙7)이라 사람이 한다.
+# 여기선 '이미지를 올려두기'까지만. 태그는 git SHA(불변) → 어느 커밋의 이미지인지 항상 추적된다.
+#
+# 지금은 수동(workflow_dispatch)만 — ECS 서비스가 서기 전까진 이미지가 ECR에 쌓이기만 한다.
+# 서비스가 서면 여기에 'push: paths backend/**' 자동 트리거를 더할 수 있다.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC로 AWS 역할 assume (장기 키 없음)
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPO: blog-backend
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v7
+
+      - name: AWS 자격증명 (OIDC 역할 assume)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECR 로그인
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 빌드 & 푸시 (태그 = git SHA)
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPO:${{ github.sha }}"
+          # 컨텍스트는 backend/ — Dockerfile의 COPY . . 가 backend 내용을 담고
+          # backend/.dockerignore 가 .env·__pycache__ 등을 제외한다(시크릿 보호).
+          docker build -t "$IMAGE" backend
+          docker push "$IMAGE"
+          echo "pushed: $IMAGE"
+          echo "## 이미지 푸시됨" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"

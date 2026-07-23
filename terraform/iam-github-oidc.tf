@@ -158,3 +158,37 @@ resource "aws_iam_role_policy" "github_watch" {
     ]
   })
 }
+
+# ECS 이전용 — build-backend.yml이 백엔드 이미지를 빌드해 ECR에 push하는 권한.
+# 배포(S3)·감시(readonly)와 관심사가 다르므로 정책을 분리한다(같은 역할에 인라인으로 부착).
+# 서비스 배포(태스크 교체)는 여기 없다 — 그건 규칙7이라 사람이 한다. 여기선 push까지만.
+resource "aws_iam_role_policy" "github_ecr_push" {
+  name = "ecr-push-backend"
+  role = aws_iam_role.github_deploy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # 레지스트리 로그인 토큰 발급. 이 액션만은 리소스 제한이 불가(*)라 따로 둔다.
+        Sid      = "EcrAuthToken"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        # 실제 레이어 업로드·PutImage는 blog-backend 리포 하나로만 한정한다.
+        Sid    = "EcrPushToBackendRepo"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+        ]
+        Resource = aws_ecr_repository.backend.arn
+      },
+    ]
+  })
+}
