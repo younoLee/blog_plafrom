@@ -47,8 +47,11 @@ DNS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
 # `.dockerignore`가 첫 항목인 게 중요하다(위 주석 참고). `.env`와 uploads/는
 # 그 파일이 알아서 빌드 컨텍스트에서 제외한다 — 여기서 tar에 안 넣는 것과 별개다.
 say "1/4 코드 묶기"
+# scripts/ 도 포함한다 — 가입이 초대제라 계정은 scripts/create_user.py 로만 만든다.
+# 이게 빠지면 `exec backend python scripts/create_user.py` 가 프로드 컨테이너에
+# 파일이 없어 실패한다(프로드는 코드 볼륨 마운트가 없어 이미지에 구워진 것만 있다).
 tar czf "$STAGE/backend.tgz" -C "$REPO_DIR/backend" \
-  .dockerignore app alembic alembic.ini requirements.txt Dockerfile
+  .dockerignore app alembic alembic.ini requirements.txt Dockerfile scripts
 echo "  $(stat -c%s "$STAGE/backend.tgz") bytes"
 
 # ── 2. .env 보존 확인용 지문 ────────────────────────────────────────────────
