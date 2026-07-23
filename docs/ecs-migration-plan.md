@@ -79,14 +79,16 @@
   여기까지 과금은 ECR 스토리지 소액뿐.
 - ⏪ 아직 라이브 없음. 이미지가 ECR에 쌓이기만 함.
 
-### Stage 2 — 네트워킹 베이스라인 (소액)
-- ALB는 **2개 AZ 서브넷**이 필요 → 현재 서브넷 1개뿐이라 **AZ 하나 더** 추가.
-- 프라이빗 서브넷에 태스크·RDS 두는 걸 권장(공개면에서 뗌).
-- SG 삼단: **ALB SG**(443/80 ← CloudFront prefix list `pl-22a6434b`, 지금 규칙 그대로 계승) →
-  **Task SG**(앱 포트 ← ALB SG만) → **RDS SG**(5432 ← Task SG만).
-- ⚠️ **숨은 비용 함정 — NAT Gateway ~$32/mo.** 프라이빗 태스크가 ECR/S3/로그로 나가려면 NAT가
-  필요한데 비쌈. → **VPC 엔드포인트**(ECR·S3·CloudWatch Logs)로 NAT 없이 처리하거나, 데모라면
-  퍼블릭 서브넷+퍼블릭IP로 NAT 회피. 이 선택을 Stage 2에서 명시적으로 한다.
+### Stage 2 — 네트워킹 베이스라인 — **작성 완료 2026-07-24** (`network.tf`)
+- **조사 결과 대폭 단순화.** 현재는 **기본(default) VPC** `172.31.0.0/16`이고 **4개 AZ 모두
+  퍼블릭 서브넷이 이미 존재**(2a/2b/2c/2d, 각 /20) + IGW 붙어 있음.
+  → ALB가 요구하는 2개 AZ가 그대로 충족 → **새 서브넷 안 만든다**(계획 초안의 "AZ 추가"는 불필요였음).
+- **NAT($32/mo) 회피 결정:** 태스크를 **퍼블릭 서브넷 + 퍼블릭IP**로 두면 IGW로 ECR/로그/S3에
+  직접 나가 NAT가 필요 없다. VPC 인터페이스 엔드포인트도 소규모엔 시간요금이 NAT보다 비싸 안 씀.
+  노출은 SG로 차단(태스크 인바운드는 ALB만). 트레이드오프는 코드 주석에 명시(면접 재료).
+- **3단 SG 작성:** `alb`(80 ← CloudFront prefix list `pl-22a6434b`) → `task`(8000 ← ALB SG만)
+  → `rds`(5432 ← Task SG만). 데이터소스로 기본 VPC·서브넷 참조(ALB/RDS 서브넷그룹이 Stage 3~4에서 재사용).
+- 검증: `terraform fmt/validate` 통과. 남은 실행(사용자): `terraform apply`(SG 3개 생성, 무비용).
 
 ### Stage 3 — RDS (💸 ~$13/mo 시작)
 - RDS Postgres `db.t4g.micro` Single-AZ, 프라이빗 서브넷, SG는 Task에서만.
@@ -104,8 +106,11 @@
 
 ### Stage 5 — 컷오버 (트래픽 전환)
 - CloudFront `/api/*` 오리진을 EC2 퍼블릭 DNS → **ALB DNS**로. 자신 붙을 때까지 EC2를 롤백용으로 유지.
-- **보너스 보안 이득:** ALB+ACM으로 오리진을 `http-only :8000` → **HTTPS**로 올릴 수 있다.
-  이건 `restore-drill-hardening-todo`의 "오리진 평문 HTTP:8000" 미해결 항목을 같이 닫는다.
+- **오리진 HTTPS는 보류(정정).** CloudFront→ALB를 HTTPS로 하려면 ALB에 오리진 도메인과 맞는
+  ACM 인증서가 필요한데, ALB 기본 DNS(`*.elb.amazonaws.com`)엔 공개 ACM을 못 발급한다 →
+  **커스텀 도메인이 필요**(ROADMAP에서 비용으로 보류한 그것). 따라서 컷오버 후에도 CloudFront→ALB는
+  현재(EC2 http:8000)와 같은 평문 수준이다. "평문 오리진" 항목은 커스텀 도메인 결정과 함께 남는다.
+  (더 나은 길: CloudFront **VPC origins**로 내부 ALB를 두면 오리진이 인터넷을 안 타지만, 별도 작업.)
 - ⏪ CloudFront 오리진을 EC2로 되돌리면 즉시 원복.
 
 ### Stage 6 — 증명 (면접 골드 — 이게 진짜 목적)
