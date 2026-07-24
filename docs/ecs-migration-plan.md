@@ -123,6 +123,31 @@
   ④ 마이그레이션 run-task ⑤ 서비스 healthy 확인.
 - ⏪ 서비스 desired=0. CloudFront는 컷오버 전까지 옛 EC2를 계속 봄.
 
+### Stage 4.5 — 심층검사: 부하·오류 내성 (2026-07-24, apply 전)
+"문법 통과 ≠ 동작"이라 apply 전에 실제 코드와 대조해 부하·장애 경로를 팠다.
+
+**고친 것 (실제 결함):**
+1. **`pool_pre_ping=True` + `pool_recycle=300`** (`database.py`) — 없던 것. RDS는 유휴/페일오버로
+   커넥션을 끊는데, 그러면 죽은 커넥션 재사용 시 첫 쿼리가 500("server closed the connection").
+   로컬 Postgres에선 안 겪던 게 RDS로 옮기면 바로 터진다. **가장 중요한 수정.**
+2. **ALB `idle_timeout=120`** — 기본 60초. AI 초안이 최대 60초라 경계에서 504로 끊길 위험.
+3. **ECS `desired_count=2`(다중 AZ HA) + `health_check_grace_period=60` + 배포 서킷브레이커(rollback)**
+   — 단일 태스크는 장애 시 다운. 2개로 AZ 분산. 나쁜 이미지/빠뜨린 시크릿으로 crash-loop 시
+   무한재시도 대신 직전 안정본으로 자동 롤백.
+4. **오토스케일 2~4, CPU 60% 타깃** — 부하 급증 시 자동 증설(scale-out 1분/ scale-in 5분).
+5. **RDS `engine_version` 16→16.14 핀** — 가용버전 실조회 후 고정(drift 방지).
+
+**확인하고 남겨둔 것 (수정 안 함, 근거 있음):**
+- **백그라운드 스케줄러 다중 실행** = 저위험. `cleanup`은 멱등(이미 지운 행 삭제=무해),
+  `recorder`는 태스크당 분당 1행이라 과다표본이지만 업타임 '비율'은 보존. 영구 다중인스턴스라면
+  전용 스케줄러 태스크(EventBridge)로 외부화가 정석 — 데모 범위 밖(면접 소재로 남김).
+- **`/api/health`는 DB 미점검** — liveness 전용이라 DB 느려도 플랩 안 함(의도). 대신 DB 다운을
+  ALB가 감지 못함(태스크는 healthy로 남아 500을 냄). deep check는 별도 경로가 필요 — 보류.
+- **Fargate 256/512 + 단일 uvicorn worker** — 데모엔 충분. 부하시험서 CPU 포화면 512/1024 또는
+  워커/태스크 수로 튜닝(오토스케일이 1차 완충).
+- **slowapi 인메모리 레이트리밋은 태스크별**(태스크 수만큼 곱해짐). 비용/보안 핵심인 AI 캡은
+  DB 기반이라 전역 유지 → 실질 위험 없음.
+
 ### Stage 5 — 컷오버 (트래픽 전환)
 - CloudFront `/api/*` 오리진을 EC2 퍼블릭 DNS → **ALB DNS**로. 자신 붙을 때까지 EC2를 롤백용으로 유지.
 - **오리진 HTTPS는 보류(정정).** CloudFront→ALB를 HTTPS로 하려면 ALB에 오리진 도메인과 맞는

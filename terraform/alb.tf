@@ -14,6 +14,10 @@ resource "aws_lb" "backend" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = data.aws_subnets.default.ids
 
+  # AI 초안 생성이 최대 60초(CloudFront origin_read_timeout=60와 짝). ALB 기본 idle 60초면
+  # 그 경계에서 504로 끊길 수 있어 여유를 준다.
+  idle_timeout = 120
+
   tags = {
     Name = "blog-backend"
   }

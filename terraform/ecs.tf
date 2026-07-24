@@ -176,11 +176,21 @@ resource "aws_ecs_service" "backend" {
   name            = "blog-backend"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.backend.arn
-  desired_count   = 1
+  desired_count   = 2 # HA: 서브넷이 4개 AZ라 Fargate가 태스크를 서로 다른 AZ에 흩뿌린다.
   launch_type     = "FARGATE"
 
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
+
+  # 기동에 시간이 걸려도(이미지 pull + lifespan) 그 사이 ALB 헬스체크로 죽이지 않게 유예.
+  health_check_grace_period_seconds = 60
+
+  # 배포가 계속 실패하면(나쁜 이미지·빠뜨린 시크릿으로 crash-loop) 무한 재시도 대신
+  # 자동으로 직전 안정 배포로 롤백한다. "오류 나면 안 됨"의 안전밸브.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
@@ -196,4 +206,38 @@ resource "aws_ecs_service" "backend" {
 
   # 타깃그룹이 리스너에 붙은 뒤에 서비스가 등록되게 한다.
   depends_on = [aws_lb_listener.http]
+
+  # desired_count는 오토스케일이 조정하므로 terraform이 되돌리지 않게 무시.
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+}
+
+# ── 오토스케일 (부하 대응) ────────────────────────────────────────────────────
+# CPU 평균 60%를 목표로 태스크 수를 2~4로 자동 조절. 부하가 몰리면 늘리고, 빠지면 줄인다.
+# scale-in은 천천히(5분), scale-out은 빠르게(1분) — 급증에 먼저 대응하고 급감엔 신중.
+# (in-process 스케줄러가 태스크마다 도는 건 확인상 저위험: cleanup은 멱등, recorder는 과다표본뿐)
+resource "aws_appautoscaling_target" "backend" {
+  max_capacity       = 4
+  min_capacity       = 2
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.backend.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "backend_cpu" {
+  name               = "blog-backend-cpu60"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.backend.resource_id
+  scalable_dimension = aws_appautoscaling_target.backend.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.backend.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 60
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
 }

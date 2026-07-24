@@ -20,7 +20,7 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "main" {
   identifier     = "blog-db"
   engine         = "postgres"
-  engine_version = "16" # 최신 16.x로 해석됨. apply 시 리전 가용 버전 확인.
+  engine_version = "16.14" # ap-northeast-2 · db.t4g.micro 가용 최신(조회 확인). drift 방지로 핀.
   instance_class = "db.t4g.micro"
 
   # 블로그 DB는 수 MB 수준이지만 gp3 최소가 20GB. storage_encrypted는 기본 KMS라 무료.
