@@ -51,10 +51,31 @@ variable "backend_origin_dns" {
   }
 }
 
+# 컷오버 스위치(Stage 5): /api/* 백엔드를 EC2에서 ECS(ALB)로 넘긴다.
+#   "ec2" (기본) = 현행 그대로 — EC2 :8000, 정지 시 주차(위 backend_origin_dns 로직).
+#   "ecs"        = ALB :80 로 넘긴다. 롤백은 이 값을 "ec2"로 되돌리고 apply(즉시).
+# 기본이 "ec2"라 이 코드를 apply해도 아무것도 안 바뀐다 — 실제 컷오버는 -var로 명시할 때만.
+variable "api_backend" {
+  description = "/api/* 오리진 선택: ec2(현행) | ecs(ALB). 컷오버/롤백 스위치."
+  type        = string
+  default     = "ec2"
+
+  validation {
+    condition     = contains(["ec2", "ecs"], var.api_backend)
+    error_message = "api_backend는 ec2 또는 ecs여야 합니다."
+  }
+}
+
 locals {
   # 주차용 오리진. 우리가 소유한 도메인이어야 하고(제3자 배정 불가), 백엔드 포트가
   # 열려 있지 않아야 한다 → S3 도메인 + custom_origin_config의 8000 포트 = 연결 불가.
   backend_origin_parked = aws_s3_bucket.frontend.bucket_regional_domain_name
 
   backend_origin_dns = var.backend_origin_dns != "" ? var.backend_origin_dns : local.backend_origin_parked
+
+  # /api/* 오리진 선택(컷오버). ecs면 ALB(:80), ec2면 현행 EC2 도메인(:8000, 주차 포함).
+  # ALB는 항상 떠 있어 주차가 필요 없다 → ecs 모드에선 backend_origin_dns 로직이 무의미해진다.
+  api_use_ecs       = var.api_backend == "ecs"
+  api_origin_domain = local.api_use_ecs ? aws_lb.backend.dns_name : local.backend_origin_dns
+  api_origin_port   = local.api_use_ecs ? 80 : 8000
 }

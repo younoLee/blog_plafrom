@@ -51,14 +51,17 @@ resource "aws_cloudfront_distribution" "main" {
     origin_access_control_id = aws_cloudfront_origin_access_control.s3.id
   }
 
-  # 백엔드 오리진 (EC2, HTTP only :8000).
-  # EC2 정지 중엔 주차된 도메인이 들어온다(= /api/*가 연결 실패로 fail closed).
+  # 백엔드 오리진. var.api_backend 로 EC2(:8000)와 ALB(:80) 사이를 통째로 스위치한다.
+  #   ec2 모드: EC2 도메인(정지 중엔 주차 → fail closed).
+  #   ecs 모드: ALB 도메인(:80). ALB SG가 CloudFront prefix list만 받으므로 직접 노출 없음.
+  # 포트도 함께 바뀌므로(8000↔80) 오리진 하나만 두고 domain/port를 local로 고른다
+  # → 미참조 오리진이 안 생기고, 롤백은 var만 되돌리면 된다.
   origin {
-    origin_id   = "ec2-backend"
-    domain_name = local.backend_origin_dns
+    origin_id   = "api-backend"
+    domain_name = local.api_origin_domain
 
     custom_origin_config {
-      http_port              = 8000
+      http_port              = local.api_origin_port
       https_port             = 443
       origin_protocol_policy = "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
@@ -84,10 +87,10 @@ resource "aws_cloudfront_distribution" "main" {
     }
   }
 
-  # /api/* → EC2 (CachingDisabled + AllViewerExceptHostHeader)
+  # /api/* → 백엔드 (CachingDisabled + AllViewerExceptHostHeader). 오리진은 api_backend 스위치가 정함.
   ordered_cache_behavior {
     path_pattern               = "/api/*"
-    target_origin_id           = "ec2-backend"
+    target_origin_id           = "api-backend"
     viewer_protocol_policy     = "redirect-to-https"
     allowed_methods            = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods             = ["GET", "HEAD"]

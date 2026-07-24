@@ -148,8 +148,17 @@
 - **slowapi 인메모리 레이트리밋은 태스크별**(태스크 수만큼 곱해짐). 비용/보안 핵심인 AI 캡은
   DB 기반이라 전역 유지 → 실질 위험 없음.
 
-### Stage 5 — 컷오버 (트래픽 전환)
-- CloudFront `/api/*` 오리진을 EC2 퍼블릭 DNS → **ALB DNS**로. 자신 붙을 때까지 EC2를 롤백용으로 유지.
+### Stage 5 — 컷오버 (트래픽 전환) — **terraform 작성 완료 2026-07-24** (`cloudfront.tf`·`variables.tf`)
+- **스위치 방식**으로 만들었다: `var.api_backend`(`ec2`|`ecs`, 기본 `ec2`)가 `/api/*` 오리진을 고른다.
+  오리진 하나에 domain/port를 local로 골라(미참조 오리진 안 생김) 통째로 EC2(:8000)↔ALB(:80) 스위치.
+  - **기본이 `ec2`라 이 코드를 apply해도 라우팅은 안 바뀐다** — 실제 컷오버는 `-var`로 명시할 때만.
+  - **컷오버**: `terraform apply -var="api_backend=ecs"` → /api/*가 ALB로. (+ CloudFront 무효화)
+  - **롤백**: `terraform apply -var="api_backend=ec2"` → 즉시 EC2로 원복.
+- 커플링 주의: 스위치가 `aws_lb.backend`를 참조하므로 이 config는 ALB가 있어야 apply된다
+  (Stage 4가 같은 config에 있으니 한 apply에서 함께 생성 → 문제 없음).
+- 검증: `terraform fmt/validate` 통과.
+- **권장 컷오버 절차**: ecs로 스위치 전, ALB DNS로 직접 `/api/health`·주요 경로가 200인지 확인
+  → ecs 스위치 → CloudFront로 스모크 → 이상 시 즉시 ec2 롤백. 며칠 병행 후 EC2 정리(Stage 7).
 - **오리진 HTTPS는 보류(정정).** CloudFront→ALB를 HTTPS로 하려면 ALB에 오리진 도메인과 맞는
   ACM 인증서가 필요한데, ALB 기본 DNS(`*.elb.amazonaws.com`)엔 공개 ACM을 못 발급한다 →
   **커스텀 도메인이 필요**(ROADMAP에서 비용으로 보류한 그것). 따라서 컷오버 후에도 CloudFront→ALB는
