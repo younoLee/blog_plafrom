@@ -12,10 +12,15 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete
 
 from app.core.database import SessionLocal
+from app.models.ai_usage import AiHourlyUsage
+from app.models.status_check import StatusCheck
 from app.models.user import User
 
 CLEANUP_INTERVAL = 3600  # 1시간마다
 UNVERIFIED_TTL_HOURS = 24  # 가입 후 24시간 지나도 미인증이면 삭제
+# append-only 테이블 보관 한도(무한 증가 방지). 조회 범위 밖만 지운다.
+AI_HOURLY_TTL_HOURS = 48  # count_hour는 '현재 시간' 창만 본다 → 이틀이면 넉넉
+STATUS_CHECK_TTL_DAYS = 180  # 업타임 페이지가 보는 범위 밖은 정리(1행/분이라 작지만 무한↑)
 
 
 def cleanup_unverified(ttl_hours: int = UNVERIFIED_TTL_HOURS) -> int:
@@ -37,9 +42,33 @@ def cleanup_unverified(ttl_hours: int = UNVERIFIED_TTL_HOURS) -> int:
         db.close()
 
 
+def cleanup_old_usage_rows() -> None:
+    """조회 범위 밖의 오래된 append-only 행을 지운다(무한 증가 방지).
+    시간당 사용량은 '현재 시간'만, 상태점검은 최근 몇 달만 조회하므로 그 밖은 안전하게 삭제."""
+    now = datetime.now(UTC)
+    db = SessionLocal()
+    try:
+        db.execute(
+            delete(AiHourlyUsage).where(
+                AiHourlyUsage.hour < now - timedelta(hours=AI_HOURLY_TTL_HOURS)
+            )
+        )
+        db.execute(
+            delete(StatusCheck).where(
+                StatusCheck.checked_at < now - timedelta(days=STATUS_CHECK_TTL_DAYS)
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _cleanup_loop() -> None:
     while True:
         cleanup_unverified()
+        cleanup_old_usage_rows()
         time.sleep(CLEANUP_INTERVAL)
 
 

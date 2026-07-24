@@ -49,7 +49,8 @@ class Post(Base):
     visibility: Mapped[str] = mapped_column(String(20), server_default="public")
     # server_default=func.now(): DB가 INSERT 시 현재 시각을 채움
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        # 목록·검색·연재·최근글이 전부 ORDER BY created_at → 정렬 핫패스에 인덱스.
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
     # onupdate: UPDATE 될 때마다 시각 자동 갱신
     updated_at: Mapped[datetime] = mapped_column(

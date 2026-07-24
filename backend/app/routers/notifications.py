@@ -10,6 +10,7 @@ from app.core.deps import get_current_user
 from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
+from app.routers.posts import visible_condition
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -42,7 +43,9 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
         )
         .join(Post, Post.id == Notification.post_id)
         .join(User, User.id == Post.owner_id)
-        .where(Notification.user_id == user.id)
+        # 지금 이 사용자에게 '보이는' 글만 — 알림 생성 후 글이 private로 바뀌거나 구독이
+        # 끊기면 본문은 404여도 알림 목록엔 제목이 남아 새던 것(목록·메타와 같은 조건 재사용).
+        .where(Notification.user_id == user.id, visible_condition(user, db))
         .order_by(Notification.created_at.desc())
         .limit(20)
     ).all()
