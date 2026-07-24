@@ -103,12 +103,24 @@
 - 남은 실행(사용자): `terraform apply`(💸 RDS 생성, ~$13/mo 시작) → 데이터 이관.
 - ⏪ RDS destroy(skip_final_snapshot·deletion_protection off라 매끄럽게). 원본은 EC2 EBS + S3 덤프에 그대로.
 
-### Stage 4 — ECS 클러스터 + 태스크 + 서비스 + ALB (💸 ALB ~$16/mo + Fargate 시작)
-- 클러스터(Fargate). **태스크 정의**: ECR 이미지, 시크릿은 **SSM**(이미 SecureString 사본 있음)에서.
-  **Task 역할**(S3 업로드 — 지금 EC2 역할과 동일 권한) / **실행 역할**(ECR pull·로그) 분리.
-- **ALB + 타깃그룹 + 헬스체크 `/api/health`**(이미 존재). ← ROADMAP이 "시간 먹는 구간"으로 콕 집은 곳.
-  리스너 구성. 로그 → CloudWatch.
-- 서비스 desired 1~2, 롤링 배포.
+### Stage 4 — ECS 클러스터 + 태스크 + 서비스 + ALB — **terraform 작성 완료 2026-07-24** (`ecs.tf`·`alb.tf`) · apply=💸 ALB ~$16 + Fargate
+- `alb.tf`: ALB(인터넷-facing, SG로 CloudFront만) + 타깃그룹(target_type=**ip**, Fargate라서) +
+  **헬스체크 `/api/health`**(matcher 200) + HTTP:80 리스너. 출력 `alb_dns_name`(컷오버용).
+- `ecs.tf`:
+  - **역할 2분리**: 실행역할(ECR pull·로그·시크릿읽기 관리형+한정) / 태스크역할(S3 `uploads/*` PutObject만 — EC2 역할과 동일 미러링).
+  - **시크릿 주입**: DB_PASSWORD는 **RDS 관리 시크릿**의 `password` 키에서, 앱 비밀값(SECRET_KEY·
+    ANTHROPIC_API_KEY·LLM_ENCRYPTION_KEY·TOSS_SECRET_KEY)은 새 Secrets Manager `blog-app-secrets`에서.
+    **값은 코드/state에 안 넣는다 — 사용자가 채운다**(아래).
+  - **DATABASE_URL 조립**: 앱은 통짜 URL 하나만 받는데 관리시크릿은 password만 준다 → 컨테이너
+    command에서 python으로 **URL 인코딩**해 조립(비번 특수문자 안전). 더미값 검증 통과
+    (`p@ss:w/rd#1` → `p%40ss%3Aw%2Frd%231`). 이미지 변경 없음.
+  - 서비스: 퍼블릭 서브넷 + 퍼블릭IP(NAT 회피), task SG로 인바운드 차단, 롤링(min100/max200)=무중단.
+  - `var.backend_image_tag`(=git SHA): ECR 태그가 IMMUTABLE이라 latest가 없다 → apply 시 지정.
+- 검증: `terraform fmt/validate` 통과 + DATABASE_URL 셸 로직 실측 통과.
+- **마이그레이션**(원샷): 같은 태스크 정의에 command만 바꿔 run-task(`overrides`로 `alembic upgrade head`).
+- **남은 실행(사용자, 순서):** ① `blog-app-secrets`에 프로드 .env 비밀값 채우기(안 채우면 태스크 시작 실패=설정≠동작)
+  ② SMTP 등 비밀 아닌 env를 프로드 .env와 대조 ③ 이미지 push(build-backend) 후 SHA로 apply
+  ④ 마이그레이션 run-task ⑤ 서비스 healthy 확인.
 - ⏪ 서비스 desired=0. CloudFront는 컷오버 전까지 옛 EC2를 계속 봄.
 
 ### Stage 5 — 컷오버 (트래픽 전환)
