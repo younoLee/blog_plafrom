@@ -453,6 +453,9 @@ function WritePostPage() {
         {preview ? (
           // 미리보기: 실제 글 화면과 같은 방식(ReactMarkdown)으로 '꾸며진' 결과를 보여줌
           <div className="prose prose-gray min-h-[18rem] max-w-none rounded-xl border border-black/10 bg-white p-5 prose-headings:tracking-tight prose-a:text-[#0071e3] prose-img:rounded-xl dark:prose-invert dark:border-white/15 dark:bg-white/[0.03] dark:prose-a:text-[#0a84ff]">
+            {/* ⚠️ 보안: rehype-raw/allowDangerousHtml 금지 — 본문은 사용자·AI초안 값이고 서버가
+                HTML을 새니타이즈 안 한다. react-markdown이 raw HTML을 안 렌더하는 게 저장형 XSS
+                방어선. (PostDetailPage에 같은 주석) */}
             {content.trim() ? (
               <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{content}</ReactMarkdown>
             ) : (

@@ -111,6 +111,10 @@ function PostDetailPage() {
     () =>
       content != null ? (
         <ReactMarkdown
+          // ⚠️ 보안: rehype-raw / allowDangerousHtml 를 추가하지 마라. 글 본문은 사용자·AI초안이
+          // 만든 값이고 서버에서 HTML을 새니타이즈하지 않는다. react-markdown 기본값은 raw HTML을
+          // 렌더 안 해(무해 텍스트) → 그게 유일한 저장형 XSS 방어선이다. 넣는 순간 공개 블로그에
+          // <img onerror> 같은 게 실행된다(2026-07-24 인젝션 심층검사에서 확인).
           // rehypeSlug: 소제목에 id를 붙인다 → 목차(Toc)의 #앵커가 여기로 점프
           rehypePlugins={[rehypeHighlight, rehypeSlug]}
           components={{ img: (props) => <img {...props} className="rounded-lg" /> }}
