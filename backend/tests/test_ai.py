@@ -156,3 +156,26 @@ def test_hourly_cap_accumulates_across_calls(
     for _ in range(3):
         assert _draft(client, auth_headers(user)).status_code == 200
     assert ai_usage.count_hour(db, user.id) == 3
+
+
+# ── 캡 원자성(경쟁 안전) ─────────────────────────────────────────────────────
+def test_increment_returns_new_count_atomically(db, make_user):
+    """원자적 증가는 새 count를 반환한다(reserve-then-check의 계약). 예전 SELECT→+=는
+    반환도 없고 동시 호출이 서로 덮어썼다 — 캡을 넘겨도 통과하던 원인."""
+    user = make_user(role="writer")
+    assert ai_usage.increment_hour(db, user.id) == 1
+    assert ai_usage.increment_hour(db, user.id) == 2
+    assert ai_usage.increment_today(db, user.id) == 1
+    assert ai_usage.increment_today(db, user.id) == 2
+
+
+def test_hourly_cap_allows_exactly_cap_then_429(
+    client, db, make_user, auth_headers, fake_generate, monkeypatch
+):
+    """정확히 cap회 통과 후 초과는 429. 초과 시도도 원자적으로 차감돼(공짜 아님) count는 cap+1."""
+    monkeypatch.setattr(settings, "ai_hourly_cap", 2)
+    user = make_user(role="writer")
+    assert _draft(client, auth_headers(user)).status_code == 200
+    assert _draft(client, auth_headers(user)).status_code == 200
+    assert _draft(client, auth_headers(user)).status_code == 429
+    assert ai_usage.count_hour(db, user.id) == 3

@@ -133,13 +133,16 @@ def _resolve_provider(body: DraftRequest, user: User, pk: set[str]) -> tuple[str
     return model, provider
 
 
-def _enforce_abuse_cap(db: Session, user_id: int) -> None:
+def _reserve_abuse_slot(db: Session, user_id: int) -> None:
     """시간당 '시도' 캡 — provider 무관(BYOK 포함), 실패도 셈. 초과 시 429.
 
-    slowapi의 `10/hour`(인메모리·IP별)와 목적이 겹치지만 성질이 다르다: 이건 DB라
-    컨테이너 재시작에도 안 지워지고, IP가 아니라 계정 기준이라 IP를 바꿔도 못 피한다.
-    둘을 겹쳐 두는 건 의도적이다 — 인메모리가 싸게 1차로 걸러주고, DB가 최종 방어선."""
-    if ai_usage.count_hour(db, user_id) >= settings.ai_hourly_cap:
+    **원자적 예약(reserve-then-check).** 예전엔 count_hour로 읽고 나중에 따로 증가했는데,
+    그 사이 동시 요청들이 전부 같은 값을 읽어 캡을 넘겨 통과했다(TOCTOU) + 증가끼리 서로
+    덮어써(lost update) 과소집계됐다. 이제 한 UPDATE로 올리고 그 반환값으로 판단하므로
+    동시요청이 캡을 못 넘는다. **공유 데모 계정 비용 방어의 핵심** — 계정 기준이라 여러 IP로
+    몰려도 시간당 총량이 하드 캡된다(slowapi 인메모리 IP캡은 그 위의 싼 1차 필터).
+    초과분도 카운트에 남아 재시도가 공짜가 아니다(원래 의도)."""
+    if ai_usage.increment_hour(db, user_id) > settings.ai_hourly_cap:
         raise HTTPException(
             status_code=429,
             detail=f"시간당 AI 초안 한도({settings.ai_hourly_cap}회)를 다 썼어. 잠시 후 다시 시도해줘",
@@ -189,14 +192,12 @@ def create_draft(
     pk = llm_keys.providers_with_key(db, user.id)
     model, provider = _resolve_provider(body, user, pk)
 
-    # 남용 캡이 먼저 — provider와 무관하게 '시도' 자체를 제한한다.
-    _enforce_abuse_cap(db, user.id)
+    # 남용 캡(시간당 시도)을 원자적으로 '예약' — provider 무관, 호출 '전에' 센다.
+    # reserve-then-check라 동시요청이 캡을 넘겨 통과하지 못한다(공유 데모 계정 방어의 핵심).
+    # 실패하는 호출(느린 BYOK 등)도 이미 차감돼 무한 재시도가 공짜가 아니다.
+    _reserve_abuse_slot(db, user.id)
     if provider == "claude":
         _enforce_server_caps(db, user.id)
-
-    # 호출 '전에' 센다. 뒤에 세면 실패하는 호출(느린 BYOK 등)이 카운트되지 않아
-    # 무한 재시도가 공짜가 된다 — 방어하려는 게 바로 그 경로다.
-    ai_usage.increment_hour(db, user.id)
 
     user_key, base_url = (
         _load_byok_credential(db, user.id, provider)

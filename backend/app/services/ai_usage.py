@@ -7,6 +7,7 @@
 from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.ai_usage import AiHourlyUsage, AiUsage
@@ -41,16 +42,22 @@ def count_month(db: Session, user_id: int) -> int:
     return int(total or 0)
 
 
-def increment_today(db: Session, user_id: int) -> None:
-    today = _today()
-    row = db.scalar(
-        select(AiUsage).where(AiUsage.user_id == user_id, AiUsage.day == today)
+def increment_today(db: Session, user_id: int) -> int:
+    """서버키 성공 호출을 원자적으로 +1 (경쟁 안전, 새 count 반환).
+    예전엔 SELECT→`+=`→commit이라 동시 호출이 서로의 증가를 덮어써(lost update) 캡을
+    과소집계했다 → 캡을 넘겨도 통과. ON CONFLICT DO UPDATE 한 문장으로 DB가 직렬화한다."""
+    stmt = (
+        pg_insert(AiUsage)
+        .values(user_id=user_id, day=_today(), count=1)
+        .on_conflict_do_update(
+            constraint="uq_ai_usage_user_day",
+            set_={"count": AiUsage.count + 1},
+        )
+        .returning(AiUsage.count)
     )
-    if row is None:
-        db.add(AiUsage(user_id=user_id, day=today, count=1))
-    else:
-        row.count += 1
+    new_count = int(db.scalar(stmt))
     db.commit()
+    return new_count
 
 
 def count_hour(db: Session, user_id: int) -> int:
@@ -63,16 +70,19 @@ def count_hour(db: Session, user_id: int) -> int:
     return row.count if row else 0
 
 
-def increment_hour(db: Session, user_id: int) -> None:
-    """시도 시점에 미리 센다 — 실패해도 차감되어야 재시도 남용이 공짜가 아니게 된다."""
-    hour = _this_hour()
-    row = db.scalar(
-        select(AiHourlyUsage).where(
-            AiHourlyUsage.user_id == user_id, AiHourlyUsage.hour == hour
+def increment_hour(db: Session, user_id: int) -> int:
+    """시도를 원자적으로 +1 (경쟁 안전, 새 count 반환). 호출 '전에' 세서 실패·재시도도
+    차감된다. 반환값으로 캡을 판단(reserve-then-check)하면 동시요청이 캡을 넘겨 통과 못 한다 —
+    공유 데모 계정이 여러 IP로 몰려도 계정 기준 시간당 캡이 총량을 하드 캡한다."""
+    stmt = (
+        pg_insert(AiHourlyUsage)
+        .values(user_id=user_id, hour=_this_hour(), count=1)
+        .on_conflict_do_update(
+            constraint="uq_ai_hourly_usage_user_hour",
+            set_={"count": AiHourlyUsage.count + 1},
         )
+        .returning(AiHourlyUsage.count)
     )
-    if row is None:
-        db.add(AiHourlyUsage(user_id=user_id, hour=hour, count=1))
-    else:
-        row.count += 1
+    new_count = int(db.scalar(stmt))
     db.commit()
+    return new_count
