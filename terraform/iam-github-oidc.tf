@@ -159,12 +159,31 @@ resource "aws_iam_role_policy" "github_watch" {
   })
 }
 
-# ECS 이전용 — build-backend.yml이 백엔드 이미지를 빌드해 ECR에 push하는 권한.
-# 배포(S3)·감시(readonly)와 관심사가 다르므로 정책을 분리한다(같은 역할에 인라인으로 부착).
-# 서비스 배포(태스크 교체)는 여기 없다 — 그건 규칙7이라 사람이 한다. 여기선 push까지만.
+# ECS 이전용 — build-backend.yml이 백엔드 이미지를 빌드해 ECR에 push하는 **전용 역할**.
+# 배포 역할(github_deploy)과 분리한다. 왜: 배포 역할엔 S3 사이트 전체 Put/Delete + CloudFront
+# 무효화가 있는데, 이미지 빌드 잡은 서드파티 액션과 (docker build 중) 의존성이 도는 곳이라,
+# poisoned step 하나가 그 역할을 쥐면 사이트를 통째로 지울 수 있다(코드검사 지적). push엔 그
+# 권한이 필요 없으니 최소권한 역할을 따로 둔다. 트러스트는 같다(이 저장소 main 브랜치만).
+resource "aws_iam_role" "github_ecr_push" {
+  name = "github-actions-blog-ecr-push"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:younoLee/blog_plafrom:ref:refs/heads/main" }
+      }
+    }]
+  })
+}
+
 resource "aws_iam_role_policy" "github_ecr_push" {
   name = "ecr-push-backend"
-  role = aws_iam_role.github_deploy.id
+  role = aws_iam_role.github_ecr_push.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -191,4 +210,9 @@ resource "aws_iam_role_policy" "github_ecr_push" {
       },
     ]
   })
+}
+
+# build-backend.yml의 role-to-assume 에 넣을 값.
+output "github_ecr_push_role_arn" {
+  value = aws_iam_role.github_ecr_push.arn
 }

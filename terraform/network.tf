@@ -98,12 +98,8 @@ resource "aws_security_group" "rds" {
     security_groups = [aws_security_group.task.id]
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # egress 없음 — DB는 바깥으로 먼저 연결할 일이 없다. 열어두면 DB 호스트가 뚫렸을 때
+  # 유출 경로만 넓어진다. (task·alb는 ECR/logs/S3/RDS로 나가야 해서 egress 전체 허용)
 
   tags = {
     Name = "blog-rds"

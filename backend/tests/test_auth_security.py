@@ -1,6 +1,20 @@
 """인증의 보안 속성 — 이메일인증/비번재설정 흐름 + 토큰 무효화·혼용 차단.
 로그인 성공만이 아니라 '세션이 제대로 끊기는가'를 건다."""
+from app.core.config import settings
 from app.core.security import create_email_token
+
+
+# ── 초대제 게이트 ────────────────────────────────────────────────────────────
+def test_register_closed_when_signup_disabled(client, monkeypatch):
+    """allow_signup=False(운영 기본)면 register가 403으로 닫힌다. 프론트 폼 제거만으론
+    라우트가 살아 아무 주소로 인증메일을 보낼 수 있었다(SES 하드바운스) — 백엔드에서 막는다.
+    (conftest의 autouse open_signup이 기본을 열어두므로 여기서 되돌려 검증)"""
+    monkeypatch.setattr(settings, "allow_signup", False)
+    r = client.post(
+        "/api/auth/register",
+        json={"email": "closed@test.com", "password": "password123"},
+    )
+    assert r.status_code == 403
 
 
 # ── 이메일 인증 ──────────────────────────────────────────────────────────────

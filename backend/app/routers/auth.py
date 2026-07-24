@@ -35,6 +35,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", status_code=202)
 @limiter.limit("5/hour")  # 한 IP당 시간당 5번까지만 가입 (대량가입 속도 차단)
 def register(request: Request, data: RegisterRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
+    # 초대제 게이트: 기본으로 닫혀 있다. 프론트 폼 제거만으론 이 라우트가 살아 있어
+    # 아무 주소로 인증메일을 보낼 수 있었다(SES 바운스). 방어는 백엔드에 있어야 한다.
+    if not settings.allow_signup:
+        raise HTTPException(
+            status_code=403,
+            detail="가입은 현재 초대제로 운영됩니다. 관리자에게 문의하세요.",
+        )
     # 계정 존재 여부를 HTTP 응답으로 노출하지 않으려고 신규/기존 구분 없이 동일한 202 응답.
     # 실제 안내는 '메일로만' 간다 (forgot-password와 같은 패턴) → 이메일 enumeration 방지.
     existing = db.scalar(select(User).where(User.email == data.email))

@@ -9,7 +9,13 @@
 variable "backend_image_tag" {
   description = "띄울 백엔드 이미지의 태그(=git SHA). build-backend.yml이 ECR에 올린 값."
   type        = string
-  default     = "" # 비우면 태스크가 안 뜬다(이미지 없음). apply 시 -var로 실제 SHA 지정.
+  # 기본값 없음 = 필수. 빈 값이면 image가 'repo:'가 되어 CannotPullContainerError로 태스크가
+  # 영영 안 뜬다 → 조용한 실패 대신 apply 자체를 막는다. apply 시 -var로 실제 SHA를 넘긴다.
+
+  validation {
+    condition     = length(var.backend_image_tag) > 0
+    error_message = "backend_image_tag는 비울 수 없습니다. build-backend가 올린 git SHA를 -var로 넘기세요."
+  }
 }
 
 # ── 로그 ──────────────────────────────────────────────────────────────────────
@@ -178,6 +184,11 @@ resource "aws_ecs_service" "backend" {
   task_definition = aws_ecs_task_definition.backend.arn
   desired_count   = 2 # HA: 서브넷이 4개 AZ라 Fargate가 태스크를 서로 다른 AZ에 흩뿌린다.
   launch_type     = "FARGATE"
+
+  # apply가 서비스 'steady state'까지 기다린다. 이게 없으면 태스크가 시크릿 누락·이미지 없음·
+  # crash-loop로 영영 안 떠도 apply는 성공으로 끝난다("설정했다 ≠ 동작한다"의 전형).
+  # 켜두면 안 뜨는 배포에서 apply가 시끄럽게 실패한다.
+  wait_for_steady_state = true
 
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200

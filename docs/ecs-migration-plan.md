@@ -118,9 +118,15 @@
   - `var.backend_image_tag`(=git SHA): ECR 태그가 IMMUTABLE이라 latest가 없다 → apply 시 지정.
 - 검증: `terraform fmt/validate` 통과 + DATABASE_URL 셸 로직 실측 통과.
 - **마이그레이션**(원샷): 같은 태스크 정의에 command만 바꿔 run-task(`overrides`로 `alembic upgrade head`).
-- **남은 실행(사용자, 순서):** ① `blog-app-secrets`에 프로드 .env 비밀값 채우기(안 채우면 태스크 시작 실패=설정≠동작)
-  ② SMTP 등 비밀 아닌 env를 프로드 .env와 대조 ③ 이미지 push(build-backend) 후 SHA로 apply
-  ④ 마이그레이션 run-task ⑤ 서비스 healthy 확인.
+- **남은 실행(사용자, 순서):**
+  ① `blog-app-secrets`에 **참조하는 4개 키 전부** 채우기(SECRET_KEY·ANTHROPIC_API_KEY·
+     LLM_ENCRYPTION_KEY·TOSS_SECRET_KEY). 선택키(ANTHROPIC/LLM)도 **최소 빈 문자열로**라도 넣는다 —
+     키가 하나라도 없으면 태스크가 아예 안 뜬다(설정≠동작). SECRET_KEY는 lifespan 가드가 약하면 죽인다.
+  ② SMTP 등 비밀 아닌 env를 프로드 .env와 대조(안 맞추면 비번재설정 메일 500).
+  ③ 이미지 push(build-backend) 후 SHA로 apply (wait_for_steady_state라 안 뜨면 apply가 실패=조용한 실패 아님).
+  ④ **마이그레이션 run-task**(command에 `alembic upgrade head`) — 서빙 command엔 마이그레이션이 없다.
+     RDS `blog` DB로 pg_dump 이관까지. **안 하면 /api/health는 healthy인데 실제 경로는 500.**
+  ⑤ healthy 확인 + `/api/health`는 DB 미점검이니 **DB-backed 경로(`/api/status`·`/api/posts`)로 실제 스모크**.
 - ⏪ 서비스 desired=0. CloudFront는 컷오버 전까지 옛 EC2를 계속 봄.
 
 ### Stage 4.5 — 심층검사: 부하·오류 내성 (2026-07-24, apply 전)
@@ -147,6 +153,34 @@
   워커/태스크 수로 튜닝(오토스케일이 1차 완충).
 - **slowapi 인메모리 레이트리밋은 태스크별**(태스크 수만큼 곱해짐). 비용/보안 핵심인 AI 캡은
   DB 기반이라 전역 유지 → 실질 위험 없음.
+
+### Stage 4.6 — 심층 보안·코드 검사 (2026-07-24, 독립 리뷰어 3명 + 검증)
+관점 3개(인프라 보안 / 앱·인증 보안 / terraform 정확성)로 독립 검사 후 종합·검증.
+CRITICAL/HIGH 대부분을 apply 전에 고쳤다.
+
+**고친 것:**
+1. **초대제가 프론트에만 있었다(MEDIUM→고침).** `POST /api/auth/register`가 여전히 열려 있어
+   아무 주소로 인증메일 발송 가능 → SES 하드바운스(초대제 전환의 바로 그 목적을 하나도 못 이룸).
+   → `settings.allow_signup`(기본 False) 게이트를 **백엔드에** 추가 + 닫힘 테스트. 방어는 SPA가 아니라 서버에.
+2. **ECR push가 배포 역할을 상속(MEDIUM→고침).** 빌드 잡이 S3 사이트 전체 Delete + CloudFront
+   권한을 쥐어 poisoned step 하나로 사이트 삭제 가능 → **전용 최소권한 역할**로 분리.
+3. **apply 조용한 실패(CRITICAL→고침).** 시크릿 누락·이미지 없음으로 태스크가 안 떠도 apply가
+   성공으로 끝났다 → `wait_for_steady_state=true` + `backend_image_tag` 필수화(빈 값 거부).
+4. `create_user.py --update-if-exists`가 role 생략 시 admin을 writer로 조용히 강등(LOW→고침, 기본 None로 보존).
+5. RDS SG egress 제거, 배포 SSH `accept-new`(LOW).
+
+**남긴 것(문서화·판단 필요):**
+- **AI 캡 비원자성(MEDIUM, 미고침·권장).** `ai_usage`가 SELECT→`+=`→commit이라 동시요청에
+  TOCTOU+lost-update → 데모 계정이 여러 IP로 몰리면 월 캡(Claude 200) 초과 가능 = 실제 돈.
+  고치려면 원자적 upsert(`INSERT … ON CONFLICT DO UPDATE … RETURNING`)로 재구성 + 동시성 테스트.
+- **오리진 공유 시크릿 헤더(MEDIUM, 기존 TODO).** ALB SG가 'CloudFront 엣지 전체'라 공격자가 자기
+  배포로 ALB를 직접 때려 WAF/함수 우회 가능(현 EC2도 동일). CloudFront가 비밀 헤더 주입 + 앱/WAF 검사.
+- **데모 writer가 public 글 발행 → 공개 훼손 가능(MEDIUM, 사용자가 07-24에 의도적 보류).** 블래스트는
+  한정됨(남의 글 수정·삭제 불가, 업로드 매직바이트 검사). visibility=public 차단 가드는 배포 필요라 보류 중.
+- 서드파티 액션 SHA 핀·reqsize Content-Length 우회(LOW, 기존 TODO).
+
+**검증됨(오탐 아님):** DATABASE_URL 조립 셸/인코딩, 시크릿 KMS 불필요, 실행/태스크 역할 분리,
+target_type=ip·헬스체크, 오토스케일 resource_id, 컷오버 포트 스위치 — 전부 정상.
 
 ### Stage 5 — 컷오버 (트래픽 전환) — **terraform 작성 완료 2026-07-24** (`cloudfront.tf`·`variables.tf`)
 - **스위치 방식**으로 만들었다: `var.api_backend`(`ec2`|`ecs`, 기본 `ec2`)가 `/api/*` 오리진을 고른다.

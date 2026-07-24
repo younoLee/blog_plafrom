@@ -53,5 +53,11 @@ class Settings(BaseSettings):
     # 로컬/데모는 기본 False라 테스트 키로 계속 흐름 확인 가능.
     payments_require_live: bool = False
 
+    # 가입을 열지 여부. 기본 False = 초대제(계정은 scripts/create_user.py로만 만든다).
+    # 프론트에서 가입 폼을 지워도 이 라우트가 열려 있으면 누구나 직접 POST해 아무 주소로
+    # 인증메일을 보내게 할 수 있다(SES 하드바운스 누적 → 발송정지). 그래서 백엔드에서 닫는다.
+    # 이게 바로 초대제 전환의 진짜 목적 — 프론트만 고치면 목적을 하나도 못 이룬다.
+    allow_signup: bool = False
+
 
 settings = Settings()

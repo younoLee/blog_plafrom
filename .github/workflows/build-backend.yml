@@ -27,7 +27,8 @@ jobs:
       - name: AWS 자격증명 (OIDC 역할 assume)
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-deploy
+          # ECR push 전용 최소권한 역할(배포 역할과 분리 — 사이트 삭제 권한 상속 방지)
+          role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-ecr-push
           aws-region: ${{ env.AWS_REGION }}
 
       - name: ECR 로그인

@@ -168,6 +168,15 @@ def no_smtp(monkeypatch):
     return sent
 
 
+# ── 가입 게이트: 테스트 기본은 '열림' ────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def open_signup(monkeypatch):
+    """운영 기본은 초대제(allow_signup=False)로 닫혀 있지만, register 플로우를 검증하는
+    기존 테스트들은 '열린' 상태를 전제한다. 그래서 테스트 기본을 열림으로 둔다.
+    닫힘(403) 동작은 test_auth_security.py가 이 값을 되돌려 따로 검증한다."""
+    monkeypatch.setattr(settings, "allow_signup", True)
+
+
 @pytest.fixture
 def sent_mail(no_smtp):
     """가로챈 메일 목록. 필요하면 테스트에서 발송 여부·수신자를 확인한다."""

@@ -40,9 +40,10 @@ def main() -> int:
     ap.add_argument("email")
     ap.add_argument(
         "--role",
-        default="writer",
+        default=None,
         choices=ALLOWED_ROLES,
-        help="기본 writer(글쓰기 가능). 데모/초대는 대개 writer면 충분",
+        help="생성 시 기본 writer. 업데이트(--update-if-exists) 시 생략하면 기존 role 유지 "
+        "(예전엔 생략하면 writer로 조용히 덮어써 admin을 강등시킬 수 있었다)",
     )
     ap.add_argument(
         "--password",
@@ -74,7 +75,8 @@ def main() -> int:
                 )
                 return 1
             existing.hashed_password = hash_password(password)
-            existing.role = args.role
+            if args.role is not None:  # 생략하면 기존 role 보존(admin 실수 강등 방지)
+                existing.role = args.role
             existing.email_verified = True
             existing.token_version += 1  # 기존 세션/링크 무효화
             db.commit()
@@ -84,7 +86,7 @@ def main() -> int:
             user = User(
                 email=args.email,
                 hashed_password=hash_password(password),
-                role=args.role,
+                role=args.role or "writer",  # 생성 시 기본 writer
                 email_verified=True,  # 인증메일 없이 바로 로그인 가능하게
             )
             db.add(user)

@@ -57,19 +57,19 @@ echo "  $(stat -c%s "$STAGE/backend.tgz") bytes"
 # ── 2. .env 보존 확인용 지문 ────────────────────────────────────────────────
 # 추출이 `.env`를 건드리지 않는다는 걸 '믿는' 대신 앞뒤로 해시를 재서 확인한다.
 # (값은 출력하지 않는다)
-before=$(ssh -n -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
+before=$(ssh -n -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" "ec2-user@$DNS" \
   'sudo sha256sum /home/ec2-user/blog/.env | cut -c1-12')
 echo "  배포 전 .env 지문: $before"
 
 # ── 3. 올리고 풀기 ─────────────────────────────────────────────────────────
 say "2/4 전송·추출"
-scp -q -o StrictHostKeyChecking=no -i "$SSH_KEY" \
+scp -q -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" \
   "$STAGE/backend.tgz" "$REPO_DIR/docker-compose.prod.yml" "ec2-user@$DNS:/home/ec2-user/blog/"
-ssh -n -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
+ssh -n -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" "ec2-user@$DNS" \
   'cd /home/ec2-user/blog && tar xzf backend.tgz && rm -f backend.tgz && ls -a | head -20'
 
 say "3/4 .env 보존 확인"
-after=$(ssh -n -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
+after=$(ssh -n -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" "ec2-user@$DNS" \
   'sudo sha256sum /home/ec2-user/blog/.env | cut -c1-12')
 if [ "$before" != "$after" ]; then
   echo "❌ .env가 바뀌었습니다($before → $after). 재빌드하지 마세요." >&2
