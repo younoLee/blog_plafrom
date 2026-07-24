@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -38,8 +39,12 @@ def subscribe(
         # 신규: 미확인 상태로 만들고 확인메일 발송
         sub = Subscriber(email=data.email, confirmed=False)
         db.add(sub)
-        db.commit()
-        db.refresh(sub)
+        try:
+            db.commit()
+            db.refresh(sub)
+        except IntegrityError:  # 동시 첫 구독 레이스(email 유니크) — 멱등(그쪽 요청이 메일 보냄)
+            db.rollback()
+            return {"message": "확인 메일을 보냈어. 메일함에서 구독 확인을 눌러줘."}
         _send_confirm(sub, background)
     elif not sub.confirmed:
         # 이미 있지만 미확인: 확인메일 재발송(분실 대비)
@@ -106,7 +111,14 @@ def subscribe_me(
         db.add(sub)
     else:
         sub.confirmed = True
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # 동시 첫 구독 레이스(email 유니크) — 재조회해 confirmed 보장
+        db.rollback()
+        sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
+        if sub is not None and not sub.confirmed:
+            sub.confirmed = True
+            db.commit()
     return MySubscription(email=user.email, subscribed=True)
 
 

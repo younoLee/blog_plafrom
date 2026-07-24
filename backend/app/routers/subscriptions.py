@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -118,7 +119,17 @@ def subscribe(data: SubscribeIn, db: Session = Depends(get_db), user: User = Dep
     )
     if exists is None:
         db.add(AuthorSubscription(subscriber_id=user.id, author_id=data.author_id))  # approved=false(대기)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:  # 동시 중복 신청 레이스(유니크 충돌) — 500 대신 멱등으로 흡수
+            db.rollback()
+            exists = db.scalar(
+                select(AuthorSubscription).where(
+                    AuthorSubscription.subscriber_id == user.id,
+                    AuthorSubscription.author_id == data.author_id,
+                )
+            )
+            return {"approved": exists.approved if exists else False}
         return {"approved": False}
     return {"approved": exists.approved}
 

@@ -20,7 +20,9 @@ def client_ip(request: Request) -> str:
     if xff:
         parts = [p.strip() for p in xff.split(",") if p.strip()]
         if parts:
-            # XFF가 홉 수보다 짧으면(직접 접근 등) 가장 앞(가장 바깥에서 관측된 값)으로 폴백.
+            # XFF 항목이 홉 수보다 적으면(신뢰 프록시를 덜 거친 비정상/직접 경로) idx=len이라
+            # parts[0]을 집는다. parts[0]은 클라에 가까워 위조 가능성이 크지만, 오리진 SG가
+            # CloudFront에만 열려 있어(network.tf) 이 경로 자체가 막혀 정상 트래픽은 len>=hops다.
             idx = min(settings.trusted_proxy_hops, len(parts))
             return parts[-idx]
     return get_remote_address(request)

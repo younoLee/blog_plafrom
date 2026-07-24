@@ -98,6 +98,10 @@ def toggle_pro(user_id: int, db: Session = Depends(get_db)):
     # 지금은 admin이 수동으로. 나중에 Stripe 결제가 이 플래그를 대신 켜줌(C단계).
     user = _get_user_or_404(user_id, db)
     user.is_pro = not user.is_pro
+    # 켤 땐 만료 없음(None). 안 그러면 과거 결제의 pro_until이 남아 있어 다음 요청에서
+    # _expire_pro_if_due(deps.py)가 즉시 되돌린다 → 관리자 수동 부여가 조용히 무효화됐다.
+    if user.is_pro:
+        user.pro_until = None
     db.commit()
     db.refresh(user)
     return user

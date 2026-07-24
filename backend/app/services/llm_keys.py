@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -127,7 +128,19 @@ def set_key(
     else:
         cred.encrypted_key = enc
         cred.base_url = base_url
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # 동시 첫 등록 레이스(uq_llm_user_provider) — 재조회해 교체
+        db.rollback()
+        cred = db.scalar(
+            select(LLMCredential).where(
+                LLMCredential.user_id == user_id, LLMCredential.provider == provider
+            )
+        )
+        if cred is not None:
+            cred.encrypted_key = enc
+            cred.base_url = base_url
+            db.commit()
 
 
 def delete_key(db: Session, user_id: int, provider: str) -> bool:
