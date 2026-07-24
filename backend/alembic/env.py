@@ -28,7 +28,11 @@ from app.core.config import settings
 from app.core.database import Base
 
 # DB 주소를 .env/기본값(settings)에서 주입 (alembic.ini에 비밀번호 안 박아도 됨)
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# %를 %%로 이스케이프한다: set_main_option은 configparser를 거치는데, configparser가 %를
+# 보간문법으로 해석해서, URL 인코딩된 비번(RDS 관리 비번의 특수문자 → %3E 등)이 섞이면
+# "invalid interpolation syntax"로 죽는다(2026-07-24 ECS 이전 때 실측). 서빙(SQLAlchemy 직접)은
+# 멀쩡했다. configparser가 읽을 때 %%를 다시 %로 되돌리므로 SQLAlchemy엔 올바른 URL이 전달된다.
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 # autogenerate가 비교할 기준: 우리 모델들의 메타데이터
 target_metadata = Base.metadata

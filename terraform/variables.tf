@@ -66,6 +66,16 @@ variable "api_backend" {
   }
 }
 
+# ecs 컷오버 시 CloudFront /api 오리진이 될 ALB DNS. **리소스(aws_lb)를 직접 참조하지 않는다** —
+# 직접 참조하면 CloudFront가 ALB에 그래프 의존이 생겨, ALB만 -target destroy해도 CloudFront가
+# 딸려가려 한다(정리 때 사이트 전체가 지워질 뻔했다). 그래서 값으로 주입한다.
+# 컷오버: -var="api_backend=ecs" -var="alb_origin_dns=<ALB DNS>". ec2/정리 시엔 비운다.
+variable "alb_origin_dns" {
+  description = "ecs 컷오버 시 CloudFront /api 오리진이 될 ALB DNS. 비우면 ec2/주차로 폴백."
+  type        = string
+  default     = ""
+}
+
 locals {
   # 주차용 오리진. 우리가 소유한 도메인이어야 하고(제3자 배정 불가), 백엔드 포트가
   # 열려 있지 않아야 한다 → S3 도메인 + custom_origin_config의 8000 포트 = 연결 불가.
@@ -73,9 +83,10 @@ locals {
 
   backend_origin_dns = var.backend_origin_dns != "" ? var.backend_origin_dns : local.backend_origin_parked
 
-  # /api/* 오리진 선택(컷오버). ecs면 ALB(:80), ec2면 현행 EC2 도메인(:8000, 주차 포함).
-  # ALB는 항상 떠 있어 주차가 필요 없다 → ecs 모드에선 backend_origin_dns 로직이 무의미해진다.
-  api_use_ecs       = var.api_backend == "ecs"
-  api_origin_domain = local.api_use_ecs ? aws_lb.backend.dns_name : local.backend_origin_dns
+  # /api/* 오리진 선택(컷오버). ecs면 ALB(:80, var로 주입), ec2면 현행 EC2 도메인(:8000, 주차 포함).
+  # var.alb_origin_dns를 쓰는 이유: aws_lb를 직접 참조하면 CloudFront가 ALB에 그래프 의존이 생겨
+  # ALB만 destroy해도 CloudFront가 딸려간다(정리 사고 방지). ecs인데 dns가 비면 안전하게 주차 폴백.
+  api_use_ecs       = var.api_backend == "ecs" && var.alb_origin_dns != ""
+  api_origin_domain = local.api_use_ecs ? var.alb_origin_dns : local.backend_origin_dns
   api_origin_port   = local.api_use_ecs ? 80 : 8000
 }
