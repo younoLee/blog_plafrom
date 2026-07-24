@@ -124,6 +124,10 @@ resource "aws_ecs_task_definition" "backend" {
     image     = "${aws_ecr_repository.backend.repository_url}:${var.backend_image_tag}"
     essential = true
 
+    # 종료 유예 120초(Fargate 최대). 기본 30초면 롤링 배포·scale-in 때 최대 60초짜리
+    # AI 초안 요청이 SIGKILL로 끊겨 502가 난다. uvicorn이 PID 1이라 SIGTERM을 받아 드레인한다.
+    stopTimeout = 120
+
     portMappings = [{
       containerPort = 8000
       protocol      = "tcp"
@@ -148,6 +152,9 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "S3_BUCKET", value = "blogplafromops" },
       { name = "AWS_REGION", value = "ap-northeast-2" },
       { name = "PAYMENTS_REQUIRE_LIVE", value = "true" },
+      # CloudFront→ALB→task = 신뢰 프록시 2홉. 안 맞추면 레이트리밋이 클라가 아니라
+      # CloudFront 엣지 IP를 키로 잡아 무력화된다(현행 EC2는 1홉이 기본).
+      { name = "TRUSTED_PROXY_HOPS", value = "2" },
       # TODO(사용자): 메일(SES) 설정을 프로드 .env에서 확인해 넣는다. 기본값(localhost)이면
       # Fargate엔 로컬 SMTP가 없어 비번재설정 메일이 500 난다. 예(SES):
       #   { name = "SMTP_HOST", value = "email-smtp.ap-northeast-2.amazonaws.com" },

@@ -59,5 +59,11 @@ class Settings(BaseSettings):
     # 이게 바로 초대제 전환의 진짜 목적 — 프론트만 고치면 목적을 하나도 못 이룬다.
     allow_signup: bool = False
 
+    # X-Forwarded-For에서 뒤에서 몇 번째를 '진짜 클라 IP'로 볼지 = 신뢰하는 프록시 홉 수.
+    # 각 신뢰 프록시가 관측한 IP를 XFF 뒤에 하나씩 덧붙이므로, 클라가 위조해 넣은 앞쪽 값은
+    # 뒤에서 hops번째에 닿지 못한다. 현행(CloudFront→EC2)=1. ECS(CloudFront→ALB→task)=2로
+    # 태스크 env에서 올린다. 틀리면 레이트리밋이 클라가 아니라 엣지 IP를 키로 잡아 무력화된다.
+    trusted_proxy_hops: int = 1
+
 
 settings = Settings()

@@ -83,7 +83,16 @@ def confirm(
     db: Session = Depends(get_db),
 ):
     _guard_live()  # 운영에 테스트 키 방치 시 승인(=Pro 부여) 원천 차단
-    p = db.query(Payment).filter(Payment.order_id == body.order_id).first()
+    # 행 잠금(FOR UPDATE): 동시 confirm(더블클릭·재시도·2개 태스크)을 직렬화한다. 없으면 둘 다
+    # status="pending"을 읽고, 하나가 paid로 만든 뒤 다른 하나가 토스 '이미 처리됨'(비200)을 받아
+    # paid 행을 "failed"로 덮어썼다(유저는 Pro인데 기록은 실패 = 회계 불일치 + 멱등성 붕괴).
+    # 잠그면 뒤 요청은 앞이 커밋한 paid를 읽고 아래 멱등 분기로 빠진다.
+    p = (
+        db.query(Payment)
+        .filter(Payment.order_id == body.order_id)
+        .with_for_update()
+        .first()
+    )
     # 남의 주문/없는 주문 차단
     if p is None or p.user_id != user.id:
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없어")

@@ -182,6 +182,34 @@ CRITICAL/HIGH 대부분을 apply 전에 고쳤다.
 **검증됨(오탐 아님):** DATABASE_URL 조립 셸/인코딩, 시크릿 KMS 불필요, 실행/태스크 역할 분리,
 target_type=ip·헬스체크, 오토스케일 resource_id, 컷오버 포트 스위치 — 전부 정상.
 
+### Stage 4.7 — 2차 심층 재검사 (2026-07-24) — 더 깊게 + 1차 수정 재검증
+검증자 3명: ①AI 캡 수정 적대 검증 ②오늘 수정 6건 회귀 검증 ③1차가 놓친 것 심층.
+
+**AI 캡 원자성 수정(요청):** `ai_usage`를 `INSERT … ON CONFLICT DO UPDATE … RETURNING`로 바꿔
+lost-update 제거 + 시간당 캡을 **reserve-then-check**(원자적 예약 후 반환값 판단)로. 공유 데모
+계정이 여러 IP로 몰려도 **계정 기준 시간당 캡이 총량을 하드 캡** → 월 비용 폭주의 실질 방어선.
+검증: 제약명·SQL idiom·세션 동작 정상, 기존 테스트 4개 보존 + 원자성/경계 테스트 2개 추가.
+(일일/월간은 검사-후-증가 유지지만 원자적 시간당 캡이 상한이라 잔여 오버슈트는 유계.)
+
+**1차가 놓쳐 새로 고친 것 (ALB 삽입이 만든 회귀 중심):**
+1. **레이트리밋이 깨졌다(HIGH).** `X-Forwarded-For[-1]`이 ALB 삽입으로 이제 클라가 아니라
+   CloudFront 엣지 IP → **모든 IP 제한(로그인·가입·결제·AI)이 무력화**. → `trusted_proxy_hops`
+   config(현행 EC2=1, ECS 태스크 env=2)로 뒤에서 N번째를 집게. 현행을 안 깨고 토폴로지에 맞춤.
+2. **stopTimeout 없음(MED).** 롤링 배포·scale-in이 30초 후 SIGKILL → 최대 60초 AI 요청 502.
+   → `stopTimeout=120`(Fargate 최대).
+3. **결제 confirm 레이스(MED).** 동시 confirm이 paid 행을 "failed"로 덮어써 유저는 Pro인데 기록은
+   실패(회계 불일치). → `with_for_update()` 행 잠금으로 직렬화 → 뒤 요청은 멱등 분기로.
+
+**남긴 것(문서/수용):**
+- slowapi 인메모리 레이트리밋은 태스크별(다중태스크서 배수). IP키는 위 #1로 교정됐지만 카운트는
+  여전히 태스크별 → 완전하려면 공유 스토어(Redis). 데모는 DB 캡(비용 핵심)이 견디니 수용·문서화.
+- **메일 미설정 시 조용히 실패(202)** — ecs.tf TODO가 '500'이라 한 건 부정확(BackgroundTasks라 202).
+  컷오버 전 SMTP env/secret 넣거나 메일 경로 죽음을 인지.
+- 서버 command에 `alembic` 없음 → 마이그레이션·pg_trgm 확장은 pg_dump 복원으로 와야 함(런북 ④).
+
+**검증됨(신규 확인):** JWT token_version는 DB라 다중태스크 일관, CORS(동일출처라 무관),
+task-role S3 스코프 정확, DB SSL(libpq prefer로 RDS force_ssl 충족), origin_id 개명은 비파괴.
+
 ### Stage 5 — 컷오버 (트래픽 전환) — **terraform 작성 완료 2026-07-24** (`cloudfront.tf`·`variables.tf`)
 - **스위치 방식**으로 만들었다: `var.api_backend`(`ec2`|`ecs`, 기본 `ec2`)가 `/api/*` 오리진을 고른다.
   오리진 하나에 domain/port를 local로 골라(미참조 오리진 안 생김) 통째로 EC2(:8000)↔ALB(:80) 스위치.
