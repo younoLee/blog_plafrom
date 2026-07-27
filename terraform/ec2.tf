@@ -29,7 +29,13 @@ resource "aws_instance" "backend" {
   }
 
   tags = {
-    Name = "blog-backend " # 끝 공백은 실제 태그값 그대로
+    # 원래는 "blog-backend "(끝 공백)이었다 — 콘솔에서 만든 값을 그대로 맞춘 것이다.
+    # 2026-07-27 DR 게임데이에서 그 공백이 실제로 복구를 막았다: 재해 뒤 새 인스턴스를
+    # 찾는 명령 `--filters "Name=tag:Name,Values=blog-backend "`가 **아무것도 못 찾는다**.
+    # AWS CLI의 축약(shorthand) 필터 파서가 값 뒤의 공백을 잘라내기 때문이다. 그래서
+    # IID가 비고, 바로 다음 줄이 InvalidInstanceID.Malformed로 죽는다. JSON 형식 필터로만
+    # 매칭되는데, 사고 한복판에서 그걸 떠올릴 이유가 없다. → 공백을 없앤다(태그는 in-place 갱신).
+    Name = "blog-backend"
   }
 }
 

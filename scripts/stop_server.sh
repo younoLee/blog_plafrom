@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-INSTANCE_ID=i-06da19f44d1f38eff
+INSTANCE_ID=i-0abdd1afc7041e167
 BUCKET=blog-db-backups-181568979775
 IMAGE_BUCKET=blogplafromops        # 업로드 이미지가 사는 곳(프론트와 같은 버킷)
 SSH_KEY=~/.ssh/blog-key.pem

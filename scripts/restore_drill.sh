@@ -40,7 +40,7 @@
 
 set -euo pipefail
 
-INSTANCE_ID=i-06da19f44d1f38eff
+INSTANCE_ID=i-0abdd1afc7041e167
 BUCKET=blog-db-backups-181568979775
 IMAGE_BUCKET=blogplafromops
 SSH_KEY=~/.ssh/blog-key.pem

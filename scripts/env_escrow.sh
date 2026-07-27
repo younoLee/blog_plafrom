@@ -28,7 +28,7 @@
 
 set -euo pipefail
 
-INSTANCE_ID=i-06da19f44d1f38eff
+INSTANCE_ID=i-0abdd1afc7041e167
 SSH_KEY=~/.ssh/blog-key.pem
 ESCROW_DIR="$HOME/.blog-secrets"
 # 세 번째 사본. PC와 서버를 **동시에** 잃는 경우를 위한 자리다.

@@ -9,13 +9,30 @@
 variable "backend_image_tag" {
   description = "띄울 백엔드 이미지의 태그(=git SHA). build-backend.yml이 ECR에 올린 값."
   type        = string
-  # 기본값 없음 = 필수. 빈 값이면 image가 'repo:'가 되어 CannotPullContainerError로 태스크가
-  # 영영 안 뜬다 → 조용한 실패 대신 apply 자체를 막는다. apply 시 -var로 실제 SHA를 넘긴다.
 
-  validation {
-    condition     = length(var.backend_image_tag) > 0
-    error_message = "backend_image_tag는 비울 수 없습니다. build-backend가 올린 git SHA를 -var로 넘기세요."
-  }
+  # 2026-07-27 DR 게임데이 이전에는 기본값이 없는 필수 변수였다. 그 결과 ECS를 안 쓰는
+  # 지금도 `terraform apply`가 "No value for required variable"로 즉시 죽었고, **재해 복구
+  # 런북(RECOVERY.md 시나리오 B)의 1번 명령이 통째로 실패했다.** 사고 한복판에서 첫 삽이
+  # 안 들어가는 셈이라 기본값을 뒀다.
+  #
+  # 빈 값의 위험(image가 'repo:'가 되어 CannotPullContainerError로 태스크가 영영 안 뜸)은
+  # 사라지지 않았다 — 다만 그 검사를 "모든 apply"가 아니라 **실제로 태스크를 만들 때**로
+  # 옮겼다(aws_ecs_task_definition의 precondition). 위험한 자리에서만 시끄럽게 실패한다.
+  default = ""
+}
+
+# ECS/ALB/RDS를 실제로 띄울지. **기본 false** — 2026-07-24에 ECS 스택을 tear down했고,
+# 지금 운영은 EC2 단일 인스턴스다.
+#
+# 왜 스위치가 필요한가(2026-07-27 DR 게임데이에서 실측): 이 파일들의 리소스가 무조건
+# 생성되게 두면, EC2 하나를 되살리려고 친 `terraform apply`가 **tear down한 ECS·ALB·RDS
+# 10개를 통째로 부활시킨다**(월 $50~70). 재해 복구 중에 쓰지도 않을 인프라가 살아나고,
+# 게다가 이미지 태그가 없으니 태스크는 CannotPullContainerError로 안 떠서 노이즈만 낸다.
+# → 복구 경로에서 apply의 폭발반경을 EC2로 좁히기 위한 스위치다.
+variable "enable_ecs" {
+  description = "ECS/ALB/RDS 스택을 생성할지. false면 EC2 단일 인스턴스 구성만 관리한다."
+  type        = bool
+  default     = false
 }
 
 # ── 로그 ──────────────────────────────────────────────────────────────────────
@@ -57,6 +74,8 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_managed" {
 
 # 시크릿 주입: 관리형 정책엔 없다. RDS 관리 비번 + 앱 시크릿 두 개만 읽게 한정한다.
 resource "aws_iam_role_policy" "ecs_execution_secrets" {
+  count = var.enable_ecs ? 1 : 0
+
   name = "read-injected-secrets"
   role = aws_iam_role.ecs_execution.id
 
@@ -67,7 +86,7 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
       Action = ["secretsmanager:GetSecretValue"]
       Resource = [
         aws_secretsmanager_secret.app.arn,
-        aws_db_instance.main.master_user_secret[0].secret_arn,
+        aws_db_instance.main[0].master_user_secret[0].secret_arn,
       ]
     }]
   })
@@ -111,6 +130,18 @@ resource "aws_ecs_cluster" "main" {
 
 # ── 태스크 정의 (백엔드 서빙) ────────────────────────────────────────────────
 resource "aws_ecs_task_definition" "backend" {
+  count = var.enable_ecs ? 1 : 0
+
+  # 태그가 비면 image가 'repo:'가 되어 CannotPullContainerError로 태스크가 영영 안 뜬다.
+  # 옛날엔 변수 validation으로 막았는데, 그러면 ECS를 안 쓰는 apply까지 전부 막혀
+  # DR 런북이 깨졌다(2026-07-27 게임데이). 검사를 실제로 태스크를 만드는 이 자리로 옮긴다.
+  lifecycle {
+    precondition {
+      condition     = length(var.backend_image_tag) > 0
+      error_message = "enable_ecs=true면 backend_image_tag가 필요합니다. build-backend가 올린 git SHA를 -var로 넘기세요."
+    }
+  }
+
   family                   = "blog-backend"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -143,7 +174,7 @@ resource "aws_ecs_task_definition" "backend" {
 
     # 비밀 아닌 설정. 프로드 .env와 대조해 SMTP 등은 확정할 것(아래 TODO).
     environment = [
-      { name = "DB_HOST", value = aws_db_instance.main.address },
+      { name = "DB_HOST", value = aws_db_instance.main[0].address },
       { name = "DB_PORT", value = "5432" },
       { name = "DB_NAME", value = "blog" },
       { name = "DB_USER", value = "postgres" },
@@ -164,7 +195,7 @@ resource "aws_ecs_task_definition" "backend" {
 
     # 비밀값 주입. DB_PASSWORD는 RDS 관리 시크릿의 password 키에서, 나머지는 blog-app-secrets에서.
     secrets = [
-      { name = "DB_PASSWORD", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::" },
+      { name = "DB_PASSWORD", valueFrom = "${aws_db_instance.main[0].master_user_secret[0].secret_arn}:password::" },
       { name = "SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:SECRET_KEY::" },
       { name = "ANTHROPIC_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:ANTHROPIC_API_KEY::" },
       { name = "LLM_ENCRYPTION_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:LLM_ENCRYPTION_KEY::" },
@@ -186,9 +217,11 @@ resource "aws_ecs_task_definition" "backend" {
 # 태스크를 퍼블릭 서브넷 + 퍼블릭IP로 띄운다(NAT 회피). 인바운드는 task SG가 ALB로만 잠근다.
 # 롤링 배포: min 100% + max 200% → 새 태스크가 healthy가 된 뒤 옛 것을 내린다(무중단).
 resource "aws_ecs_service" "backend" {
+  count = var.enable_ecs ? 1 : 0
+
   name            = "blog-backend"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.backend.arn
+  task_definition = aws_ecs_task_definition.backend[0].arn
   desired_count   = 2 # HA: 서브넷이 4개 AZ라 Fargate가 태스크를 서로 다른 AZ에 흩뿌린다.
   launch_type     = "FARGATE"
 
@@ -217,7 +250,7 @@ resource "aws_ecs_service" "backend" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.backend.arn
+    target_group_arn = aws_lb_target_group.backend[0].arn
     container_name   = "backend"
     container_port   = 8000
   }
@@ -236,19 +269,23 @@ resource "aws_ecs_service" "backend" {
 # scale-in은 천천히(5분), scale-out은 빠르게(1분) — 급증에 먼저 대응하고 급감엔 신중.
 # (in-process 스케줄러가 태스크마다 도는 건 확인상 저위험: cleanup은 멱등, recorder는 과다표본뿐)
 resource "aws_appautoscaling_target" "backend" {
+  count = var.enable_ecs ? 1 : 0
+
   max_capacity       = 4
   min_capacity       = 2
-  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.backend.name}"
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.backend[0].name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
 }
 
 resource "aws_appautoscaling_policy" "backend_cpu" {
+  count = var.enable_ecs ? 1 : 0
+
   name               = "blog-backend-cpu60"
   policy_type        = "TargetTrackingScaling"
-  resource_id        = aws_appautoscaling_target.backend.resource_id
-  scalable_dimension = aws_appautoscaling_target.backend.scalable_dimension
-  service_namespace  = aws_appautoscaling_target.backend.service_namespace
+  resource_id        = aws_appautoscaling_target.backend[0].resource_id
+  scalable_dimension = aws_appautoscaling_target.backend[0].scalable_dimension
+  service_namespace  = aws_appautoscaling_target.backend[0].service_namespace
 
   target_tracking_scaling_policy_configuration {
     predefined_metric_specification {

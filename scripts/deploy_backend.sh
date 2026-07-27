@@ -23,7 +23,7 @@
 
 set -euo pipefail
 
-INSTANCE_ID=i-06da19f44d1f38eff
+INSTANCE_ID=i-0abdd1afc7041e167
 SSH_KEY=~/.ssh/blog-key.pem
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

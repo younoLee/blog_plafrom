@@ -9,6 +9,8 @@
 #       → 인터넷에서 직접 못 붙는다. 다중 서브넷은 RDS가 요구하는 서브넷그룹 형식 때문.
 
 resource "aws_db_subnet_group" "main" {
+  count = var.enable_ecs ? 1 : 0
+
   name       = "blog-db"
   subnet_ids = data.aws_subnets.default.ids
 
@@ -18,6 +20,8 @@ resource "aws_db_subnet_group" "main" {
 }
 
 resource "aws_db_instance" "main" {
+  count = var.enable_ecs ? 1 : 0
+
   identifier     = "blog-db"
   engine         = "postgres"
   engine_version = "16.14" # ap-northeast-2 · db.t4g.micro 가용 최신(조회 확인). drift 방지로 핀.
@@ -40,7 +44,7 @@ resource "aws_db_instance" "main" {
   multi_az                = false
   backup_retention_period = 7
   publicly_accessible     = false
-  db_subnet_group_name    = aws_db_subnet_group.main.name
+  db_subnet_group_name    = aws_db_subnet_group.main[0].name
   vpc_security_group_ids  = [aws_security_group.rds.id]
 
   auto_minor_version_upgrade = true
@@ -56,11 +60,12 @@ resource "aws_db_instance" "main" {
 }
 
 output "rds_endpoint" {
-  value = aws_db_instance.main.address
+  # enable_ecs=false면 RDS가 없으므로 null.
+  value = one(aws_db_instance.main[*].address)
 }
 
 # 앱이 쓸 DATABASE_URL 조립에 필요한 마스터 비번 시크릿(Secrets Manager) ARN.
 # Stage 4 태스크 정의가 이 ARN에서 password를 secrets로 주입한다.
 output "rds_master_secret_arn" {
-  value = aws_db_instance.main.master_user_secret[0].secret_arn
+  value = one(aws_db_instance.main[*].master_user_secret[0].secret_arn)
 }

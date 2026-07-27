@@ -31,7 +31,7 @@
 # 문제를 모아서 한 번에 보여주는 게 이 스크립트의 목적이다.
 set -uo pipefail
 
-INSTANCE_ID=i-06da19f44d1f38eff
+INSTANCE_ID=i-0abdd1afc7041e167
 BUCKET=blog-db-backups-181568979775
 IMAGE_BUCKET=blogplafromops
 CF_URL=https://d2j66m9udyg9yq.cloudfront.net

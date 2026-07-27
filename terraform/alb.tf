@@ -8,6 +8,8 @@
 # (HTTPS 오리진은 커스텀 도메인+ACM 필요 — 보류. 계획서 Stage 5 참고)
 
 resource "aws_lb" "backend" {
+  count = var.enable_ecs ? 1 : 0
+
   name               = "blog-backend"
   load_balancer_type = "application"
   internal           = false
@@ -25,6 +27,8 @@ resource "aws_lb" "backend" {
 
 # Fargate 태스크는 IP로 등록된다(target_type=ip). EC2 인스턴스 등록과 다르다.
 resource "aws_lb_target_group" "backend" {
+  count = var.enable_ecs ? 1 : 0
+
   name        = "blog-backend"
   port        = 8000
   protocol    = "HTTP"
@@ -49,17 +53,20 @@ resource "aws_lb_target_group" "backend" {
 }
 
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.backend.arn
+  count = var.enable_ecs ? 1 : 0
+
+  load_balancer_arn = aws_lb.backend[0].arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.backend.arn
+    target_group_arn = aws_lb_target_group.backend[0].arn
   }
 }
 
 output "alb_dns_name" {
   # 컷오버(Stage 5) 때 CloudFront /api/* 오리진 domain_name 에 넣을 값.
-  value = aws_lb.backend.dns_name
+  # enable_ecs=false면 ALB 자체가 없으므로 null이 된다(one()이 빈 목록을 null로 접는다).
+  value = one(aws_lb.backend[*].dns_name)
 }

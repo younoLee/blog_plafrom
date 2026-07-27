@@ -24,6 +24,33 @@
 > 남은 미검증은 없다. 다만 위 두 개처럼 **문서가 맞는지는 밟아봐야만 안다**는 게
 > 이번의 교훈이라, 인프라를 크게 바꾸면 다시 한 번 돌려보는 게 좋다.
 
+> 🔥 **2026-07-27 DR 게임데이 — 이번엔 운영 인스턴스를 진짜로 terminate하고 재건했다.**
+> 07-22 훈련은 임시 인스턴스였지만, 이번엔 `aws_instance.backend`를 실제로 파괴해
+> 루트 볼륨(pgdata)까지 날린 뒤 이 문서만 보고 되살렸다. **RTO 42분**(복구 착수 →
+> `/api/status` 200), 데이터 손실 0(글 27·유저 5·댓글 4·결제 2 전부 복원).
+>
+> 위 07-22 문단이 "남은 미검증은 없다"고 썼는데, **그 사이 ECS 이전(07-24)이
+> 이 문서를 조용히 망가뜨려 놓았다.** 게임데이가 찾은 것 5개 — 전부 고쳤다:
+>
+> 1. **1단계 `terraform apply`가 즉시 실패했다.** ECS 이전이 기본값 없는 필수 변수
+>    `backend_image_tag`를 추가해서, `No value for required variable`로 첫 삽이 안 들어갔다.
+>    → 기본값을 주고, 빈 값 검사는 실제로 태스크를 만드는 자리(precondition)로 옮겼다.
+> 2. **그걸 넘겨도 `apply`가 tear down한 ECS·ALB·RDS 10개를 부활시켰다**(월 $50~70).
+>    재해 복구 중에 안 쓰는 인프라가 살아나고 태스크는 이미지가 없어 crash한다.
+>    → `enable_ecs`(기본 false)로 게이트. 이제 인자 없는 apply가 인프라를 1건도 안 건드린다.
+> 3. **새 인스턴스를 찾는 명령이 아무것도 못 찾았다.** 태그값이 `"blog-backend "`(끝 공백)인데
+>    AWS CLI 축약 필터가 뒤 공백을 잘라내서 매칭 실패 → `IID`가 비고 다음 줄이
+>    `InvalidInstanceID.Malformed`로 죽는다. **이 한 건에 20분을 썼다**(RTO 42분 중).
+>    → 태그에서 공백을 없앴다(`ec2.tf`).
+> 4. **"alembic은 이미 head라 no-op이 된다"는 문장이 틀렸다.** 백업(07-22)은 `b7f1c4e29a03`,
+>    head는 `c1d2e3f4a5b6`라 백엔드가 뜨면서 실제 DDL이 돌았다(`posts.created_at` 인덱스).
+>    이번엔 무해했지만 백업이 오래될수록 여기서 진짜 마이그레이션이 돈다. → 문구를 고쳤다.
+> 5. **인스턴스 ID를 갈아끼울 파일 목록이 빠져 있었다.** 문서는 3개를 적었는데 실제로는
+>    **5개**다(`watch.sh`·`deploy_backend.sh` 누락). 특히 `watch.sh`가 빠지면 감시가
+>    존재하지 않는 인스턴스를 계속 들여다본다 — 조용한 실패다. → 목록을 5개로 고쳤다.
+>
+> 자세한 기록은 `docs/dr-gameday-20260727.md`.
+
 ## 0. 무엇이 어디에 있나
 
 | 자산 | 사는 곳 | 잃으면 | 사본 |
@@ -91,17 +118,24 @@ cat > terraform/terraform.tfvars <<'TFVARS'
 ssh_cidr = "<지금 내 공인 IP>/32"   # curl -s https://checkip.amazonaws.com
 TFVARS
 
-# 1) 인스턴스 재생성 (terraform이 관리한다)
-terraform -chdir=terraform apply
+# 1) 인스턴스 재생성 — **-target으로 범위를 좁힌다.**
+#    재해 복구에서 필요한 건 EC2 하나다. 범위를 안 좁히면 apply가 이 저장소의 다른
+#    리소스까지 손대려 든다(2026-07-27 게임데이에서 tear down한 ECS 스택이 부활할 뻔했다.
+#    지금은 enable_ecs=false로 막혀 있지만, 좁히는 습관 자체가 사고 중의 안전장치다).
+terraform -chdir=terraform apply -target=aws_instance.backend
 
-# ⚠️ 새 인스턴스는 ID가 다르다. 옛 ID(i-06da19f44d1f38eff)로 조회하면
-#    InvalidInstanceID.NotFound가 난다. 태그로 찾아 쓰고, 그 다음에 스크립트에 박힌
-#    ID들을 새 값으로 바꿔야 한다 — 안 바꾸면 정지 절차도 훈련도 옛 인스턴스를 본다.
-#      scripts/stop_server.sh, scripts/restore_drill.sh, scripts/env_escrow.sh,
-#      terraform/variables.tf 주석
-IID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=blog-backend " \
+# ⚠️ 새 인스턴스는 ID가 다르다. 옛 ID로 조회하면 InvalidInstanceID.NotFound가 난다.
+#    태그로 찾아 쓰고, 그 다음에 **스크립트에 박힌 ID 5곳**을 새 값으로 바꿔야 한다 —
+#    안 바꾸면 정지 절차도, 훈련도, 감시도 존재하지 않는 인스턴스를 들여다본다.
+#      scripts/stop_server.sh   scripts/restore_drill.sh   scripts/env_escrow.sh
+#      scripts/watch.sh         scripts/deploy_backend.sh  (+ terraform/variables.tf 주석)
+#    한 번에:  sed -i "s/^INSTANCE_ID=.*/INSTANCE_ID=$IID/" scripts/*.sh
+IID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=blog-backend" \
   "Name=instance-state-name,Values=running" \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
+# ⚠️ 태그값에 공백이 섞이면 이 축약 필터는 조용히 아무것도 못 찾는다(CLI가 뒤 공백을
+#    잘라낸다). 2026-07-27에 실제로 여기서 20분을 잃었다. IID가 비면 태그부터 의심할 것.
+[ -n "$IID" ] && [ "$IID" != "None" ] || { echo "인스턴스를 못 찾았다 — 태그 확인"; exit 1; }
 DNS=$(aws ec2 describe-instances --instance-ids "$IID" \
   --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
 echo "새 인스턴스 ID: $IID  ← 위 파일들의 INSTANCE_ID를 이 값으로 교체할 것"
@@ -151,12 +185,20 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
   'cd ~/blog && gunzip -c /tmp/restore.sql.gz | sudo docker compose -f docker-compose.prod.yml \
      exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1'
 
-# 7) 이제 백엔드 (alembic은 이미 head라 no-op이 된다)
+# 7) 이제 백엔드.
+#    ⚠️ 여기서 `alembic upgrade head`가 돈다. **"어차피 no-op"이라고 믿지 말 것** —
+#    백업을 뜬 시점 이후에 추가된 마이그레이션이 있으면 이 자리에서 실제 DDL이 돈다
+#    (2026-07-27 게임데이: 백업 b7f1c4e29a03 → head c1d2e3f4a5b6 로 인덱스 하나가 실제로
+#    생성됐다). 백업이 오래됐을수록 실행량이 커지고, 실패하면 백엔드가 아예 안 뜬다.
+#    기동 후 로그에서 "Running upgrade"를 확인하고, 실패하면 그게 1순위 용의자다.
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
   'cd ~/blog && sudo docker compose -f docker-compose.prod.yml up -d --build backend'
+ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
+  'cd ~/blog && sudo docker compose -f docker-compose.prod.yml logs backend | grep -i "running upgrade\|error"'
 
-# 8) 오리진을 새 주소로 (주차 해제)
-terraform -chdir=terraform apply -var="backend_origin_dns=$DNS"
+# 8) 오리진을 새 주소로 (주차 해제). 여기도 -target으로 좁힌다.
+terraform -chdir=terraform apply -target=aws_cloudfront_distribution.main \
+  -var="backend_origin_dns=$DNS"
 
 # 9) 확인
 curl -s https://d2j66m9udyg9yq.cloudfront.net/api/status
