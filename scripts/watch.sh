@@ -238,13 +238,27 @@ for u in IAM_cli "ses-smtp-user.20260625-184915"; do
   if [ -z "$n" ]; then
     fail "액세스키 목록을 못 읽었다 ($u) — 감시가 눈이 먼 상태다."
   elif [ "$n" -gt 1 ]; then
-    fail "$u 에 액세스키가 $n 개다(기대 1개). 내가 만든 게 아니면 침해를 의심할 것."
+    # 로테이션 중에는 새 키와 옛 키가 잠깐 함께 산다(docs/incident-response.md 3장).
+    # 그때 이게 빨간불이 되는 건 **의도한 동작**이다 — 로테이션이 끝나면 저절로 꺼진다.
+    fail "$u 에 액세스키가 $n 개다(기대 1개). 로테이션 중이 아니면 침해를 의심할 것."
     echo "     확인: aws iam list-access-keys --user-name $u"
   else
     # (c) 키 나이. 오래된 키는 유출돼도 모른 채 쌓인다. 90일이면 교체 신호.
     created=$(aws iam list-access-keys --user-name "$u" \
       --query 'AccessKeyMetadata[0].CreateDate' --output text 2>/dev/null)
-    age=$(( ( $(date -u +%s) - $(date -u -d "$created" +%s) ) / 86400 ))
+    # 못 읽었으면 **초록으로 넘기지 않는다.** 빈 값을 그냥 계산에 넣으면 date가 '지금'으로
+    # 해석해 나이가 0일이 되고, 눈이 먼 상태가 "✅ 키 1개 · 0일"로 보고된다(가짜 초록).
+    # 이 저장소가 SES에서 4주간 당한 게 정확히 그 형태였다.
+    if [ -z "$created" ] || [ "$created" = "None" ]; then
+      fail "$u 액세스키 생성일을 못 읽었다 — 감시가 눈이 먼 상태다."
+      continue
+    fi
+    created_epoch=$(date -u -d "$created" +%s 2>/dev/null)
+    if [ -z "$created_epoch" ]; then
+      fail "$u 액세스키 생성일을 해석 못 했다 ($created)."
+      continue
+    fi
+    age=$(( (now - created_epoch) / 86400 ))
     if [ "$age" -ge 90 ]; then
       warn "$u 액세스키가 ${age}일 됐다 — 교체를 검토할 것(docs/incident-response.md)."
     else

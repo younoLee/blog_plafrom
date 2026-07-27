@@ -155,6 +155,27 @@ resource "aws_iam_role_policy" "github_watch" {
         Action   = ["ses:GetAccount"]
         Resource = "*"
       },
+      {
+        # watch.sh 5번(2026-07-27 IR 훈련) — 감사기록이 살아 있는지. 침해자의 첫 수가
+        # 보통 로깅 정지라 이게 꺼진 걸 늦게 알면 '누가 뭘 했나'에 영영 답할 수 없다.
+        Sid      = "ReadTrailStatus"
+        Effect   = "Allow"
+        Action   = ["cloudtrail:GetTrailStatus"]
+        Resource = aws_cloudtrail.main.arn
+      },
+      {
+        # watch.sh 5번 — 액세스키가 늘었는지(지속성 확보 탐지)와 키 나이.
+        # 키 **메타데이터만** 읽는다(ListAccessKeys는 시크릿을 주지 않는다).
+        # 자원을 두 사용자로 좁힌다 — 새 사용자가 생기면 여기 추가해야 보인다는
+        # 뜻이기도 하지만, 감시 역할에 계정 전체 IAM 열람을 주는 것보다 낫다.
+        Sid    = "ReadAccessKeyInventory"
+        Effect = "Allow"
+        Action = ["iam:ListAccessKeys"]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/IAM_cli",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/ses-smtp-user.20260625-184915",
+        ]
+      },
     ]
   })
 }
