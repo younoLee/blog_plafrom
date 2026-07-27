@@ -210,6 +210,49 @@ else
   echo "     조치: docs/ses-production-access.md (콘솔에서 재신청해야 한다)"
 fi
 
+# ── 5. 자격증명·감사기록이 온전한가 ─────────────────────────────────────────
+# 2026-07-27 IR 훈련에서 나온 구멍: CloudTrail은 모든 걸 기록하는데 **그걸 보는 게
+# 아무것도 없었다**(GuardDuty 없음, CloudWatch 알람 0개). 관리자 액세스키가 유출되면
+# 탐지 수단이 사실상 월말 청구서와 $10 예산 알림뿐이었다.
+#
+# 여기서 IP 화이트리스트 같은 걸 하지 않는 이유: 집 IP가 바뀌면 영구 빨간불이 되고,
+# 영구 빨간불은 아무도 안 보는 신호와 같다(이 저장소가 반복해서 배운 것). 대신
+# **오탐이 구조적으로 불가능한 것만** 본다 — 사실이거나 아니거나인 항목들이다.
+
+# (a) 감사기록이 살아 있는가. 침해자의 첫 수는 보통 로깅 정지다.
+trail_logging=$(aws cloudtrail get-trail-status --region "$REGION" --name blog-audit \
+  --query 'IsLogging' --output text 2>/dev/null)
+if [ "$trail_logging" = "True" ]; then
+  ok "CloudTrail 기록 중 (blog-audit)"
+elif [ -z "$trail_logging" ]; then
+  fail "CloudTrail 상태를 못 읽었다 — 감사기록이 있는지조차 모르는 상태다."
+else
+  fail "CloudTrail 로깅이 꺼져 있다 — 침해 시 '누가 뭘 했나'에 답할 수 없다."
+  echo "     조치: aws cloudtrail start-logging --name blog-audit --region $REGION"
+fi
+
+# (b) 액세스키가 예상보다 많은가. 공격자가 지속성을 확보하는 전형적 수법이 키 추가다.
+#     사용자별 기대치는 각 1개. 늘어나면 내가 만든 것인지 즉시 따져야 한다.
+for u in IAM_cli "ses-smtp-user.20260625-184915"; do
+  n=$(aws iam list-access-keys --user-name "$u" --query 'length(AccessKeyMetadata)' --output text 2>/dev/null)
+  if [ -z "$n" ]; then
+    fail "액세스키 목록을 못 읽었다 ($u) — 감시가 눈이 먼 상태다."
+  elif [ "$n" -gt 1 ]; then
+    fail "$u 에 액세스키가 $n 개다(기대 1개). 내가 만든 게 아니면 침해를 의심할 것."
+    echo "     확인: aws iam list-access-keys --user-name $u"
+  else
+    # (c) 키 나이. 오래된 키는 유출돼도 모른 채 쌓인다. 90일이면 교체 신호.
+    created=$(aws iam list-access-keys --user-name "$u" \
+      --query 'AccessKeyMetadata[0].CreateDate' --output text 2>/dev/null)
+    age=$(( ( $(date -u +%s) - $(date -u -d "$created" +%s) ) / 86400 ))
+    if [ "$age" -ge 90 ]; then
+      warn "$u 액세스키가 ${age}일 됐다 — 교체를 검토할 것(docs/incident-response.md)."
+    else
+      ok "$u 액세스키 1개 · ${age}일"
+    fi
+  fi
+done
+
 # ── 요약 ────────────────────────────────────────────────────────────────────
 echo
 if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then
