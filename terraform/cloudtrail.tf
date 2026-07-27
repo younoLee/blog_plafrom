@@ -44,6 +44,26 @@ resource "aws_s3_bucket_versioning" "cloudtrail" {
   }
 }
 
+# Object Lock (COMPLIANCE, 14일) — 증거 보전. 2026-07-27 IR 훈련에서 나온 약점이다.
+#
+# 로그파일 검증(아래 aws_cloudtrail의 enable_log_file_validation)은 **변조**를 드러내지만
+# **삭제**는 막지 못한다. 감사 로그가 침해 대상과 같은 계정에 있으니, 관리자 키를 쥔
+# 공격자는 자기 흔적을 지울 수 있었다. 별도 계정으로 보내는 게 정석이지만 그건 조직(Organizations)
+# 얘기가 되고, 단일 계정에서 쓸 수 있는 실질적 통제가 이것이다.
+#
+# 침해가 일어난 뒤의 로그가 곧 증거이므로 '앞으로 쌓이는 것'만 보호해도 목적을 달성한다
+# (기존 로그에 소급 적용하지 않은 이유. 어차피 90일 수명주기로 만료된다).
+resource "aws_s3_bucket_object_lock_configuration" "cloudtrail" {
+  bucket = aws_s3_bucket.cloudtrail.id
+
+  rule {
+    default_retention {
+      mode = "COMPLIANCE"
+      days = 14
+    }
+  }
+}
+
 # 무한 누적을 막는다. 90일이면 "사고를 알아차리고 되짚을" 창으로 충분하고,
 # 이 계정 볼륨에서는 어차피 몇 MB 수준이다.
 resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {

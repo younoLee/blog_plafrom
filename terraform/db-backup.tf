@@ -42,6 +42,35 @@ resource "aws_s3_bucket_versioning" "db_backups" {
   }
 }
 
+# Object Lock (COMPLIANCE, 14일) — 2026-07-27 IR 훈련의 결론.
+#
+# 훈련에서 실측한 것: 서버가 통째로 털려도 백업은 안전했다(EC2 역할은 PutObject만 있고
+# 읽기·삭제가 전부 implicitDeny). **그런데 운영자의 관리자 키가 유출되면** 버저닝만으로는
+# 못 막는다 — 관리자는 버전까지 지울 수 있고, 그러면 백업이 영구히 사라진다.
+#
+# GOVERNANCE 모드는 s3:BypassGovernanceRetention 으로 우회되므로 '관리자 키 유출'이라는
+# 우리 위협에는 무의미하다. COMPLIANCE는 **루트를 포함해 아무도** 보존 기간 안에는 못 지운다.
+# 실증: 관리자 자격증명으로 keep/latest.sql.gz 삭제를 시도해 --bypass-governance-retention
+# 까지 붙였고, 둘 다 "Access Denied because object protected by object lock"으로 막혔다.
+#
+# 14일인 이유: watch.sh가 매시 백업 이상을 잡으므로 대응 시간으로 충분하고, 버킷을 정리할
+# 일이 생겨도 2주만 기다리면 된다. 길수록 안전하지만 그만큼 되돌릴 수 없다.
+#
+# ⚠️ 기존 객체에는 소급 적용되지 않는다. 켤 당시 있던 18개 버전에는 put-object-retention 으로
+#    직접 걸었다. 앞으로 올라오는 객체는 아래 기본 보존이 자동으로 붙는다(실측 확인).
+# ⚠️ 백업 업로드는 안 깨진다. EC2 역할과 동일한 권한(PutObject만)을 가진 임시 역할로
+#    잠긴 버킷에 업로드가 되는 것을 확인했다 — 기본 보존은 s3:PutObjectRetention 없이도 붙는다.
+resource "aws_s3_bucket_object_lock_configuration" "db_backups" {
+  bucket = aws_s3_bucket.db_backups.id
+
+  rule {
+    default_retention {
+      mode = "COMPLIANCE"
+      days = 14
+    }
+  }
+}
+
 # 보관 정책.
 #
 # 옛 규칙은 '버킷 전체 30일'이었는데, 백업이 도는 시점이 cron(매일)이 아니라
