@@ -26,10 +26,24 @@ def enforced():
     settings.origin_secret = before
 
 
-def test_off_by_default_lets_everything_through(client):
-    # 기본값(빈 문자열)에서는 헤더가 없어도 통과해야 한다. 이 fail open이 없으면
+@pytest.fixture
+def disabled():
+    """미들웨어를 끈 상태로 만든다.
+
+    ambient 설정에 기대지 않고 명시적으로 비운다 — 개발자 로컬 backend/.env에
+    ORIGIN_SECRET이 들어 있으면 pydantic Settings가 그걸 읽어서, '기본값이 빈 문자열'을
+    전제한 테스트가 그 사람 기기에서만 깨진다. 테스트가 환경에 따라 갈리는 병은
+    이 저장소가 이미 CI 빨간불로 한 번 앓았다.
+    """
+    before = settings.origin_secret
+    settings.origin_secret = ""
+    yield
+    settings.origin_secret = before
+
+
+def test_off_lets_everything_through(client, disabled):
+    # 설정이 비면 헤더가 없어도 통과해야 한다. 이 fail open이 없으면
     # CloudFront보다 백엔드를 먼저 켰을 때 사이트 전체가 403이 된다.
-    assert settings.origin_secret == ""
     assert client.get("/api/status").status_code == 200
 
 
@@ -71,4 +85,17 @@ def test_prefix_of_secret_is_rejected(client, enforced):
 def test_blocks_writes_too(client, enforced):
     # GET만 막고 POST가 새면 우회 차단이 아니다.
     r = client.post("/api/auth/login", json={"email": "a@b.c", "password": "x"})
+    assert r.status_code == 403
+
+
+def test_non_ascii_header_is_forbidden_not_crash(client, enforced):
+    # Starlette은 헤더를 latin-1로 디코드한다. 이 바이트를 str 그대로
+    # secrets.compare_digest에 넘기면 "comparing strings with non-ASCII characters is
+    # not supported" TypeError가 나서, 차단 장치가 403 대신 500으로 스스로 죽는다.
+    # 우회는 아니지만 검사가 터지는 건 기대 동작이 아니다 — bytes로 비교해 막는다.
+    #
+    # 헤더 값을 **bytes로** 넣는다. str로 주면 httpx가 보내기 전에 ascii 인코딩으로
+    # 거부해서(UnicodeEncodeError) 서버 코드에 닿지도 못한다 — 클라이언트 라이브러리의
+    # 예의를 테스트하는 꼴이 된다. 실제 공격자는 소켓에 바이트를 그대로 쓴다.
+    r = client.get("/api/status", headers={"X-Origin-Secret": b"s\xe9" + b"s" * 38})
     assert r.status_code == 403

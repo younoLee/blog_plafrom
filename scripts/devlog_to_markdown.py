@@ -142,6 +142,17 @@ FLAT_TITLE = "블로그 개발일지"  # Title 스타일이 날아가 본문처�
 # 8개 중 5개가 "…했다"로 끝난다("1. 시작이 좋지 않았다 — 아침에 저장소가 깨져 있었다").
 FLAT_HEADING_MAX = 80
 
+# 이 워크어라운드를 적용할 회차를 **명시적으로 적는다**. 새 회차가 평탄화된 채로 들어오면
+# 조용히 휴리스틱을 태우는 대신 멈춘다.
+#
+# 왜 자동으로 안 하는가 — 이 휴리스틱은 07-24 문서 하나를 실제로 열어보고 맞춘 것이다.
+# "숫자.으로 시작하고 80자 이하면 절 제목", "문단 안 줄바꿈은 전부 정렬이 의미를 갖는
+# 덩어리"는 그 문서에서 참인 것이지 일반 규칙이 아니다(그 문서에선 해당 문단 3개가
+# 구성도·터미널 출력 전부였다 — 세어서 확인했다). 다른 문서에 그대로 먹이면 인용문이
+# 코드블록이 되거나 본문 문장이 절 제목으로 승격되는데, **에러 없이** 그렇게 된다.
+# 이 저장소가 반복해서 당한 게 정확히 그 '조용한 실패'다.
+FLAT_ALLOWED = frozenset({"2026-07-24"})
+
 
 def _is_flattened(doc) -> bool:
     return not any(
@@ -167,6 +178,13 @@ def convert(path: Path) -> tuple[str, str, list[str]]:
     blocks: list[str] = []
     seen_heading = False
     flat = _is_flattened(doc)
+    if flat and date not in FLAT_ALLOWED:
+        raise SystemExit(
+            f"{date}: 이 문서에 Heading 스타일이 하나도 없습니다(평탄화). 그대로 변환하면\n"
+            f"  절이 통째로 사라진 껍데기가 나오고, 되살리는 휴리스틱은 2026-07-24 문서\n"
+            f"  하나에 맞춰 만든 것이라 다른 문서에는 조용히 잘못 먹을 수 있습니다.\n"
+            f"  → 문서를 열어 확인한 뒤, 맞다면 FLAT_ALLOWED에 '{date}'를 추가하세요."
+        )
 
     for para in doc.paragraphs:
         text = para.text.strip()

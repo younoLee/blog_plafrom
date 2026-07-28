@@ -43,6 +43,14 @@ async def lifespan(app: FastAPI):
             "SECRET_KEY가 없거나 너무 약함. .env에 강력한 임의값을 설정해줘 "
             "(예: openssl rand -hex 32)."
         )
+    # ORIGIN_SECRET은 헤더로 오가므로 ASCII여야 한다. 비ASCII면 비교 양쪽의 인코딩이
+    # 갈려(헤더는 latin-1, 설정값은 utf-8) **어떤 요청도 통과하지 못한다** — 즉 사이트
+    # 전체가 403인데 로그엔 아무 단서가 없다. 기동 때 터뜨려 배포 시점에 알게 한다.
+    if not settings.origin_secret.isascii():
+        raise RuntimeError(
+            "ORIGIN_SECRET에 ASCII가 아닌 문자가 있음. 헤더로 전달되는 값이라 "
+            "ASCII여야 한다 (예: openssl rand -hex 32)."
+        )
     # 앱 기동 시 1분 간격 자가 점검 기록 시작 (업타임 집계용)
     start_recorder()
     # 미인증 계정 1시간 간격 자동 정리 시작
@@ -115,14 +123,23 @@ async def require_origin_secret(request: Request, call_next):
 
     설정이 비어 있으면 통과시킨다(fail open). 이건 인증이 아니라 우회 차단이고, 진짜
     인증·권한은 라우터의 JWT 검사가 이것과 무관하게 그대로 한다. 무엇보다 여기서 fail
-    closed로 굴면 켜는 순서를 한 번만 틀려도(백엔드를 CloudFront보다 먼저) 사이트 전체가
-    403이 된다. 켜고 끄는 순서는 terraform/variables.tf의 origin_secret에 적어뒀다.
+    closed로 굴면 켜는 순서를 한 번만 틀려도(백엔드를 CloudFront보다 먼저) /api/*가
+    통째로 막힌다. 켜고 끄는 순서는 terraform/variables.tf의 origin_secret에 적어뒀다.
+
+    ⚠️ 이 403은 밖에서 403으로 안 보인다 — CloudFront의 custom_error_response가
+    403을 200 /index.html로 바꾼다(distribution 전체 적용이라 /api/*도 걸린다).
+    사고 때 이걸 모르면 "200인데 JSON이 아니다"에서 헤맨다. RECOVERY.md 참고.
     """
     expected = settings.origin_secret
     if expected and request.url.path not in ORIGIN_SECRET_EXEMPT:
         got = request.headers.get("x-origin-secret", "")
-        # 상수시간 비교 — 길이가 달라도 조기 반환하지 않는다
-        if not secrets.compare_digest(got, expected):
+        # 상수시간 비교 — 길이가 달라도 조기 반환하지 않는다.
+        # **bytes로 넘기는 게 중요하다.** compare_digest는 str을 받으면 비ASCII 문자에서
+        # TypeError를 던진다. Starlette은 헤더를 latin-1로 디코드하므로 공격자가 0x80~0xFF
+        # 바이트 하나만 넣어도 이 검사가 403 대신 500으로 죽는다(검증: 실제 재현함).
+        # 우회는 아니지만 — 예외는 call_next 전에 나므로 요청은 라우터에 닿지 않는다 —
+        # 차단 장치가 스스로 터지는 건 이 검사에 기대하는 동작이 아니다.
+        if not secrets.compare_digest(got.encode("latin-1"), expected.encode()):
             return JSONResponse({"detail": "Forbidden"}, status_code=403)
     return await call_next(request)
 

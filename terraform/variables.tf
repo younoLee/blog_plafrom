@@ -96,7 +96,10 @@ variable "alb_origin_dns" {
 #                                                  #   백엔드는 아직 무시 → 무영향.
 #   ② 서버 .env에 ORIGIN_SECRET=<같은 값> → 재빌드 # 이제 검사 시작.
 # 뒤집으면(②를 먼저) 백엔드가 헤더 없는 CloudFront 트래픽을 전부 403으로 끊어
-# 사이트가 죽는다.
+# 사이트가 죽는다. **단, 밖에서 보이는 증상은 403이 아니다** — 이 배포에는
+# custom_error_response(403 → 200 /index.html)가 distribution 전체에 걸려 있어
+# /api/*에도 적용되므로, 브라우저가 보는 것은 200 + HTML이다. 진단은 오리진에서
+# 직접 찔러야 한다(`curl -si localhost:8000/api/status`). RECOVERY.md에 적어뒀다.
 #
 # 끄는 순서는 반대다: 먼저 .env에서 지우고 재빌드 → 그 다음 terraform에서 뺀다.
 variable "origin_secret" {

@@ -117,9 +117,15 @@ DB만 띄우고 → 복원하고 → 백엔드를 띄운다.
 #
 #    ⚠️ origin_secret도 **반드시** 같이 넣는다. 빠뜨리면 apply가 실패하지 않고 조용히
 #    기본값("")으로 지나가, CloudFront가 X-Origin-Secret을 안 붙인다. 그런데 서버 .env엔
-#    ORIGIN_SECRET이 살아 있으므로 백엔드는 계속 검사한다 → **사이트 전체가 403**.
-#    증상이 "복구했는데 API가 전부 403"이라 DB나 마이그레이션을 의심하게 되는데,
-#    원인은 헤더 한 줄이다. 값은 에스크로 사본(~/.blog-secrets/prod.env 또는
+#    ORIGIN_SECRET이 살아 있으므로 백엔드는 계속 검사한다 → /api/*가 전부 막힌다.
+#
+#    ⚠️⚠️ **증상을 403으로 찾으면 못 찾는다.** 오리진은 403을 주지만, 이 배포에는
+#    `custom_error_response`(403 → 200 /index.html)가 **distribution 전체**에 걸려 있어
+#    /api/* 에도 적용된다. 그래서 브라우저·curl이 보는 것은 **200 + HTML 덩어리**다.
+#    프론트는 그 HTML을 JSON으로 파싱하려다 깨진다. "화면은 뜨는데 글 목록이 안 나오고
+#    API 응답이 HTML"이면 이걸 의심할 것. 확인은 오리진에서 직접:
+#      ssh … 'curl -si localhost:8000/api/status | head -1'   # 403이면 이 문제가 맞다
+#    값은 에스크로 사본(~/.blog-secrets/prod.env 또는
 #    SSM /blog/prod/env)의 ORIGIN_SECRET과 같은 값이어야 한다.
 #    (둘 다 잃었다면: 새 값을 정해 tfvars와 서버 .env에 같이 넣고, CloudFront apply를
 #     먼저 → 그 다음 백엔드 재빌드. 순서를 뒤집으면 그 사이 사이트가 403이다.)

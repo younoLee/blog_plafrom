@@ -59,6 +59,8 @@ def main() -> None:
     out = Path("/tmp/devlog_posts.json")
     if "-o" in args:
         i = args.index("-o")
+        if i + 1 >= len(args):
+            sys.exit("-o 뒤에 출력 경로가 없습니다.")  # IndexError 대신 사람이 읽는 말로
         out = Path(args[i + 1])
         del args[i : i + 2]
 
