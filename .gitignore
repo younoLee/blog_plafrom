@@ -18,7 +18,12 @@ venv/
 
 # Claude Code의 로컬 전용 설정. 이름 그대로 머신별 파일인데 공개 저장소에 올라가면
 # 작업 흐름·인프라 식별자·사전 승인 명령 목록이 그대로 노출된다(2026-07-22 보안검사).
-.claude/settings.local.json
+# `*`가 필요하다 — Claude Code는 작업 중 `settings.local.json.tmp.<pid>.<hash>` 형제를
+# 만드는데, 정확 일치 규칙은 그걸 안 거른다. 그래서 2026-07-22에 그 tmp가 실제로
+# 커밋됐다(07-24에 추적 해제). `.env` 사본이 `.dockerignore`를 빠져나간 것과 같은 모양이라,
+# 같은 방식으로 막는다. 2026-07-28 심층검사에서 시크릿 스캐너의 예외까지 그 형제를
+# 덮고 있던 게 드러나 함께 좁혔다(.gitleaks.toml 참고).
+.claude/settings.local.json*
 
 # 업로드된 이미지 (로컬 개발에서만 여기 쌓인다. 운영은 S3 — 2026-06-26 이전 완료)
 backend/uploads/

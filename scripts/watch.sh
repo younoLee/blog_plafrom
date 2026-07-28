@@ -116,8 +116,18 @@ else
   elif [ "$up_s" -lt $(( GRACE_MIN * 60 )) ]; then
     ok "EC2 running (막 켬, ${GRACE_MIN}분 유예 중) · /api/status $code"
   else
-    fail "EC2는 running인데 공개 /api/status가 $code — 오리진이 주차돼 있거나 백엔드가 죽었다."
+    fail "EC2는 running인데 공개 /api/status가 $code — 오리진 주차·백엔드 사망·시크릿 불일치 중 하나다."
     echo "     서버 안에서는 정상으로 보일 수 있다(자가점검은 CloudFront를 못 본다)."
+    if [ "$code" = "403" ]; then
+      # 2026-07-28에 오리진 공유 시크릿을 넣으면서 생긴 세 번째 원인. 이걸 안 적어두면
+      # 주차 해제부터 시도하게 되는데, 이미 풀려 있어서 아무것도 안 바뀐다.
+      echo "     403이면 **오리진 공유 시크릿 불일치**가 가장 유력하다 —"
+      echo "       CloudFront가 붙이는 X-Origin-Secret 과 서버 .env 의 ORIGIN_SECRET 이 다르다."
+      echo "       가장 흔한 원인: terraform.tfvars 없이 apply 해서 헤더가 빠진 것."
+      echo "       확인: aws cloudfront get-distribution-config --id E1438IL9CSVBS4 \\"
+      echo "               --query 'DistributionConfig.Origins.Items[?Id==\`api-backend\`].CustomHeaders'"
+      echo "       자세한 절차는 RECOVERY.md 의 origin_secret 항목."
+    fi
     echo "     주차 해제: terraform -chdir=terraform apply -var=\"backend_origin_dns=\$(aws ec2 describe-instances \\"
     echo "       --instance-ids $INSTANCE_ID --query 'Reservations[0].Instances[0].PublicDnsName' --output text)\""
   fi

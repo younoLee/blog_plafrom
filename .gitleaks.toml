@@ -38,34 +38,51 @@ keywords = ["AKIA", "ASIA", "ABIA", "ACCA"]
 [allowlist]
 description = "실측으로 안전 판정한 항목들 (2026-07-28 감사)"
 
+# ⚠️ 경로·정규식 모두 **앵커(^…$)를 붙인다.** gitleaks는 이것들을 부분일치로 본다
+# (`regexp.MatchString`). 앵커 없이 쓰면 예외가 의도보다 훨씬 넓어진다 —
+# 2026-07-28 심층검사에서 실제로 둘 다 그 상태였고, 아래 두 항목이 그 수정이다.
 paths = [
-  # Claude Code의 머신별 로컬 설정. 지금은 .gitignore에 있지만 2026-07-04 커밋과
-  # 07-22의 `.tmp` 형제가 히스토리에 남아 있다. 걸린 규칙은 curl-auth-header인데
-  # 실제 내용은 인증 헤더가 아니라 **허용 명령 목록의 curl 한 줄**이다(오탐).
-  # 히스토리는 못 지우므로(이미 푸시됨) 경로로 뺀다.
-  '''\.claude/settings\.local\.json.*''',
+  # Claude Code의 머신별 로컬 설정. 걸린 규칙은 curl-auth-header인데 실제 내용은
+  # 인증 헤더가 아니라 **허용 명령 목록의 curl 한 줄**이다(오탐).
+  # 히스토리에 있는 것은 이 둘뿐이고(git log --diff-filter=A로 확인), 이미 푸시돼
+  # 되돌릴 수 없어서 경로로 뺀다.
+  #
+  # 전에는 `\.claude/settings\.local\.json.*` 였다. 그 `.*` 가 위험했다 —
+  # Claude Code가 작업 중 만드는 `settings.local.json.tmp.<pid>.<hash>` 형제까지
+  # 전부 덮는데, 그 형제들은 **gitignore에 안 걸려서 실제로 커밋된 적이 있다**
+  # (07-22의 .tmp.3569.a44bb78d7e3f). 즉 시크릿이 들어가기 가장 쉬운 자리를 스캐너가
+  # 안 보고 있었다. 2026-07-22 `.dockerignore`의 `.env` 사고와 똑같은 모양이다.
+  # 지금은 **존재하는 두 파일만** 정확히 지목하고, .gitignore 쪽도 형제까지 막았다.
+  '''^\.claude/settings\.local\.json$''',
+  '''^\.claude/settings\.local\.json\.tmp\.3569\.a44bb78d7e3f$''',
 
   # ruff 캐시. 추적되지 않지만 로컬 스캔에서 conftest의 테스트값을 그대로 반사한다.
-  '''backend/\.ruff_cache/.*''',
+  '''^backend/\.ruff_cache/''',
 ]
 
 regexes = [
   # 테스트·CI 전용 SECRET_KEY. 값이 코드/문서에 그대로 있는 게 **의도**다 —
   # 운영 키는 .env에만 있고, main.py의 lifespan 가드가 약한 키로는 아예 기동을 막는다.
   # (README의 pytest 실행 예시 · ci.yml의 env · tests/conftest.py)
-  '''test-secret-key-0123456789abcdef''',
-  '''ci-secret-key-0123456789abcdef''',
+  '''^test-secret-key-0123456789abcdef$''',
+  '''^ci-secret-key-0123456789abcdef$''',
 
   # 2026-06-25 PROGRESS.md에 기록된 옛 배포용 IAM 액세스 키 **ID**(시크릿 키 아님).
   # 되돌릴 수 없는 히스토리라 예외로 둔다. 그전에 실제로 죽었는지 확인했다(07-28):
   #   - IAM 사용자 `github-actions-deploy` 자체가 없다(OIDC 역할로 대체됨: NoSuchEntity)
   #   - 계정의 모든 사용자 액세스 키를 훑어 이 ID가 0건임을 확인
   #   - 살아 있는 키 2개는 07-27 IR 훈련에서 로테이션된 것
-  # 즉 '노출됐지만 죽은 식별자'다. 새 키가 커밋되면 이 정규식엔 안 걸리므로 잡힌다.
-  '''AKIASURS2YM7WKLL4SV3''',
+  # 즉 '노출됐지만 죽은 식별자'다. 새 키가 커밋되면 이 값과 안 같으므로 잡힌다.
+  '''^AKIASURS2YM7WKLL4SV3$''',
 
-  # 토스페이먼츠가 공개 문서에 게시한 테스트 상점 키. 라이브 키는 .env에만 있고,
-  # PAYMENTS_REQUIRE_LIVE=true가 test_ 접두 키로 결제 승인되는 것을 막는다.
-  '''test_sk_[A-Za-z0-9]+''',
-  '''test_ck_[A-Za-z0-9]+''',
+  # 토스페이먼츠 테스트 키 — **이 저장소에 실제로 있는 두 값만** 지목한다.
+  #   backend/app/core/config.py:46    (서버 기본값)
+  #   frontend/src/pages/PaymentPage.tsx:13 (클라이언트 폴백)
+  # 전에는 `test_sk_[A-Za-z0-9]+` 였는데, 앵커가 없어 **값 안에 그 문자열이 들어가기만
+  # 해도** 통과했다(고엔트로피 키 중간에 test_sk_ 를 넣은 실측으로 확인). 게다가 그
+  # 패턴은 토스 대시보드에서 발급한 '그 상점의' 테스트 키까지 전부 덮는다 — 공개
+  # 문서의 값과 다른, 진짜 자격증명인데도.
+  # 라이브 키는 .env에만 있고 PAYMENTS_REQUIRE_LIVE=true가 test_ 키로의 승인을 막는다.
+  '''^test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R$''',
+  '''^test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq$''',
 ]

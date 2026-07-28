@@ -47,12 +47,20 @@ updates:
           - "@eslint/*"
           - "vite"
           - "@vitejs/*"
+          # 이름은 @tailwindcss/* 라 런타임처럼 보이지만 **vite에 하드 peer가 걸린
+          # 플러그인**이라 vite와 같은 PR에 있어야 한다(peer: ^5.2||^6||^7||^8 — 실측).
+          # 다른 그룹에 두면 vite 메이저가 올라갈 때 양쪽 PR이 각자 ERESOLVE로 깨진다.
+          # 그럼 react·react-router 보안 패치가 빌드 도구 때문에 또 멈춘다 — 이 커밋이
+          # 없애려던 PR #14의 병이 그대로 재현되는 것이다.
+          - "@tailwindcss/vite"
           - "vitest"
           - "@vitest/*"
           - "@types/*"
           - "globals"
       frontend-runtime:
         patterns: ["*"]
+        # ⚠️ 위 toolchain patterns 와 **같은 목록**이어야 한다. 어긋나면 그 패키지가
+        # 두 그룹에 다 들어가거나 어디에도 안 들어간다.
         exclude-patterns:
           - "typescript"
           - "typescript-eslint"
@@ -62,6 +70,7 @@ updates:
           - "@eslint/*"
           - "vite"
           - "@vitejs/*"
+          - "@tailwindcss/vite"
           - "vitest"
           - "@vitest/*"
           - "@types/*"

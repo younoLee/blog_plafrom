@@ -49,11 +49,42 @@ ok() { printf '  ✅ %s\n' "$*"; }
 # apply가 실패하는 게 SSH 대역이 0.0.0.0/0으로 조용히 넓어지는 것보다 낫다).
 say "A. 기본값 없는 terraform 변수가 런북에 적혀 있는가"
 
-required_vars=$(awk '
-  /^variable "/ { name=$2; gsub(/"/, "", name); has=0; inblk=1; next }
-  inblk && /^  default/ { has=1 }
-  inblk && /^}/ { if (!has) print name; inblk=0 }
-' "$TF_DIR"/*.tf | sort)
+# HCL을 손으로 파싱한다. 그래서 **파서가 전부 봤는지 스스로 검증**한다(아래 decl 대조) —
+# 2026-07-28 심층검사에서 예전 awk가 한 줄짜리 블록(`variable "x" { type = string }`)을
+# 통째로 놓치는 게 드러났다. `next`가 여는 줄을 건너뛰고 닫는 중괄호를 `^}`로만 찾아서,
+# 여는 줄에서 이미 닫히는 블록은 영영 안 나왔다. 하필 그게 F1(기본값 없는 필수 변수)
+# 그 자체라, 재발 방지용 검사가 재발을 못 잡는 상태였다.
+# 지금은 중괄호 깊이로 블록 끝을 찾고, default는 줄 어디에 있든 잡는다.
+parse_vars() {
+  awk '
+    !inblk && /^[[:space:]]*variable[[:space:]]+"/ {
+      name = $0
+      sub(/^[[:space:]]*variable[[:space:]]+"/, "", name)
+      sub(/".*/, "", name)
+      has = 0; depth = 0; inblk = 1
+    }
+    inblk {
+      line = $0
+      # `{` 바로 뒤나 줄 앞에 오는 default 만 인정한다(문자열 안의 단어에 안 걸리게)
+      if (line ~ /(^[[:space:]]*|\{[[:space:]]*)default[[:space:]]*=/) has = 1
+      o = gsub(/\{/, "{", line)
+      c = gsub(/\}/, "}", line)
+      depth += o - c
+      if (depth <= 0) { print (has ? "H" : "R") " " name; inblk = 0 }
+    }
+  ' "$TF_DIR"/*.tf
+}
+
+parsed_vars=$(parse_vars)
+required_vars=$(printf '%s\n' "$parsed_vars" | awk '$1=="R" {print $2}' | sort)
+
+# 파서가 선언을 하나라도 놓쳤으면 이 검사 결과를 믿을 수 없다. 조용히 적게 검사하고
+# 통과하는 것이 이 스크립트가 막으려는 실패 그 자체이므로, 세어서 대조한다.
+decl_count=$(grep -chE '^[[:space:]]*variable[[:space:]]+"' "$TF_DIR"/*.tf | awk '{s+=$1} END{print s+0}')
+seen_count=$(printf '%s\n' "$parsed_vars" | grep -c . || true)
+if [ "$decl_count" -ne "$seen_count" ]; then
+  bad "terraform 변수 파서가 선언 ${decl_count}개 중 ${seen_count}개만 읽었습니다 — 이 검사 결과를 믿을 수 없습니다."
+fi
 
 # 런북의 tfvars 히어독 안쪽만 본다(문서 다른 곳의 언급은 근거로 안 친다 —
 # "어딘가 적혀 있다"가 아니라 "복사해 붙이면 되는 자리에 있다"가 필요하다).
@@ -81,6 +112,9 @@ while IFS= read -r s; do
   n=$((n + 1))
   if [ -f "$ROOT/$s" ]; then ok "$s"; else bad "$s — 런북이 부르는데 파일이 없습니다"; fi
 done < <(grep -oE 'scripts/[A-Za-z0-9_-]+\.sh' "$RUNBOOK" | sort -u)
+# 0개면 통과가 아니라 이상 신호다. 런북이 스크립트를 하나도 안 부른다는 건 문서가
+# 통째로 바뀌었다는 뜻이고, 그걸 초록으로 넘기면 검사가 있으나 마나다.
+[ "$n" -gt 0 ] || bad "런북이 부르는 스크립트가 0개입니다 — 문서가 바뀌었거나 패턴이 어긋났습니다."
 echo "     (참조 $n개 검사)"
 
 # ── C. 런북의 -target= 주소가 실제 리소스인가 ───────────────────────────────
@@ -99,18 +133,35 @@ while IFS= read -r addr; do
     bad "$addr — 런북이 -target으로 쓰는데 terraform에 그런 리소스가 없습니다"
   fi
 done < <(grep -oE '\-target=[a-z0-9_]+\.[a-z0-9_]+' "$RUNBOOK" | sed 's/-target=//' | sort -u)
+[ "$n" -gt 0 ] || bad "런북에 -target 주소가 0개입니다 — 복구 절차의 범위 좁히기가 사라졌거나 표기가 바뀌었습니다."
 echo "     (-target 주소 $n개 검사)"
 
 # ── D. 스크립트들의 INSTANCE_ID가 전부 같은가 ───────────────────────────────
 say "D. 스크립트들의 INSTANCE_ID가 전부 같은가"
-ids=$(grep -hoE '^INSTANCE_ID=[A-Za-z0-9-]+' "$ROOT"/scripts/*.sh | cut -d= -f2 | sort -u)
-count=$(grep -clE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh | wc -l)
-uniq_count=$(wc -l <<<"$ids")
-if [ "$uniq_count" -le 1 ]; then
-  ok "스크립트 $count개가 전부 같은 ID ($ids)"
+# 값 추출과 개수 세기를 **한 번의 추출에서** 뽑는다. 예전엔 둘이 다른 정규식이었고,
+# 값 쪽만 따옴표를 못 읽었다. 그래서 `INSTANCE_ID="i-다른값"` 한 줄이 비교에서 사라지는데
+# 개수에는 남아, "5개가 전부 같다"고 초록을 내면서 실제로는 4개만 본 상태가 됐다
+# (2026-07-28 심층검사에서 재현). 따옴표를 허용하고, 못 읽은 줄이 있으면 실패시킨다.
+raw_ids=$(grep -hE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh || true)
+if [ -z "$raw_ids" ]; then
+  bad "스크립트에서 INSTANCE_ID를 한 건도 못 찾았습니다 — 패턴이 코드와 어긋났거나 스크립트 구조가 바뀌었습니다."
 else
-  bad "INSTANCE_ID가 갈렸습니다 — 인스턴스를 재건하고 일부만 고친 상태로 보입니다:"
-  grep -nE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh | sed 's/^/       /'
+  id_lines=$(printf '%s\n' "$raw_ids" | grep -c . || true)
+  ids=$(printf '%s\n' "$raw_ids" \
+    | sed -E 's/^INSTANCE_ID=[[:space:]]*["'"'"']?([A-Za-z0-9-]+).*/\1/' | sort -u)
+  parsed_lines=$(printf '%s\n' "$raw_ids" \
+    | grep -cE '^INSTANCE_ID=[[:space:]]*["'"'"']?[A-Za-z0-9-]+' || true)
+  uniq_count=$(printf '%s\n' "$ids" | grep -c . || true)
+
+  if [ "$parsed_lines" -ne "$id_lines" ]; then
+    bad "INSTANCE_ID 줄 ${id_lines}개 중 ${parsed_lines}개만 값을 읽었습니다 — 비교가 성립하지 않습니다:"
+    grep -nE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh | sed 's/^/       /'
+  elif [ "$uniq_count" -eq 1 ]; then
+    ok "스크립트 ${id_lines}개가 전부 같은 ID ($ids)"
+  else
+    bad "INSTANCE_ID가 갈렸습니다 — 인스턴스를 재건하고 일부만 고친 상태로 보입니다:"
+    grep -nE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh | sed 's/^/       /'
+  fi
 fi
 
 say "결과"
