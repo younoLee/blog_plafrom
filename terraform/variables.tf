@@ -76,6 +76,42 @@ variable "alb_origin_dns" {
   default     = ""
 }
 
+# 오리진 공유 시크릿. CloudFront가 오리진 요청에 이 값을 헤더로 붙이고, 백엔드는
+# 값이 안 맞으면 403으로 끊는다.
+#
+# 무엇을 막는가 — 오리진 SG는 'CloudFront 엣지 전체'(AWS 관리 prefix list)를 받는다.
+# 즉 **공격자가 자기 CloudFront 배포를 만들어 우리 오리진 DNS를 가리키면** 그 트래픽도
+# SG를 통과한다. 그러면 우리 배포에 붙어 있는 WAF·CSP·요청크기 함수를 전부 우회한 채
+# /api/*를 때릴 수 있다. 공유 시크릿은 '우리 배포를 거쳐 왔다'는 유일한 증거다.
+#
+# 무엇을 못 막는가 (정직하게) — 오리진 구간은 아직 평문 HTTP:8000이라, 그 구간을
+# 도청할 수 있는 위치에서는 헤더도 같이 보인다. 그건 커스텀 도메인+ACM이 필요한
+# 별개 백로그다. 이 헤더는 '도청'이 아니라 '남의 배포로 우회'를 막는다.
+#
+# 비워두면(기본값) 헤더를 아예 안 붙인다. 백엔드도 값이 비면 검사를 건너뛰므로
+# 이 코드를 apply해도 아무것도 안 바뀐다 — 켜는 건 -var로 명시할 때만.
+#
+# 켜는 순서가 안전에 직결된다. 반드시 이 순서로:
+#   ① terraform apply -var="origin_secret=<값>"   # CloudFront가 헤더를 붙이기 시작.
+#                                                  #   백엔드는 아직 무시 → 무영향.
+#   ② 서버 .env에 ORIGIN_SECRET=<같은 값> → 재빌드 # 이제 검사 시작.
+# 뒤집으면(②를 먼저) 백엔드가 헤더 없는 CloudFront 트래픽을 전부 403으로 끊어
+# 사이트가 죽는다.
+#
+# 끄는 순서는 반대다: 먼저 .env에서 지우고 재빌드 → 그 다음 terraform에서 뺀다.
+variable "origin_secret" {
+  description = "CloudFront가 오리진 요청에 붙일 공유 시크릿. 비우면 헤더를 안 붙인다(기능 off)."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    # HTTP 헤더 값으로 안전한 문자만. 짧으면 추측당할 수 있어 하한을 둔다.
+    condition     = var.origin_secret == "" || can(regex("^[A-Za-z0-9_-]{32,}$", var.origin_secret))
+    error_message = "origin_secret은 비우거나 [A-Za-z0-9_-] 32자 이상이어야 합니다 (예: openssl rand -hex 32)."
+  }
+}
+
 locals {
   # 주차용 오리진. 우리가 소유한 도메인이어야 하고(제3자 배정 불가), 백엔드 포트가
   # 열려 있지 않아야 한다 → S3 도메인 + custom_origin_config의 8000 포트 = 연결 불가.

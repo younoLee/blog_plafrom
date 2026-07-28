@@ -68,6 +68,18 @@ resource "aws_cloudfront_distribution" "main" {
       # AI 초안 생성이 30초(CloudFront 기본)를 넘겨 504로 끊기던 문제 → 최대값 60초로
       origin_read_timeout = 60
     }
+
+    # 오리진 공유 시크릿 — '이 요청이 우리 배포를 거쳐 왔다'는 증거.
+    # 오리진 SG가 CloudFront 엣지 전체를 받으므로, 이게 없으면 공격자가 자기 배포로
+    # 우리 오리진을 직접 때려 WAF·CSP를 우회할 수 있다. 근거는 variables.tf 참고.
+    # var가 비면 블록 자체가 안 생긴다(기능 off) — 켜고 끄는 순서도 거기 적어뒀다.
+    dynamic "custom_header" {
+      for_each = var.origin_secret != "" ? [var.origin_secret] : []
+      content {
+        name  = "X-Origin-Secret"
+        value = custom_header.value
+      }
+    }
   }
 
   # 기본 동작: 정적 화면 → S3 (CachingOptimized)

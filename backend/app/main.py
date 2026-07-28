@@ -1,3 +1,4 @@
+import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -90,6 +91,39 @@ async def limit_body_size(request: Request, call_next):
                 )
         except ValueError:
             pass
+    return await call_next(request)
+
+
+# 헬스체크만 시크릿 검사에서 뺀다. 이 둘은 CloudFront를 거치지 않고 오리진을 직접
+# 찌르는 정상 트래픽이라, 빼지 않으면 컨테이너가 영원히 unhealthy가 되어 배포가 멈춘다.
+#   ① 도커 헬스체크: 컨테이너 안에서 127.0.0.1:8000/api/health
+#   ② ALB 대상그룹 헬스체크(ecs 모드): ALB가 태스크로 직접 /api/health
+# 내용이 {"status":"ok"}뿐이라 열어둬도 새는 정보가 없다.
+ORIGIN_SECRET_EXEMPT = frozenset({"/api/health"})
+
+
+# ⚠️ 이 미들웨어는 limit_body_size **뒤에** 등록돼야 한다. Starlette은 나중에 등록된
+# 것이 바깥쪽이라, 그래야 시크릿 검사가 가장 먼저 돈다. 순서가 뒤집히면 우회 요청이
+# 413(본문 초과)을 먼저 받아 우리 요청 크기 상한을 알려주게 된다. 둘 다 헤더만 보는
+# 검사라 비용은 같으니, 아무것도 안 알려주는 쪽이 낫다.
+@app.middleware("http")
+async def require_origin_secret(request: Request, call_next):
+    """CloudFront가 붙인 공유 시크릿이 없으면 403.
+
+    막는 것은 '남의 CloudFront 배포로 우리 오리진을 직접 때리는 우회'다. 오리진 SG가
+    엣지 전체(prefix list)를 받으므로, SG만으로는 우리 배포와 남의 배포를 구분할 수 없다.
+
+    설정이 비어 있으면 통과시킨다(fail open). 이건 인증이 아니라 우회 차단이고, 진짜
+    인증·권한은 라우터의 JWT 검사가 이것과 무관하게 그대로 한다. 무엇보다 여기서 fail
+    closed로 굴면 켜는 순서를 한 번만 틀려도(백엔드를 CloudFront보다 먼저) 사이트 전체가
+    403이 된다. 켜고 끄는 순서는 terraform/variables.tf의 origin_secret에 적어뒀다.
+    """
+    expected = settings.origin_secret
+    if expected and request.url.path not in ORIGIN_SECRET_EXEMPT:
+        got = request.headers.get("x-origin-secret", "")
+        # 상수시간 비교 — 길이가 달라도 조기 반환하지 않는다
+        if not secrets.compare_digest(got, expected):
+            return JSONResponse({"detail": "Forbidden"}, status_code=403)
     return await call_next(request)
 
 

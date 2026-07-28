@@ -65,5 +65,18 @@ class Settings(BaseSettings):
     # 태스크 env에서 올린다. 틀리면 레이트리밋이 클라가 아니라 엣지 IP를 키로 잡아 무력화된다.
     trusted_proxy_hops: int = 1
 
+    # 오리진 공유 시크릿. CloudFront가 오리진 요청에 X-Origin-Secret로 붙이는 값과 같아야
+    # 한다(terraform/variables.tf의 origin_secret). 안 맞으면 main.py의 미들웨어가 403.
+    #
+    # 왜 필요한가 — 오리진 SG는 'CloudFront 엣지 전체'를 받는다. 공격자가 자기 배포를
+    # 만들어 우리 오리진을 가리키면 SG를 통과하고, 그러면 WAF·CSP·요청크기 함수를 전부
+    # 우회한 채 /api/*를 때릴 수 있다. 이 값이 '우리 배포를 거쳐 왔다'는 유일한 증거다.
+    #
+    # 비면 검사를 건너뛴다(fail open). 그래야 로컬 개발이 돌고, 켤 때 CloudFront에 먼저
+    # 헤더를 붙인 뒤 백엔드를 올리는 순서가 성립한다 — 순서를 뒤집으면 사이트가 죽는다.
+    # fail open이 맞는 이유: 이건 인증이 아니라 '엣지 우회 차단'이고, 진짜 인증(JWT)과
+    # 권한 검사는 이것과 무관하게 라우터에서 그대로 돈다.
+    origin_secret: str = ""
+
 
 settings = Settings()
