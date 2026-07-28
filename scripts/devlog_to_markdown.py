@@ -64,6 +64,12 @@ POSTS: dict[str, tuple[str, list[str]]] = {
                    ["개발일지", "AWS", "테스트", "CI", "기능개발"]),
     "2026-07-20": ("블로그 만들기 #17 — \"설정했다\"와 \"동작한다\"는 다르다 (백업이 안 돌고 있었다)",
                    ["개발일지", "보안", "운영", "AWS", "테스트"]),
+    "2026-07-22": ("블로그 만들기 #18 — 내가 만든 안전장치를 검사했다 (복원 훈련의 구멍 13개)",
+                   ["개발일지", "백업", "복구", "모니터링", "보안"]),
+    "2026-07-24": ("블로그 만들기 #19 — ECS 마이그레이션: 짓기보다 증명하기가 어려웠다",
+                   ["개발일지", "ECS", "Fargate", "AWS", "terraform"]),
+    "2026-07-27": ("블로그 만들기 #20 — 재보지 않으면 모르는 것들 (DR 게임데이 · IR 훈련)",
+                   ["개발일지", "재해복구", "장애대응", "보안", "AWS"]),
 }
 
 # 본문에서 이 접두사로 시작하는 문단은 인용문으로 뽑는다.
@@ -120,6 +126,36 @@ def _cover_line(text: str) -> str | None:
     return text  # 그 외 표지 문단(리드 설명 등)은 본문으로 살린다
 
 
+# ── 스타일이 평탄화된 회차 되살리기 ────────────────────────────────────────
+# 2026-07-24 편은 Heading·List Bullet이 전부 Normal로 저장돼 있다(같은 make_devlog가
+# add_heading을 쓰는데도 그렇다 — 파일이 한 번 다른 도구를 거친 것으로 보인다).
+# 그대로 변환하면 8개 절이 전부 사라져 제목 1개짜리 마크다운이 나온다.
+#
+# 되살리는 조건을 **문서 단위**로 건다: "이 문서에 Heading 스타일이 하나도 없을 때만".
+# 문단 단위로 걸면 스타일이 멀쩡한 회차에서 본문 중 "3. 세 번째 이유는 …" 같은 문장이
+# 절 제목으로 잘못 승격된다. 평탄화된 문서는 어차피 잃을 구조가 없으니 안전하다.
+FLAT_HEADING = re.compile(r"^(\d+)\.(\d+)?\s+\S")
+FLAT_BULLET = re.compile(r"^[•·]\s+")
+FLAT_TITLE = "블로그 개발일지"  # Title 스타일이 날아가 본문처럼 남은 표지 제목
+
+# 절 제목은 짧고 마침표로 끝나지 않는다. 어미로는 못 거른다 — 이 회차의 절 제목
+# 8개 중 5개가 "…했다"로 끝난다("1. 시작이 좋지 않았다 — 아침에 저장소가 깨져 있었다").
+FLAT_HEADING_MAX = 80
+
+
+def _is_flattened(doc) -> bool:
+    return not any(
+        (lv := _heading_level(p)) is not None and lv >= 1 for p in doc.paragraphs
+    )
+
+
+def _flat_heading_level(text: str) -> int | None:
+    m = FLAT_HEADING.match(text)
+    if not m or len(text) > FLAT_HEADING_MAX or text.rstrip().endswith("."):
+        return None
+    return 2 if m.group(2) else 1
+
+
 def convert(path: Path) -> tuple[str, str, list[str]]:
     """docx → (제목, 마크다운 본문, 태그)."""
     doc = Document(str(path))
@@ -130,19 +166,33 @@ def convert(path: Path) -> tuple[str, str, list[str]]:
 
     blocks: list[str] = []
     seen_heading = False
+    flat = _is_flattened(doc)
 
     for para in doc.paragraphs:
         text = para.text.strip()
         if not text:
             continue
 
+        if flat and text == FLAT_TITLE:
+            continue  # Title 스타일이 날아간 표지 제목
+
         level = _heading_level(para)
         if level == 0:
             continue  # 표지 제목은 버린다
+        if level is None and flat:
+            level = _flat_heading_level(text)
 
         if level is not None:
             seen_heading = True
             blocks.append(f"{'#' * (level + 1)} {text}")
+            continue
+
+        if flat and "\n" in text:
+            # 문단 안의 줄바꿈(w:br)은 이 회차에선 전부 정렬이 의미를 갖는 덩어리다
+            # (표지 구성도 1개 + 터미널 출력 2개). 그냥 두면 마크다운이 줄바꿈을 공백으로
+            # 합쳐 한 줄로 뭉갠다. 스타일이 살아 있는 회차는 이 경로를 안 탄다.
+            # 표지 영역에도 하나 있어서 _cover_line보다 먼저 본다.
+            blocks.append(f"```\n{text}\n```")
             continue
 
         if not seen_heading:  # 아직 표지 영역
@@ -161,12 +211,15 @@ def convert(path: Path) -> tuple[str, str, list[str]]:
             blocks.append(field)
             continue
 
-        if _is_bullet(para):
+        flat_bullet = bool(flat and FLAT_BULLET.match(text))
+        # 스타일이 날아간 회차는 글머리표가 문단 첫 글자로 남아 있다("•  증명 3종: …").
+        bullet_text = FLAT_BULLET.sub("", text) if flat_bullet else text
+        if _is_bullet(para) or flat_bullet:
             # 연속된 불릿은 한 블록으로 묶어야 마크다운 목록이 끊기지 않는다
             if blocks and blocks[-1].startswith("- "):
-                blocks[-1] += f"\n- {text}"
+                blocks[-1] += f"\n- {bullet_text}"
             else:
-                blocks.append(f"- {text}")
+                blocks.append(f"- {bullet_text}")
             continue
 
         blocks.append(text)
