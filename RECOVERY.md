@@ -114,8 +114,18 @@ DB만 띄우고 → 복원하고 → 백엔드를 띄운다.
 # 0) terraform.tfvars를 먼저 만든다 — gitignore돼 있어 새 클론에는 없다.
 #    없으면 apply가 "No value for required variable"로 **실패한다**(의도적 fail-closed:
 #    SSH 허용 대역이 조용히 넓어지는 것보다 낫다).
+#
+#    ⚠️ origin_secret도 **반드시** 같이 넣는다. 빠뜨리면 apply가 실패하지 않고 조용히
+#    기본값("")으로 지나가, CloudFront가 X-Origin-Secret을 안 붙인다. 그런데 서버 .env엔
+#    ORIGIN_SECRET이 살아 있으므로 백엔드는 계속 검사한다 → **사이트 전체가 403**.
+#    증상이 "복구했는데 API가 전부 403"이라 DB나 마이그레이션을 의심하게 되는데,
+#    원인은 헤더 한 줄이다. 값은 에스크로 사본(~/.blog-secrets/prod.env 또는
+#    SSM /blog/prod/env)의 ORIGIN_SECRET과 같은 값이어야 한다.
+#    (둘 다 잃었다면: 새 값을 정해 tfvars와 서버 .env에 같이 넣고, CloudFront apply를
+#     먼저 → 그 다음 백엔드 재빌드. 순서를 뒤집으면 그 사이 사이트가 403이다.)
 cat > terraform/terraform.tfvars <<'TFVARS'
-ssh_cidr = "<지금 내 공인 IP>/32"   # curl -s https://checkip.amazonaws.com
+ssh_cidr      = "<지금 내 공인 IP>/32"   # curl -s https://checkip.amazonaws.com
+origin_secret = "<에스크로의 ORIGIN_SECRET과 같은 값>"
 TFVARS
 
 # 1) 인스턴스 재생성 — **-target으로 범위를 좁힌다.**
