@@ -1,5 +1,19 @@
 # 의존성 보안·업데이트 자동 감지. 매주 각 생태계를 확인해 PR을 연다.
 # groups로 자잘한 패치를 한 PR로 묶어 알림 소음을 줄인다.
+#
+# 2026-07-28 — 묶는 방식을 바꿨다. 그 전엔 npm 전체가 `patterns: ["*"]` 한 그룹이었는데,
+# 그날 PR #14가 11개를 한꺼번에 올리면서 성립 불가능한 조합을 만들었다:
+#
+#   typescript ~6.0.2 → ~7.0.2 (major)
+#   그런데 같은 PR의 typescript-eslint@8.65.0 은 peer로 typescript ">=4.8.4 <6.1.0" 을 요구
+#   → npm ci 가 ERESOLVE 로 죽고, **나머지 10개까지 같이 막혔다**
+#
+# 문제는 두 겹이었다.
+#   ① 도구 하나가 못 올라가면 런타임 의존성 패치까지 인질이 된다 (묶는 단위의 문제)
+#   ② 타입스크립트 메이저는 typescript-eslint 가 따라올 때까지 **구조적으로** 못 올린다
+#      (묶는 방식으로는 못 푸는 문제)
+# 그래서 ①은 그룹 분리로, ②는 ignore 로 나눠서 막는다.
+
 version: 2
 updates:
   - package-ecosystem: pip
@@ -14,9 +28,57 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+
+    # 그룹을 둘로 쪼갠다. 빌드·린트 도구(typescript·eslint·vite·타입정의)는 서로 peer로
+    # 묶여 있어 같이 깨지기 쉽고, 깨져도 사이트 동작과는 무관하다. 반대로 런타임
+    # 의존성(react·react-router·tailwind…)은 화면에 실제로 나가는 것들이라 보안 패치를
+    # 빨리 받아야 한다. 한 PR에 섞으면 전자 때문에 후자가 멈춘다 — 실제로 그랬다.
+    #
+    # exclude-patterns 로 명시적으로 뺀다. "먼저 매칭된 그룹에 들어간다"는 순서 규칙에
+    # 기대면, 나중에 그룹 순서를 바꾸는 순간 조용히 동작이 달라진다.
     groups:
-      frontend-deps:
+      frontend-toolchain:
+        patterns:
+          - "typescript"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+          - "eslint"
+          - "eslint-*"
+          - "@eslint/*"
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
+          - "@vitest/*"
+          - "@types/*"
+          - "globals"
+      frontend-runtime:
         patterns: ["*"]
+        exclude-patterns:
+          - "typescript"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+          - "eslint"
+          - "eslint-*"
+          - "@eslint/*"
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
+          - "@vitest/*"
+          - "@types/*"
+          - "globals"
+
+    # 타입스크립트 메이저는 사람이 판단해서 올린다.
+    # typescript-eslint 가 지원 범위를 넓힌 뒤에 **둘을 같이** 올려야 하는데, Dependabot은
+    # 그 순서를 모른다. 그냥 두면 매주 못 머지할 PR을 새로 열고, 그건 아무도 안 보는
+    # 빨간불이 된다(이 저장소가 이미 겪은 병이다).
+    #
+    # ⚠️ 이건 '무시'가 아니라 '수동 처리로 돌린다'는 뜻이다. 그래서 조건도 적어둔다 —
+    # `npm view typescript-eslint peerDependencies` 의 typescript 범위가 7.x를 포함하면
+    # 그때 이 ignore를 지우고 typescript + typescript-eslint를 한 PR로 올린다.
+    # (2026-07-28 기준 8.65.0의 범위는 ">=4.8.4 <6.1.0" — 아직 6.1도 안 된다)
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
