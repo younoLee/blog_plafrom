@@ -26,7 +26,13 @@ _latest: dict | None = None
 
 
 def run_checks() -> dict:
-    """백엔드/DB/메일 점검 + 통계(글·구독자 수)를 한 번에."""
+    """백엔드/DB/메일 점검 + 통계(글·구독자 수)를 한 번에.
+
+    결과에 `at`(이 점검이 **실제로 돈** 시각)을 같이 담는다. /api/status는 이 값을
+    그대로 내보낸다 — 예전엔 응답의 checked_at을 '호출 시각'으로 새로 찍어서,
+    최대 60초 낡은 캐시가 방금 잰 것처럼 보였다(2026-07-28 카오스 훈련에서 확인).
+    사고 중에 "방금 확인했는데 ok라는데?"로 사람을 헷갈리게 하는 종류의 거짓이다.
+    """
     # DB 점검 + 통계를 한 연결에서
     db_ok = True
     post_count = None
@@ -44,6 +50,7 @@ def run_checks() -> dict:
     mail_ok = _check_mail()
 
     return {
+        "at": datetime.now(UTC).isoformat(),
         "backend_ok": True,  # 이 코드가 도는 것 자체가 백엔드 동작
         "database_ok": db_ok,
         "mail_ok": mail_ok,

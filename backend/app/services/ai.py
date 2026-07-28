@@ -128,10 +128,27 @@ MAX_TOKENS = 2500  # 초안 1개엔 충분. 상한을 낮춰 긴 생성의 대�
 
 # thinking을 안 넘기면 사고가 켜진 채로 도는 모델들 — max_tokens를 따로 키워야 한다(_claude 참고).
 _THINKING_ON_BY_DEFAULT = {"claude-fable-5", "claude-sonnet-5"}
-# 외부 LLM 호출 타임아웃(초). 재시도도 1회로 축소.
+# 외부 LLM 호출 타임아웃(초).
 # 벤더 엔드포인트(서버키 Claude, BYOK의 openai/gemini/cohere/anthropic)는 주소가
 # 고정이라 느려도 벤더 탓이고 오래 걸릴 수 있으니 넉넉히 준다.
-REQUEST_TIMEOUT = 60
+#
+# 55인 이유 — **전체 예산은 CloudFront가 정한다.** /api/* 오리진의 read timeout이 60초라
+# (terraform/cloudfront.tf), 그보다 오래 걸린 응답은 사용자가 볼 수 없다. 60초를 그대로
+# 쓰면 경계에 딱 붙어서 엣지가 먼저 끊는 쪽이 되므로 조금 밑으로 둔다.
+REQUEST_TIMEOUT = 55
+
+# 벤더 호출은 재시도하지 않는다(0).
+#
+# 2026-07-28 카오스 훈련: 업스트림이 연결만 받고 응답을 안 주게 만들어 재보니
+# **한 요청이 115초**를 썼다(60초 타임아웃 × 2회 시도). CloudFront는 60초에 포기하므로
+# 사용자는 이미 504를 본 뒤인데 백엔드 워커는 55초를 더 붙잡혀 있었다. t2.micro에서
+# 이게 몇 개 겹치면 멀쩡한 요청까지 못 받는다 — 아무도 못 볼 응답을 위해 용량을 태우는 셈.
+#
+# 그럼 타임아웃을 줄여 재시도를 살리면 안 되나? 안 된다. cloudfront.tf 주석에 기록된 대로
+# **정상 초안이 30초를 넘긴 적이 실제로 있다**(그래서 오리진 타임아웃을 60초로 올렸다).
+# 25초씩 2회로 쪼개면 그 정상 요청이 죽는다. 예산이 60초 하나뿐이면, 느리지만 성공할
+# 한 번에 다 주는 게 낫다.
+VENDOR_MAX_RETRIES = 0
 
 # compatible만 따로 짧게. 여기는 사용자가 base_url을 직접 정하는 유일한 경로라,
 # 일부러 느린(또는 응답을 흘려보내는) 호스트를 걸어 워커 스레드를 60초씩 묶는
@@ -148,7 +165,9 @@ def _claude(memo: str, model: str, api_key: str | None = None) -> str:
     key = api_key or settings.anthropic_api_key
     if not key:
         raise AIKeyMissingError("Claude 키 없음")
-    client = anthropic.Anthropic(api_key=key, timeout=REQUEST_TIMEOUT, max_retries=1)
+    client = anthropic.Anthropic(
+        api_key=key, timeout=REQUEST_TIMEOUT, max_retries=VENDOR_MAX_RETRIES
+    )
 
     extra: dict = {}
     max_tokens = MAX_TOKENS
@@ -183,7 +202,11 @@ def _openai(memo: str, model: str, api_key: str, base_url: str | None = None) ->
 
     # base_url 지정 시 OpenAI 호환 엔드포인트(Grok/DeepSeek/OpenRouter/로컬 등).
     # 그 경로만 호스트를 사용자가 정하므로 타임아웃을 짧게 준다(스레드 점유 최소화).
-    kwargs = {"api_key": api_key, "timeout": REQUEST_TIMEOUT, "max_retries": 1}
+    kwargs = {
+        "api_key": api_key,
+        "timeout": REQUEST_TIMEOUT,
+        "max_retries": VENDOR_MAX_RETRIES,
+    }
     if base_url:
         kwargs["base_url"] = base_url
         kwargs["timeout"] = COMPATIBLE_TIMEOUT

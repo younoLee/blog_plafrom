@@ -1,3 +1,4 @@
+import logging
 import uuid
 from pathlib import Path
 
@@ -6,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from app.core.config import settings
 from app.core.deps import require_writer
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 # POST는 /upload(단수), 저장된 파일 서빙은 /uploads/<파일>(StaticFiles)로 분리
 router = APIRouter(prefix="/upload", tags=["uploads"])
@@ -61,14 +64,28 @@ async def upload_image(file: UploadFile, user: User = Depends(require_writer)):
         # CloudFront가 /uploads/* 를 이 버킷에서 서빙 → 인스턴스 교체에도 안전.
         # ContentType도 판별값으로 고정 → 브라우저가 절대 HTML로 실행 못 함
         import boto3
+        from botocore.exceptions import BotoCoreError, ClientError
 
         s3 = boto3.client("s3", region_name=settings.aws_region)
-        s3.put_object(
-            Bucket=settings.s3_bucket,
-            Key=f"uploads/{name}",
-            Body=content,
-            ContentType=content_type,
-        )
+        try:
+            s3.put_object(
+                Bucket=settings.s3_bucket,
+                Key=f"uploads/{name}",
+                Body=content,
+                ContentType=content_type,
+            )
+        except (ClientError, BotoCoreError) as e:
+            # S3가 죽거나 권한이 빠지면 여기서 예외가 그대로 터져 **500 text/plain**이 나갔다
+            # (2026-07-28 카오스 훈련에서 실측: InvalidAccessKeyId → 500 "Internal Server Error").
+            # 프론트는 JSON을 기대하므로 파싱조차 못 하고, 사용자는 이유를 모른 채 빨간 에러만 본다.
+            # 503으로 바꾸면 프론트의 isAsleepStatus(502/503/504)가 '일시적 장애' 안내로 받는다.
+            #
+            # 원인 문자열은 서버 로그에만 남긴다 — 버킷명·권한 오류는 밖에 알려줄 이유가 없다.
+            logger.warning("S3 업로드 실패: %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="이미지 저장소에 일시적으로 접근할 수 없어. 잠시 후 다시 시도해줘.",
+            ) from e
     else:
         # 로컬 개발: 디스크에 저장 (확장자가 판별값이라 StaticFiles도 올바른 타입으로 서빙)
         dest = UPLOAD_DIR / name

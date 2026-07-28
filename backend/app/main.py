@@ -1,3 +1,4 @@
+import logging
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -29,6 +31,8 @@ from app.routers import (
 )
 from app.services.cleanup import start_cleanup
 from app.services.status import get_history, get_latest, start_recorder
+
+logger = logging.getLogger(__name__)
 
 # 절대 운영에서 쓰면 안 되는 기본 SECRET_KEY (코드에 공개돼 있어 토큰 위조 가능)
 _INSECURE_SECRET = "change-me-in-production"
@@ -73,6 +77,30 @@ app = FastAPI(
 # 레이트 리밋: 한도 초과 시 429 응답 (가입/로그인 폭주 방어)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(OperationalError)
+async def db_unavailable(request: Request, exc: OperationalError):
+    """DB에 못 붙으면 500이 아니라 503으로 답한다.
+
+    2026-07-28 카오스 훈련에서 DB를 내려보니, 글 목록·로그인·내 정보까지 전부
+    `500 Internal Server Error`가 **text/plain**으로 나갔다. 문제가 셋이었다:
+      · 프론트는 JSON을 기대하므로 파싱조차 못 한다
+      · 500은 '이 요청이 잘못됐다'로 읽히지만 실제로는 '지금 서버가 못 한다'다
+      · 프론트의 isAsleepStatus는 502/503/504만 '일시적 장애'로 안내한다 → 500은 그냥 빨간 에러
+
+    503으로 바꾸면 이미 있는 안내 경로를 그대로 탄다. Retry-After도 붙여 '다시 오면 된다'를
+    기계도 읽을 수 있게 한다.
+
+    OperationalError는 '연결 못 함/끊김' 계열이다. 쿼리가 틀린 것(ProgrammingError)은
+    여기 안 걸린다 — 그건 진짜 버그라 500이 맞다.
+    """
+    logger.warning("DB 접속 실패: %s", exc.orig or exc)
+    return JSONResponse(
+        {"detail": "일시적으로 서비스에 접속할 수 없어. 잠시 후 다시 시도해줘."},
+        status_code=503,
+        headers={"Retry-After": "30"},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -187,7 +215,10 @@ def status(request: Request):
         "database": "ok" if c["database_ok"] else "down",
         "mail": "ok" if c["mail_ok"] else "down",
         "stats": {"posts": c["posts"], "subscribers": c["subscribers"]},
-        "checked_at": datetime.now(UTC).isoformat(),
+        # 이 점검이 **실제로 돈** 시각. 호출 시각을 찍으면 최대 60초 낡은 캐시가
+        # 방금 잰 것처럼 보인다(2026-07-28 카오스 훈련). 사고 중 오판을 부르는 거짓이다.
+        # 옛 캐시(at 없음)로도 안 깨지게 폴백을 둔다.
+        "checked_at": c.get("at") or datetime.now(UTC).isoformat(),
     }
 
 

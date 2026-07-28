@@ -1,3 +1,6 @@
+import logging
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -32,6 +35,30 @@ from app.services.llm_keys import (
     InvalidAPIKeyError,
     InvalidBaseURLError,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _upstream_unreachable(e: BaseException) -> bool:
+    """'업스트림에 못 닿았다' 계열인가 — 예외 원인 사슬까지 따라간다.
+
+    타입만으로 못 가른다. 각 벤더 SDK(anthropic·openai·google·cohere)가 httpx 예외를
+    자기 타입으로 감싸서 올리기 때문이다. 실제로 2026-07-28 카오스 훈련에서
+    `except httpx.TimeoutException`만 걸어놨다가 **하나도 안 걸리는 걸** 재주입에서 발견했다
+    (52초를 기다린 끝에 여전히 "키/모델명 확인"이 나왔다).
+
+    그래서 __cause__/__context__ 사슬을 훑어 httpx의 연결·타임아웃 예외가 있는지 본다.
+    벤더 SDK가 무엇으로 감싸든 밑바닥은 httpx다(넷 다 httpx를 쓴다).
+    """
+    seen = set()
+    cur: BaseException | None = e
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, (httpx.TimeoutException, httpx.TransportError)):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -209,7 +236,18 @@ def create_draft(
         markdown = generate_draft(body.memo, model, provider, user_key, base_url)
     except AIKeyMissingError:
         raise HTTPException(status_code=503, detail="AI 기능이 아직 설정되지 않았어 (서버 키 필요)")
-    except Exception:
+    except Exception as e:
+        if _upstream_unreachable(e):
+            # 업스트림에 못 닿거나 제때 답을 못 받은 것 — 사용자가 고칠 수 있는 게 없다.
+            # 예전엔 이것도 "키/모델명 확인"으로 안내해서, 2026-07-28 카오스 훈련에서
+            # Anthropic을 도달 불가로 만들었을 때 **엉뚱한 곳을 고치라고 시켰다**.
+            logger.warning("AI 업스트림 도달 실패: %r", e)
+            raise HTTPException(
+                status_code=503,
+                detail="AI 서비스에 일시적으로 연결할 수 없어. 잠시 후 다시 시도해줘.",
+            ) from e
+        # 여기 남는 건 대체로 '요청이 거부됐다' 쪽이다(잘못된 키, 없는 모델, 안전 거부 등).
+        logger.warning("AI 초안 생성 실패: %r", e)
         raise HTTPException(status_code=502, detail="AI 초안 생성에 실패했어 (키/모델명 확인 후 다시 시도)")
 
     # 성공한 서버키 호출만 일일 카운트에 반영 (실패·BYOK는 안 셈)
