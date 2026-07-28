@@ -18,6 +18,18 @@ resource "aws_cloudfront_function" "csp" {
   code    = file("${path.module}/csp-function.js")
 }
 
+# SPA 딥링크 라우팅. 원래 custom_error_response(403 → 200 /index.html)가 하던 일인데,
+# 그건 distribution 전체에 걸려 백엔드의 인가 거부 403까지 200 + HTML로 바꿔버렸다
+# (프론트는 res.ok로 판정하니 '실패했는데 성공으로 보이는' 상태가 됐다).
+# 라우팅만 함수로 떼어 기본 동작에만 붙인다 → /api/* 응답 코드는 이제 손대지 않는다.
+resource "aws_cloudfront_function" "spa" {
+  name    = "spa-routing"
+  runtime = "cloudfront-js-2.0"
+  comment = "확장자 없는 경로를 /index.html로 (SPA 딥링크). 기본 동작에만 연결"
+  publish = true
+  code    = file("${path.module}/spa-routing-function.js")
+}
+
 # 큰 요청 본문(>6MB)을 엣지에서 413으로 차단 → EC2(t2.micro)에 닿기 전에 대용량 본문 DoS 방지
 resource "aws_cloudfront_function" "reqsize" {
   name    = "limit-request-body"
@@ -92,6 +104,13 @@ resource "aws_cloudfront_distribution" "main" {
     cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
     response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
 
+    # SPA 딥링크 라우팅(확장자 없는 경로 → /index.html). 기본 동작에만 붙이는 게 핵심 —
+    # /api/*는 별도 동작이라 이 함수를 안 탄다. 그래서 백엔드 응답 코드를 안 건드린다.
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa.arn
+    }
+
     # CSP 헤더 주입 (Free 플랜 우회). 정적 화면(HTML)에만 붙이면 되므로 기본 동작에만 연결
     function_association {
       event_type   = "viewer-response"
@@ -120,13 +139,13 @@ resource "aws_cloudfront_distribution" "main" {
 
   # /uploads/* 는 이제 S3에 저장 → 기본 동작(S3 오리진)이 서빙하므로 별도 behavior 불필요
 
-  # SPA 라우팅 폴백: 403 → index.html 을 200으로
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 10
-  }
+  # ⚠️ custom_error_response(403 → 200 /index.html)를 2026-07-28에 **제거했다.**
+  # SPA 딥링크 폴백 용도로 넣었는데, 이 블록은 동작별로 못 걸고 **distribution 전체**에
+  # 적용된다. 그래서 백엔드가 주는 인가 거부 403까지 200 + HTML이 되고 있었고,
+  # 프론트는 res.ok로 성공을 판정하므로 '막혔는데 성공으로 보이는' 상태가 만들어졌다
+  # (admin.ts의 승인·차단·삭제가 그 경로다). 서버는 제대로 막았으니 권한 우회는 아니다.
+  # 라우팅은 aws_cloudfront_function.spa(기본 동작 viewer-request)가 대신한다.
+  # 다시 넣지 말 것 — 넣는 순간 /api/*의 403이 또 200이 된다.
 
   # 기본 CloudFront 인증서 (커스텀 도메인 없음)
   viewer_certificate {
