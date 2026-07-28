@@ -70,6 +70,8 @@ POSTS: dict[str, tuple[str, list[str]]] = {
                    ["개발일지", "ECS", "Fargate", "AWS", "terraform"]),
     "2026-07-27": ("블로그 만들기 #20 — 재보지 않으면 모르는 것들 (DR 게임데이 · IR 훈련)",
                    ["개발일지", "재해복구", "장애대응", "보안", "AWS"]),
+    "2026-07-28": ("블로그 만들기 #21 — 초록불이 '확인했다'는 뜻이 아닐 때",
+                   ["개발일지", "보안", "CI", "카오스엔지니어링", "운영"]),
 }
 
 # 본문에서 이 접두사로 시작하는 문단은 인용문으로 뽑는다.
@@ -77,6 +79,15 @@ CALLOUTS = ("🔎 비유", "🛠 전문가 노트")
 
 # 표지에서 버릴 메타 줄(제목·태그가 대신한다).
 DROP_META = ("작성일:", "날짜:", "스택:", "목표:", "주제:", "오늘 주제:", "오늘의 주제:")
+
+
+def _is_mono(para) -> bool:
+    """터미널 출력 문단인가 — 실행이 하나라도 고정폭 글꼴이면 그렇게 본다.
+
+    make_devlog의 ev()가 Consolas로 찍는다. 캡션("▶ 실제 출력 — …")은 굵은 본문 글꼴이라
+    여기 안 걸리고, 코드블록 위에 라벨로 남는다.
+    """
+    return any(r.font.name == "Consolas" for r in para.runs)
 
 
 def _is_bullet(para) -> bool:
@@ -176,6 +187,8 @@ def convert(path: Path) -> tuple[str, str, list[str]]:
     title, tags = POSTS[date]
 
     blocks: list[str] = []
+    # 고정폭(터미널 출력) 줄을 모았다가 한 덩어리로 코드블록에 넣는다. 아래 _flush_mono 참고.
+    mono_buf: list[str] = []
     seen_heading = False
     flat = _is_flattened(doc)
     if flat and date not in FLAT_ALLOWED:
@@ -186,10 +199,24 @@ def convert(path: Path) -> tuple[str, str, list[str]]:
             f"  → 문서를 열어 확인한 뒤, 맞다면 FLAT_ALLOWED에 '{date}'를 추가하세요."
         )
 
+    def _flush_mono() -> None:
+        if mono_buf:
+            blocks.append("```\n" + "\n".join(mono_buf) + "\n```")
+            mono_buf.clear()
+
     for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
+        text = para.text.rstrip()
+        if not text.strip():
             continue
+
+        # 터미널 출력(make_devlog의 ev())은 Consolas 문단으로 들어온다. 예전엔 이걸 못 알아봐서
+        # **한 줄이 문단 하나씩** 흩어졌고, 표처럼 열을 맞춘 출력은 정렬이 통째로 사라졌다.
+        # 이 회차들의 형식이 "터미널 출력을 그대로 싣는다"인데 발행본에서만 안 지켜지고 있었다.
+        # (2026-07-28에 #21을 변환하다 발견. #20도 같은 상태였다)
+        if _is_mono(para):
+            mono_buf.append(text)
+            continue
+        _flush_mono()
 
         if flat and text == FLAT_TITLE:
             continue  # Title 스타일이 날아간 표지 제목
@@ -241,6 +268,8 @@ def convert(path: Path) -> tuple[str, str, list[str]]:
             continue
 
         blocks.append(text)
+
+    _flush_mono()  # 문서가 터미널 출력으로 끝나는 경우
 
     body = "\n\n".join(blocks)
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
