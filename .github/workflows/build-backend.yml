@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 코드 체크아웃
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: AWS 자격증명 (OIDC 역할 assume)
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           # ECR push 전용 최소권한 역할(배포 역할과 분리 — 사이트 삭제 권한 상속 방지)
           role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-ecr-push
@@ -33,7 +33,7 @@ jobs:
 
       - name: ECR 로그인
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
 
       - name: 빌드 & 푸시 (태그 = git SHA)
         env:

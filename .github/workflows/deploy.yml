@@ -16,7 +16,7 @@ jobs:
       contents: read  # checkout용 최소 권한
     steps:
       - name: 코드 체크아웃
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0   # 아래 게이트가 push 범위를 diff 하려면 이력이 필요하다
 
@@ -55,7 +55,7 @@ jobs:
           echo "백엔드 변경 없음 — 진행합니다."
 
       - name: Node 설치
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
           cache: 'npm'
@@ -76,7 +76,7 @@ jobs:
         run: npm run build
 
       - name: AWS 자격증명 (OIDC 역할 assume — 장기 키 없음)
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-deploy
           aws-region: ap-northeast-2
