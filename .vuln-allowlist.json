@@ -1,0 +1,35 @@
+{
+  "_설명": [
+    "의존성 취약점 중 '지금은 받아들인다'고 판단한 것들. scripts/check_vulns.py가 읽는다.",
+    "여기 없는 취약점이 뜨면 CI가 실패한다. 즉 이 파일은 '무시 목록'이 아니라 '판단 기록'이다.",
+    "",
+    "규칙 셋:",
+    "  1. expires가 지나면 CI가 실패한다 — 받아들인 위험도 다시 봐야 한다.",
+    "     연장하려면 그때 다시 판단하고 날짜를 미룬다. 자동 연장은 없다.",
+    "  2. 더 이상 뜨지 않는 항목이 남아 있어도 실패한다 — 낡은 예외가 쌓이면",
+    "     이 검사는 '영구 초록'이 되고, 그건 검사가 없는 것과 같다.",
+    "  3. why에는 '왜 이 앱에 해당하지 않는가'를 근거와 함께 쓴다.",
+    "     '나중에 고칠 것'은 근거가 아니다."
+  ],
+  "npm": [
+    {
+      "id": "GHSA-qwww-vcr4-c8h2",
+      "package": "react-router",
+      "severity": "high",
+      "title": "React Router: RSC Mode CSRF Bypass Allows Action Execution Before 400 Response",
+      "why": [
+        "취약한 코드 경로가 RSC(React Server Components) 모드 전용인데, 이 앱은 RSC를 안 쓴다.",
+        "src/App.tsx가 선언형 BrowserRouter/Routes/Route만 쓰는 순수 Vite SPA이고,",
+        "서버 렌더링도 서버 액션도 없다(@react-router/dev·serve 미사용, 빌드 산출물은 정적 파일뿐).",
+        "즉 CSRF로 실행될 '서버 액션'이라는 것이 이 앱에는 존재하지 않는다.",
+        "수정 버전은 8.3.0이라 7.18.0 → 8.x 메이저 업그레이드가 필요하다.",
+        "라우팅은 앱 전체가 의존하는 부분이라, 배포 예정이 없는 날 곁다리로 올릴 변경이 아니다.",
+        "(npm이 제안하는 7.11.0 다운그레이드는 취약점 공개 전 버전으로 되돌리는 것이라 택하지 않는다)"
+      ],
+      "accepted_on": "2026-07-28",
+      "expires": "2026-10-26",
+      "next_step": "react-router-dom 8.x 업그레이드. 프론트 배포가 있는 날에 묶어서."
+    }
+  ],
+  "pip": []
+}

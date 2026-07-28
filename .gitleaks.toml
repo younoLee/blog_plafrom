@@ -1,0 +1,71 @@
+# gitleaks 설정 — 커밋에 시크릿이 섞여 들어가는 것을 CI에서 막는다.
+#
+# 왜 필요한가 — 2026-07-22에 `.env`가 도커 이미지에 구워진 채로 운영에 돌고 있었다.
+# `.dockerignore`가 `.env`(정확 일치)만 걸러서 `.env.bak-…` 같은 사본이 통과한 것이다.
+# 그때 깃 쪽도 같은 구멍이었고, 사람이 눈으로 보는 것으로 막고 있었다.
+# **이미지보다 깃이 나쁘다 — 푸시하면 되돌릴 수 없다.**
+#
+# 아래 예외는 전부 2026-07-28에 하나씩 열어보고 판단한 것이다. 예외를 넣는 순간
+# 그 자리는 영원히 안 보이게 되므로, 각 항목에 '왜 안전한가'를 남긴다.
+# 판단 없이 예외를 늘리면 이 검사는 '영구 초록'이 되고, 그건 검사가 없는 것과 같다.
+
+[extend]
+useDefault = true
+
+# ── 이 프로젝트가 실제로 쓰는 자격증명 규칙을 직접 넣는다 ──────────────────
+# 기본 규칙만으로 충분한지 2026-07-28에 실측했다. 진짜처럼 생긴 고엔트로피 값 4종을
+# 임시 클론에 커밋해 스캔한 결과:
+#   ✅ GitHub PAT(ghp_…)            잡음
+#   ✅ AWS 시크릿 액세스 키          잡음 (generic-api-key로)
+#   ❌ AWS 액세스 키 ID(AKIA…)       **못 잡음**
+#   ❌ Anthropic 키(sk-ant-api03-…)  **못 잡음**
+# 못 잡은 둘이 하필 이 저장소가 실제로 쓰는 것들이다(.env의 ANTHROPIC_API_KEY,
+# 06-25에 PROGRESS.md로 새어나간 그 AKIA). 기본값을 믿고 넘어갔으면 '초록인데
+# 안 보는' 상태가 됐을 것이다.
+
+[[rules]]
+id = "anthropic-api-key-strict"
+description = "Anthropic API 키 (이 앱의 AI 초안 기능이 쓴다)"
+regex = '''sk-ant-[a-zA-Z0-9]{4,}-[a-zA-Z0-9_\-]{60,}'''
+keywords = ["sk-ant-"]
+
+[[rules]]
+id = "aws-access-key-id-strict"
+description = "AWS 액세스 키 ID. 시크릿 키는 아니지만 계정·IAM 주체를 특정해준다"
+regex = '''\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b'''
+keywords = ["AKIA", "ASIA", "ABIA", "ACCA"]
+
+[allowlist]
+description = "실측으로 안전 판정한 항목들 (2026-07-28 감사)"
+
+paths = [
+  # Claude Code의 머신별 로컬 설정. 지금은 .gitignore에 있지만 2026-07-04 커밋과
+  # 07-22의 `.tmp` 형제가 히스토리에 남아 있다. 걸린 규칙은 curl-auth-header인데
+  # 실제 내용은 인증 헤더가 아니라 **허용 명령 목록의 curl 한 줄**이다(오탐).
+  # 히스토리는 못 지우므로(이미 푸시됨) 경로로 뺀다.
+  '''\.claude/settings\.local\.json.*''',
+
+  # ruff 캐시. 추적되지 않지만 로컬 스캔에서 conftest의 테스트값을 그대로 반사한다.
+  '''backend/\.ruff_cache/.*''',
+]
+
+regexes = [
+  # 테스트·CI 전용 SECRET_KEY. 값이 코드/문서에 그대로 있는 게 **의도**다 —
+  # 운영 키는 .env에만 있고, main.py의 lifespan 가드가 약한 키로는 아예 기동을 막는다.
+  # (README의 pytest 실행 예시 · ci.yml의 env · tests/conftest.py)
+  '''test-secret-key-0123456789abcdef''',
+  '''ci-secret-key-0123456789abcdef''',
+
+  # 2026-06-25 PROGRESS.md에 기록된 옛 배포용 IAM 액세스 키 **ID**(시크릿 키 아님).
+  # 되돌릴 수 없는 히스토리라 예외로 둔다. 그전에 실제로 죽었는지 확인했다(07-28):
+  #   - IAM 사용자 `github-actions-deploy` 자체가 없다(OIDC 역할로 대체됨: NoSuchEntity)
+  #   - 계정의 모든 사용자 액세스 키를 훑어 이 ID가 0건임을 확인
+  #   - 살아 있는 키 2개는 07-27 IR 훈련에서 로테이션된 것
+  # 즉 '노출됐지만 죽은 식별자'다. 새 키가 커밋되면 이 정규식엔 안 걸리므로 잡힌다.
+  '''AKIASURS2YM7WKLL4SV3''',
+
+  # 토스페이먼츠가 공개 문서에 게시한 테스트 상점 키. 라이브 키는 .env에만 있고,
+  # PAYMENTS_REQUIRE_LIVE=true가 test_ 접두 키로 결제 승인되는 것을 막는다.
+  '''test_sk_[A-Za-z0-9]+''',
+  '''test_ck_[A-Za-z0-9]+''',
+]
