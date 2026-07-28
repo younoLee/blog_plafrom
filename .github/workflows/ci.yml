@@ -172,7 +172,7 @@ jobs:
     #  변수 값 관련 드리프트는 위 runbook 잡이 정적으로 본다)
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: 포맷
         run: terraform -chdir=terraform fmt -check -recursive
       - name: 검증
