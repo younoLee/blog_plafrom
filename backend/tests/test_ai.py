@@ -181,6 +181,99 @@ def test_hourly_cap_allows_exactly_cap_then_429(
     assert ai_usage.count_hour(db, user.id) == 3
 
 
+# ── 비용 캡(일일·월간) 원자성 — 2026-07-30 비용 가드레일 훈련에서 나온 것들 ────
+# 훈련 실측: 일일 캡 20의 19회를 쓴 상태에서 동시 5발 → 남은 한도가 1회인데 5건 전부
+# 통과해 24/20(초과 4건 실청구). 원인은 '읽고 → LLM 호출 → 증가'라 판단과 반영 사이가
+# 수 초 벌어져 있던 것. 아래 테스트들은 그 창이 닫혀 있는지를 잠근다.
+def test_daily_slot_is_reserved_before_upstream_call(
+    client, db, make_user, auth_headers, monkeypatch
+):
+    """예약이 LLM 호출 '전에' 반영돼야 한다 — 그래야 호출 중에 들어온 요청이 슬롯을 본다."""
+    user = make_user(role="writer")
+    seen = {}
+
+    def _gen(memo, model, provider, user_key, base_url):
+        seen["during_call"] = ai_usage.count_today(db, user.id)
+        return "# 제목\n\n본문입니다."
+
+    monkeypatch.setattr("app.routers.ai.generate_draft", _gen)
+    assert _draft(client, auth_headers(user)).status_code == 200
+    assert seen["during_call"] == 1  # 예전엔 0 — 호출이 끝난 뒤에 셌다
+    assert ai_usage.count_today(db, user.id) == 1  # 성공은 한 번만 센다(이중 계상 아님)
+
+
+def test_request_during_upstream_call_cannot_exceed_daily_cap(
+    client, db, make_user, auth_headers, monkeypatch
+):
+    """훈련의 단일 스레드 결정론 재현: 마지막 한 칸이 남았을 때, 첫 요청이 업스트림에
+    매달려 있는 '동안' 들어온 두 번째 요청은 429여야 한다(예전엔 200 = 초과 청구)."""
+    monkeypatch.setattr(settings, "ai_daily_cap", 1)
+    monkeypatch.setattr(settings, "ai_hourly_cap", 10)  # 시간당 캡이 먼저 막지 않게
+    user = make_user(role="writer")
+    inner = {}
+
+    def _gen(memo, model, provider, user_key, base_url):
+        if "code" not in inner:
+            inner["code"] = None  # 재귀 방지 — 안쪽 요청도 이 목킹을 탄다
+            inner["code"] = _draft(client, auth_headers(user)).status_code
+        return "# 제목\n\n본문입니다."
+
+    monkeypatch.setattr("app.routers.ai.generate_draft", _gen)
+    assert _draft(client, auth_headers(user)).status_code == 200
+    assert inner["code"] == 429
+    assert ai_usage.count_today(db, user.id) == 1  # 캡을 넘지 않았다
+
+
+def test_failed_call_refunds_daily_slot(
+    client, db, make_user, auth_headers, fake_generate
+):
+    """실패한 서버키 호출은 안 센다 — 예약을 되돌린다. 무한 재시도가 공짜가 되는 건
+    시간당 '시도' 캡이 막는다(그건 실패도 센다)."""
+    fake_generate.fail(RuntimeError("업스트림 사망"))
+    user = make_user(role="writer")
+    assert _draft(client, auth_headers(user)).status_code == 502
+    assert ai_usage.count_today(db, user.id) == 0  # 비용 캡은 안 갉아먹었다
+    assert ai_usage.count_hour(db, user.id) == 1  # 시도는 남는다
+
+
+def test_daily_cap_allows_exactly_cap_then_429(
+    client, db, make_user, auth_headers, fake_generate, monkeypatch
+):
+    """정확히 cap회 통과 후 429. 시간당 캡과 달리 초과분은 카운트에 남지 않는다 —
+    일일 카운트는 '실제 청구된 횟수'라서 되돌리는 게 맞다."""
+    monkeypatch.setattr(settings, "ai_daily_cap", 2)
+    monkeypatch.setattr(settings, "ai_hourly_cap", 10)
+    user = make_user(role="writer")
+    assert _draft(client, auth_headers(user)).status_code == 200
+    assert _draft(client, auth_headers(user)).status_code == 200
+    r = _draft(client, auth_headers(user))
+    assert r.status_code == 429 and "오늘" in r.json()["detail"]
+    assert ai_usage.count_today(db, user.id) == 2
+
+
+def test_monthly_block_refunds_daily_slot(
+    client, db, make_user, auth_headers, fake_generate, monkeypatch
+):
+    """월간에서 막힌 요청이 일일 카운트를 남기면, 월간 초과 시도가 남의 날 한도까지
+    갉아먹는다(예약은 일일 행에 올라가므로)."""
+    monkeypatch.setattr(settings, "ai_daily_cap", 100)
+    monkeypatch.setattr(settings, "ai_monthly_cap", 0)
+    user = make_user(role="writer")
+    assert _draft(client, auth_headers(user)).status_code == 429
+    assert ai_usage.count_today(db, user.id) == 0
+
+
+def test_decrement_today_never_goes_negative(db, make_user):
+    """취소가 겹쳐도 0 밑으로 안 내려간다. 음수 카운트는 다음 요청에게 '한도에 여유가
+    있다'로 읽혀 캡 자체를 무너뜨린다."""
+    user = make_user(role="writer")
+    assert ai_usage.decrement_today(db, user.id) == 0  # 행이 아직 없을 때
+    ai_usage.increment_today(db, user.id)
+    assert ai_usage.decrement_today(db, user.id) == 0
+    assert ai_usage.decrement_today(db, user.id) == 0  # 이미 0일 때
+    assert ai_usage.count_today(db, user.id) == 0
+
+
 # ── AI 초안 프롬프트 인젝션 방어 ──────────────────────────────────────────────
 def test_system_prompt_has_injection_guardrails():
     """초안 전용 잠금·인젝션 방어·거부 문구가 프롬프트에 있어야 한다(실수로 빠지면 방어가 사라짐).

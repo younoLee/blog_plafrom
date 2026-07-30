@@ -176,14 +176,31 @@ def _reserve_abuse_slot(db: Session, user_id: int) -> None:
         )
 
 
-def _enforce_server_caps(db: Session, user_id: int) -> None:
-    """서버키(Claude) 호출의 일일·월간 비용 캡. 초과 시 429. (BYOK는 본인 비용이라 제외)"""
-    if ai_usage.count_today(db, user_id) >= settings.ai_daily_cap:
+def _reserve_server_slot(db: Session, user_id: int) -> None:
+    """서버키(Claude) 호출의 일일·월간 비용 캡 — **원자적 예약**. 초과 시 되돌리고 429.
+    (BYOK는 본인 비용이라 제외)
+
+    예전엔 `count_today() >= cap`으로 읽고, 성공한 뒤에 따로 증가시켰다. 그 사이가
+    비어 있어서 동시 요청이 전부 같은 값을 읽고 전부 통과했다 — **읽기와 증가 사이에
+    LLM 호출이 들어 있어 창이 밀리초가 아니라 수 초였다.**
+    2026-07-30 비용 가드레일 훈련에서 실측: 일일 캡 20의 19회를 쓴 상태에서 동시 요청 5개를
+    던지니 남은 한도가 1회인데 **5건 전부 통과해 24/20**이 됐다(창 3.0초, 초과분 4건 실청구).
+    시간당 캡(원자적)이 상한을 걸어주지만 그건 '시간당 캡만큼 넘칠 수 있다'는 뜻일 뿐이다.
+
+    그래서 시간당 캡과 같은 reserve-then-check로 맞춘다: 먼저 원자적으로 +1 하고
+    그 반환값으로 판단한다. 통과 못 하면 예약을 되돌린다(취소도 원자적).
+
+    월간은 일별 기록의 합이라 위 +1이 월간 합도 같이 올린다. 경계에서 동시 요청이
+    겹치면 서로의 증가까지 보고 **둘 다 거절**될 수 있다 — 비용 가드레일에서 그 방향의
+    오차는 의도된 것이다(넘겨 통과시키는 것보다 낫다)."""
+    if ai_usage.increment_today(db, user_id) > settings.ai_daily_cap:
+        ai_usage.decrement_today(db, user_id)
         raise HTTPException(
             status_code=429,
             detail=f"오늘 AI 초안 한도({settings.ai_daily_cap}회)를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
         )
-    if ai_usage.count_month(db, user_id) >= settings.ai_monthly_cap:
+    if ai_usage.count_month(db, user_id) > settings.ai_monthly_cap:
+        ai_usage.decrement_today(db, user_id)
         raise HTTPException(
             status_code=429,
             detail=f"이번 달 AI 초안 한도({settings.ai_monthly_cap}회)를 다 썼어. 다음 달에 다시 하거나 본인 키(BYOK)를 등록해줘",
@@ -223,8 +240,10 @@ def create_draft(
     # reserve-then-check라 동시요청이 캡을 넘겨 통과하지 못한다(공유 데모 계정 방어의 핵심).
     # 실패하는 호출(느린 BYOK 등)도 이미 차감돼 무한 재시도가 공짜가 아니다.
     _reserve_abuse_slot(db, user.id)
+    # 비용 슬롯도 호출 '전에' 예약한다. 예전엔 여기서 읽고 성공 뒤에 증가시켜서,
+    # 그 사이(=LLM 호출 시간)에 들어온 동시 요청이 캡을 넘겨 통과했다.
     if provider == "claude":
-        _enforce_server_caps(db, user.id)
+        _reserve_server_slot(db, user.id)
 
     user_key, base_url = (
         _load_byok_credential(db, user.id, provider)
@@ -232,8 +251,14 @@ def create_draft(
         else (None, None)
     )
 
+    # 실패한 서버키 호출은 세지 않는다(기존 의도) → 예약을 되돌린다. 무한 재시도가
+    # 공짜가 되는 건 시간당 '시도' 캡이 막는다(그건 실패도 센다).
+    # 되돌리기는 finally에 둔다 — 실패 경로가 셋(503/503/502)이라 각 except에 흩어놓으면
+    # 하나만 빠뜨려도 사용자가 쓰지도 않은 한도를 잃는다.
+    charged = False
     try:
         markdown = generate_draft(body.memo, model, provider, user_key, base_url)
+        charged = True
     except AIKeyMissingError:
         raise HTTPException(status_code=503, detail="AI 기능이 아직 설정되지 않았어 (서버 키 필요)")
     except Exception as e:
@@ -249,8 +274,8 @@ def create_draft(
         # 여기 남는 건 대체로 '요청이 거부됐다' 쪽이다(잘못된 키, 없는 모델, 안전 거부 등).
         logger.warning("AI 초안 생성 실패: %r", e)
         raise HTTPException(status_code=502, detail="AI 초안 생성에 실패했어 (키/모델명 확인 후 다시 시도)")
+    finally:
+        if provider == "claude" and not charged:
+            ai_usage.decrement_today(db, user.id)
 
-    # 성공한 서버키 호출만 일일 카운트에 반영 (실패·BYOK는 안 셈)
-    if provider == "claude":
-        ai_usage.increment_today(db, user.id)
     return DraftResponse(markdown=markdown, model=model)

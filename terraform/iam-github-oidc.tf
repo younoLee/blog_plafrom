@@ -176,6 +176,22 @@ resource "aws_iam_role_policy" "github_watch" {
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/ses-smtp-user.20260625-184915",
         ]
       },
+      {
+        # watch.sh 6번(2026-07-30 비용 가드레일 훈련) — 예산이 아직 존재하고, 그 알림이
+        # ALARM인지. 이 파일 머리말이 "살아 있는 감시는 월 예산 알림 하나뿐"이라고 적은
+        # 그 알림을 감시가 되짚어 보는 자리다(감시의 감시).
+        #
+        # `budgets:ViewBudget` 하나로 describe-budgets·describe-notifications-for-budget이
+        # 둘 다 된다. 금액과 알림 상태만 읽고 아무것도 못 바꾼다(Modify/Delete 없음).
+        #
+        # Cost Explorer(`ce:GetCostAndUsage`)는 **일부러 안 준다** — 요청당 $0.01이라
+        # 매시 도는 감시에 넣으면 월 $7이 넘는다. 비용을 감시하려고 비용을 더 쓰는 셈이다.
+        # 필요한 상세 분해는 실패 메시지에 명령을 적어 사람이 한 번 돌리게 한다.
+        Sid      = "ReadBudgetState"
+        Effect   = "Allow"
+        Action   = ["budgets:ViewBudget"]
+        Resource = "arn:aws:budgets::${data.aws_caller_identity.current.account_id}:budget/*"
+      },
     ]
   })
 }

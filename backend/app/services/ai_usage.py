@@ -6,7 +6,7 @@
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -58,6 +58,28 @@ def increment_today(db: Session, user_id: int) -> int:
     new_count = int(db.scalar(stmt))
     db.commit()
     return new_count
+
+
+def decrement_today(db: Session, user_id: int) -> int:
+    """예약 되돌리기 — 원자적 -1 (새 count 반환). 호출 '전에' 예약한 서버키 슬롯을
+    캡 초과나 생성 실패로 취소할 때 쓴다.
+
+    `count > 0` 조건이 필수다. 없으면 동시 취소가 겹쳐 카운트가 음수로 내려가고,
+    음수는 다음 요청들에게 '캡에 여유가 있다'로 읽혀 캡 자체가 무너진다.
+    행이 없거나 이미 0이면 UPDATE가 0행이라 None → 0으로 본다."""
+    stmt = (
+        update(AiUsage)
+        .where(
+            AiUsage.user_id == user_id,
+            AiUsage.day == _today(),
+            AiUsage.count > 0,
+        )
+        .values(count=AiUsage.count - 1)
+        .returning(AiUsage.count)
+    )
+    new_count = db.scalar(stmt)
+    db.commit()
+    return int(new_count) if new_count is not None else 0
 
 
 def count_hour(db: Session, user_id: int) -> int:

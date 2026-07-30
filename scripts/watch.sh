@@ -277,6 +277,76 @@ for u in IAM_cli "ses-smtp-user.20260625-184915"; do
   fi
 done
 
+# ── 6. 비용 가드레일이 살아 있는가 ──────────────────────────────────────────
+# 2026-07-30 비용 가드레일 훈련에서 나온 것(docs/cost-guardrail-drill-20260730.md).
+# 이 파일 머리말이 "살아 있는 감시는 월 예산 알림 하나뿐이었다"고 적어둔 그 알림을,
+# 이제 여기서 되짚어 본다 — **감시를 감시하는 자리**다.
+#
+# 무엇을 신호로 삼을지가 이 절의 전부다.
+#   총지출($10 예산)은 지금 178%다. 크레딧이 전액 상계하고 있어서 실제 청구는 $0이고,
+#   크레딧을 태우는 건 의도다. 그걸 실패로 잡으면 **월말까지 영구 빨간불**이 되고,
+#   영구 빨간불은 아무도 안 보는 신호가 된다(이 저장소가 세 번 배운 것).
+#   그래서 총지출은 정보로만 찍는다.
+#
+#   신호는 **크레딧이 덮지 못하는 순지출**이다. Zero-Spend 예산이 그걸 본다
+#   (IncludeCredit=true라 크레딧 상계 후 금액을 읽는다). 평소엔 $0이라 조용하고,
+#   크레딧이 마르거나 예상 못 한 청구가 생기는 순간에만 켜진다 — 오탐이 구조적으로
+#   드문 자리다. 크레딧 만료는 2027-06-24로 확정돼 있으니 그날 이후 이게 이 계정의
+#   1차 경보가 된다.
+NET_BUDGET="My Zero-Spend Budget"
+GROSS_BUDGET="My Monthly Cost Budget"
+
+budget_json=$(aws budgets describe-budgets --account-id 181568979775 \
+  --query 'Budgets[].{Name:BudgetName,Limit:BudgetLimit.Amount,Spend:CalculatedSpend.ActualSpend.Amount}' \
+  --output json 2>/dev/null)
+if [ -z "$budget_json" ] || [ "$budget_json" = "null" ]; then
+  # 못 읽은 걸 초록으로 넘기지 않는다 — SES에서 4주간 당한 게 정확히 그 형태였다.
+  fail "예산을 못 읽었다 — 비용 가드레일이 있는지조차 모르는 상태다."
+  echo "     확인: aws budgets describe-budgets --account-id 181568979775"
+  echo "     CI에서 이게 뜨면 watch-readonly 정책에 budgets:ViewBudget이 빠진 것이다."
+else
+  n_budgets=$(echo "$budget_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)
+  if [ "$n_budgets" -eq 0 ]; then
+    fail "예산이 0개다 — 청구서 폭주를 알려줄 장치가 없다."
+  else
+    # 총지출: 정보로만. 크레딧이 덮고 있는 동안은 이게 상한을 넘는 게 정상 상태다.
+    # f-string을 쓰지 않는다 — 셸 단일인용부호 안에서 `b[\"Name\"]`이 파이썬 문법 오류가
+    # 되는데, stderr를 버리면 그 오류가 **정보 줄이 그냥 안 찍히는 것**으로 보인다.
+    # 처음 이렇게 썼다가 실제로 조용히 사라졌다. stderr도 버리지 않는다.
+    echo "$budget_json" | python3 -c '
+import json, sys
+for b in json.load(sys.stdin):
+    lim = float(b["Limit"] or 0)
+    spend = float(b["Spend"] or 0)
+    pct = ("%.0f%%" % (spend / lim * 100)) if lim else "?"
+    print("  --   예산 %s: $%.2f / $%.2f (%s)" % (b["Name"], spend, lim, pct))
+'
+
+    # 순지출 예산이 아직 존재하는가. 사라지면 크레딧 만료 후 눈이 먼다.
+    if echo "$budget_json" | grep -qF "$NET_BUDGET"; then
+      # 그 예산의 ACTUAL 알림 상태 — ALARM이면 크레딧이 더 이상 덮지 못한다는 뜻이다.
+      states=$(aws budgets describe-notifications-for-budget --account-id 181568979775 \
+        --budget-name "$NET_BUDGET" \
+        --query 'Notifications[?NotificationType==`ACTUAL`].NotificationState' --output text 2>/dev/null)
+      if [ -z "$states" ]; then
+        fail "'$NET_BUDGET'에 ACTUAL 알림이 없다 — 예산은 있는데 아무도 안 부르는 상태다."
+      elif echo "$states" | grep -q ALARM; then
+        fail "순지출(크레딧 상계 후)이 '$NET_BUDGET' 상한을 넘었다 — 실제 청구가 시작됐다는 뜻이다."
+        echo "     확인: aws ce get-cost-and-usage --time-period Start=\$(date -u +%Y-%m-01),End=\$(date -u -d '+1 month' +%Y-%m-01) \\"
+        echo "             --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=RECORD_TYPE"
+      else
+        ok "순지출 감시 정상 ('$NET_BUDGET' 알림 OK — 크레딧이 아직 덮고 있다)"
+      fi
+    else
+      fail "'$NET_BUDGET' 예산이 없다 — 크레딧이 마르는 순간을 알려줄 장치가 없다."
+    fi
+
+    # 총지출 예산도 존재는 확인한다(둘 다 사라지면 위 정보 줄이 그냥 안 찍힐 뿐이라 조용하다).
+    echo "$budget_json" | grep -qF "$GROSS_BUDGET" \
+      || warn "'$GROSS_BUDGET' 예산이 없다 — 크레딧 소모 속도를 보는 눈이 사라졌다."
+  fi
+fi
+
 # ── 요약 ────────────────────────────────────────────────────────────────────
 echo
 if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then
