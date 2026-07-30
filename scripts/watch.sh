@@ -32,6 +32,7 @@
 set -uo pipefail
 
 INSTANCE_ID=i-0abdd1afc7041e167
+ACCOUNT_ID=181568979775
 BUCKET=blog-db-backups-181568979775
 IMAGE_BUCKET=blogplafromops
 CF_URL=https://d2j66m9udyg9yq.cloudfront.net
@@ -296,39 +297,42 @@ done
 NET_BUDGET="My Zero-Spend Budget"
 GROSS_BUDGET="My Monthly Cost Budget"
 
-budget_json=$(aws budgets describe-budgets --account-id 181568979775 \
-  --query 'Budgets[].{Name:BudgetName,Limit:BudgetLimit.Amount,Spend:CalculatedSpend.ActualSpend.Amount}' \
-  --output json 2>/dev/null)
-if [ -z "$budget_json" ] || [ "$budget_json" = "null" ]; then
+# **읽기 실패와 사실 주장을 절대 섞지 않는다.** 이 절을 처음 쓸 때 JSON을 python3으로
+# 세게 했다가, 2026-07-30 검사에서 python3이 깨진 상태를 주입해보니 그 실패가
+# **"예산이 0개다 — 청구서 폭주를 알려줄 장치가 없다"는 거짓 사실**로 보고됐다
+# (예산은 그때도 2개 있었다). 07-22의 SES 건, 07-28의 심층검사 건과 같은 병이다.
+# 그래서 python3을 경로에서 빼고 CLI의 --query와 awk만 쓴다. 셋 다 없으면 aws 호출
+# 자체가 안 되므로 '못 읽었다'로 정직하게 떨어진다.
+if ! budget_rows=$(aws budgets describe-budgets --account-id "$ACCOUNT_ID" \
+      --query 'Budgets[].[BudgetName,BudgetLimit.Amount,CalculatedSpend.ActualSpend.Amount]' \
+      --output text 2>/dev/null); then
   # 못 읽은 걸 초록으로 넘기지 않는다 — SES에서 4주간 당한 게 정확히 그 형태였다.
   fail "예산을 못 읽었다 — 비용 가드레일이 있는지조차 모르는 상태다."
-  echo "     확인: aws budgets describe-budgets --account-id 181568979775"
+  echo "     확인: aws budgets describe-budgets --account-id $ACCOUNT_ID"
   echo "     CI에서 이게 뜨면 watch-readonly 정책에 budgets:ViewBudget이 빠진 것이다."
+elif [ -z "$budget_rows" ]; then
+  # 여기까지 왔으면 '읽었고, 진짜로 0개'다. 위와 메시지가 달라야 하는 이유가 이것이다.
+  fail "예산이 0개다 — 청구서 폭주를 알려줄 장치가 없다."
 else
-  n_budgets=$(echo "$budget_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)
-  if [ "$n_budgets" -eq 0 ]; then
-    fail "예산이 0개다 — 청구서 폭주를 알려줄 장치가 없다."
-  else
     # 총지출: 정보로만. 크레딧이 덮고 있는 동안은 이게 상한을 넘는 게 정상 상태다.
-    # f-string을 쓰지 않는다 — 셸 단일인용부호 안에서 `b[\"Name\"]`이 파이썬 문법 오류가
-    # 되는데, stderr를 버리면 그 오류가 **정보 줄이 그냥 안 찍히는 것**으로 보인다.
-    # 처음 이렇게 썼다가 실제로 조용히 사라졌다. stderr도 버리지 않는다.
-    echo "$budget_json" | python3 -c '
-import json, sys
-for b in json.load(sys.stdin):
-    lim = float(b["Limit"] or 0)
-    spend = float(b["Spend"] or 0)
-    pct = ("%.0f%%" % (spend / lim * 100)) if lim else "?"
-    print("  --   예산 %s: $%.2f / $%.2f (%s)" % (b["Name"], spend, lim, pct))
-'
+    printf '%s\n' "$budget_rows" | awk -F'\t' '{
+      pct = ($2 > 0) ? sprintf("%.0f%%", $3 / $2 * 100) : "?"
+      printf "  --   예산 %s: $%.2f / $%.2f (%s)\n", $1, $3, $2, pct
+    }'
 
     # 순지출 예산이 아직 존재하는가. 사라지면 크레딧 만료 후 눈이 먼다.
-    if echo "$budget_json" | grep -qF "$NET_BUDGET"; then
+    # 이름은 **줄 전체 일치**로 본다(-qxF). 부분 일치로 받으면 "…Budget 2" 같은 다른
+    # 예산이 이 검사를 통과시키는데, 정작 아래 describe는 정확한 이름으로 부른다.
+    if printf '%s\n' "$budget_rows" | cut -f1 | grep -qxF "$NET_BUDGET"; then
       # 그 예산의 ACTUAL 알림 상태 — ALARM이면 크레딧이 더 이상 덮지 못한다는 뜻이다.
-      states=$(aws budgets describe-notifications-for-budget --account-id 181568979775 \
-        --budget-name "$NET_BUDGET" \
-        --query 'Notifications[?NotificationType==`ACTUAL`].NotificationState' --output text 2>/dev/null)
-      if [ -z "$states" ]; then
+      if ! states=$(aws budgets describe-notifications-for-budget --account-id "$ACCOUNT_ID" \
+            --budget-name "$NET_BUDGET" \
+            --query 'Notifications[?NotificationType==`ACTUAL`].NotificationState' \
+            --output text 2>/dev/null); then
+        # 예산 목록은 읽혔는데 알림은 못 읽은 경우다. "알림이 없다"고 단정하면
+        # 없는 사실을 말하는 것이 된다 — 위와 같은 이유로 갈라놓는다.
+        fail "'$NET_BUDGET'의 알림 상태를 못 읽었다 — 예산은 보이는데 알림은 모르는 상태다."
+      elif [ -z "$states" ]; then
         fail "'$NET_BUDGET'에 ACTUAL 알림이 없다 — 예산은 있는데 아무도 안 부르는 상태다."
       elif echo "$states" | grep -q ALARM; then
         fail "순지출(크레딧 상계 후)이 '$NET_BUDGET' 상한을 넘었다 — 실제 청구가 시작됐다는 뜻이다."
@@ -342,9 +346,8 @@ for b in json.load(sys.stdin):
     fi
 
     # 총지출 예산도 존재는 확인한다(둘 다 사라지면 위 정보 줄이 그냥 안 찍힐 뿐이라 조용하다).
-    echo "$budget_json" | grep -qF "$GROSS_BUDGET" \
+    printf '%s\n' "$budget_rows" | cut -f1 | grep -qxF "$GROSS_BUDGET" \
       || warn "'$GROSS_BUDGET' 예산이 없다 — 크레딧 소모 속도를 보는 눈이 사라졌다."
-  fi
 fi
 
 # ── 요약 ────────────────────────────────────────────────────────────────────
