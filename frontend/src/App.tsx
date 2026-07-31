@@ -16,7 +16,6 @@ import PaymentSuccessPage from './pages/PaymentSuccessPage'
 import PaymentFailPage from './pages/PaymentFailPage'
 import SubscriptionsPage from './pages/SubscriptionsPage'
 import VerifyPage from './pages/VerifyPage'
-import SubscribeConfirmPage from './pages/SubscribeConfirmPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import './App.css'
@@ -46,13 +45,14 @@ function App() {
             <Route path="/pricing" element={<PaymentPage />} />
             <Route path="/payment/success" element={<PaymentSuccessPage />} />
             <Route path="/payment/fail" element={<PaymentFailPage />} />
-            {/* 구독 관리 (계정 구독 + 이메일 구독) */}
+            {/* 구독 관리 (글쓴이별 계정 구독 + 새 글 알림) */}
             <Route path="/subscriptions" element={<SubscriptionsPage />} />
             {/* 인증 (루트 유지) */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/verify" element={<VerifyPage />} />
-            <Route path="/subscribe/confirm" element={<SubscribeConfirmPage />} />
+            {/* /subscribe/confirm 은 뉴스레터 폐지(2026-07-31)와 함께 제거됨.
+                옛 확인 메일 링크는 이제 없는 경로다 — 그 메일 자체를 더 이상 보내지 않는다. */}
             <Route path="/forgot" element={<ForgotPasswordPage />} />
             <Route path="/reset" element={<ResetPasswordPage />} />
           </Route>

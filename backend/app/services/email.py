@@ -92,22 +92,11 @@ def send_reset_email(to: str, link: str) -> None:
     )
 
 
-def send_subscribe_confirm_email(to: str, link: str) -> None:
-    """구독 더블옵트인: 본인이 직접 신청했는지 확인하는 링크 발송."""
-    send_email(
-        to=to,
-        subject="[블로그] 구독 확인",
-        body=(
-            "이 블로그 새 글 알림을 구독하려면 아래 링크를 열어줘 (24시간 안에):\n\n"
-            f"{link}\n\n"
-            "본인이 신청한 게 아니면 이 메일은 무시하면 돼 (구독은 진행되지 않아)."
-        ),
-        html=_action_html(
-            "이 블로그 새 글 알림을 구독하려면 아래 버튼을 눌러줘 (24시간 안에).",
-            link,
-            "구독 확인하기",
-        ),
-    )
+# send_subscribe_confirm_email은 2026-07-31에 제거됐다. 뉴스레터 구독 폐지와 함께
+# 사라진 유일한 '임의 주소 발송' 경로였다(routers/subscribers.py의 폐지 사유 참고).
+# 이제 이 모듈이 보내는 메일은 전부 **등록된 계정 주소**로만 간다:
+#   가입 인증·이미 가입됨(초대제라 사실상 잠김) · 비번 재설정 · 새 글 알림
+# 그래서 SES 샌드박스(검증된 주소로만 발송)에서도 검증 대상이 유한하다.
 
 
 def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:

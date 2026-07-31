@@ -1,136 +1,38 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+"""이메일 뉴스레터 구독 — **2026-07-31에 폐지됨. 남은 건 관리자용 정리 수단뿐이다.**
+
+왜 폐지했나. 2026-07-18에 '전역 뉴스레터'를 없애고 **글쓴이별 계정 구독**
+(`author_subscriptions` + `notify`)으로 일원화했다. 그때 화면과 발송 쪽은 갈아탔는데
+**수집 쪽(이 라우터)을 안 뗐다.** 그래서 07-31 심층검사에서 이런 상태가 드러났다:
+
+  · `POST /api/subscribers`가 살아 있어 임의의 주소로 확인 메일을 쐈다
+  · 그런데 `Subscriber` 테이블을 **발송에 쓰는 코드가 없다** — 확인을 눌러도 그 뒤가 없다
+  · 게다가 SES는 샌드박스라 검증된 3개 주소 외에는 554로 거부되는데, 발송이
+    BackgroundTask라 방문자에겐 **200 "확인 메일을 보냈어"**가 그대로 나갔다
+    (실측: 메일 서버를 죽여놓고 호출 → HTTP 200, 로그엔 처리 안 된 트레이스백만)
+
+즉 '아무 데도 닿지 않는 확인 메일을, 닿았다고 말하면서' 보내고 있었다. 그리고 그게
+이 앱에서 **검증 안 된 임의 주소로 메일이 나가는 유일한 경로**였다 — 가입은 초대제로
+닫혀 있고(config.allow_signup=False), 나머지 메일은 전부 등록된 계정 주소로만 간다.
+이 라우터를 떼면서 SES 프로덕션 액세스가 없어도 되는 상태가 됐다.
+
+**관리자 목록·삭제만 남긴다.** 운영 DB에 이미 쌓인 구독자 주소는 개인정보라, 폐지했다고
+조회 수단까지 없애면 남은 것을 확인하고 지울 방법이 사라진다. 테이블과 데이터는
+여기서 건드리지 않는다(되돌릴 수 없는 일이라 별도 판단).
+
+지운 것: POST "" (구독 신청) · POST /confirm · POST /unsubscribe · GET·POST·DELETE /me
+"""
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
-from app.core.ratelimit import limiter
-from app.core.security import create_email_token, decode_email_token
+from app.core.deps import require_admin
 from app.models.subscriber import Subscriber
 from app.models.user import User
-from app.schemas.subscriber import MySubscription, SubscriberCreate, SubscriberRead
-from app.services.email import send_subscribe_confirm_email
+from app.schemas.subscriber import SubscriberRead
 
 router = APIRouter(prefix="/subscribers", tags=["subscribers"])
-
-
-def _send_confirm(sub: Subscriber, background: BackgroundTasks) -> None:
-    # 구독 확인 토큰(24h, purpose=subscribe) → 프론트 확인 페이지 링크
-    token = create_email_token(sub.id, purpose="subscribe")
-    link = f"{settings.frontend_base_url}/subscribe/confirm?token={token}"
-    background.add_task(send_subscribe_confirm_email, sub.email, link)
-
-
-@router.post("", status_code=200)
-@limiter.limit("10/hour")  # 남의 이메일 무단등록·도배 방지
-def subscribe(
-    request: Request,
-    data: SubscriberCreate,
-    background: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
-    # 더블옵트인: 등록 즉시 구독시키지 않고 '확인메일'만 보냄.
-    # 본인이 링크를 눌러 confirmed=True가 된 사람에게만 알림이 감 → 남의 이메일 무단구독 차단.
-    # 응답은 어느 경우든 동일 → 그 이메일의 구독 여부를 노출하지 않음(enumeration 방지).
-    sub = db.scalar(select(Subscriber).where(Subscriber.email == data.email))
-    if sub is None:
-        # 신규: 미확인 상태로 만들고 확인메일 발송
-        sub = Subscriber(email=data.email, confirmed=False)
-        db.add(sub)
-        try:
-            db.commit()
-            db.refresh(sub)
-        except IntegrityError:  # 동시 첫 구독 레이스(email 유니크) — 멱등(그쪽 요청이 메일 보냄)
-            db.rollback()
-            return {"message": "확인 메일을 보냈어. 메일함에서 구독 확인을 눌러줘."}
-        _send_confirm(sub, background)
-    elif not sub.confirmed:
-        # 이미 있지만 미확인: 확인메일 재발송(분실 대비)
-        _send_confirm(sub, background)
-    # 이미 확인된 구독자면 아무것도 안 보냄(중복 발송 방지). 응답은 위와 동일.
-    return {"message": "확인 메일을 보냈어. 메일함에서 구독 확인을 눌러줘."}
-
-
-@router.post("/confirm", response_model=SubscriberRead)
-@limiter.limit("20/hour")  # 토큰 대입 완화(서명된 JWT라 사실상 불가하지만 방어)
-def confirm_subscription(
-    request: Request, token: str, db: Session = Depends(get_db)
-):
-    # 확인메일 링크의 토큰(purpose=subscribe)으로 구독 확정
-    decoded = decode_email_token(token, purpose="subscribe")
-    if decoded is None:
-        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크야")
-    sub_id, _ = decoded
-    sub = db.get(Subscriber, sub_id)
-    if sub is None:
-        raise HTTPException(status_code=404, detail="구독 정보를 찾을 수 없음")
-    sub.confirmed = True
-    db.commit()
-    db.refresh(sub)
-    return sub
-
-
-@router.post("/unsubscribe", status_code=200)
-@limiter.limit("10/hour")  # 남용 방지
-def unsubscribe(request: Request, data: SubscriberCreate, db: Session = Depends(get_db)):
-    # 이메일로 구독 취소 (뉴스레터 표준: 본인확인 없이 이메일만으로).
-    # 존재 여부는 노출하지 않음 → 등록 안 된 이메일이어도 동일하게 200
-    sub = db.scalar(select(Subscriber).where(Subscriber.email == data.email))
-    if sub is not None:
-        db.delete(sub)
-        db.commit()
-    return {"message": "구독을 취소했어 (등록된 이메일이라면)"}
-
-
-# --- 로그인 사용자 본인 구독 (구독 관리 페이지 전용) ---
-# '내 계정 이메일'로만 다룬다. 소유권이 로그인으로 증명되므로 더블옵트인(확인메일) 없이
-# 바로 confirmed 처리 → '새 글 알림'(계정 구독)을 구독 직후 바로 설정할 수 있음.
-# 라우트 순서 주의: 아래 DELETE "/{subscriber_id}"(int)가 "me"를 삼키지 않도록 그 앞에 둔다.
-
-
-@router.get("/me", response_model=MySubscription)
-def my_subscription(
-    db: Session = Depends(get_db), user: User = Depends(get_current_user)
-):
-    sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
-    return MySubscription(
-        email=user.email, subscribed=(sub is not None and sub.confirmed)
-    )
-
-
-@router.post("/me", response_model=MySubscription, status_code=200)
-def subscribe_me(
-    db: Session = Depends(get_db), user: User = Depends(get_current_user)
-):
-    # 내 계정 이메일로 구독(멱등). 본인 인증이 로그인으로 끝났으니 즉시 confirmed.
-    sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
-    if sub is None:
-        sub = Subscriber(email=user.email, confirmed=True)
-        db.add(sub)
-    else:
-        sub.confirmed = True
-    try:
-        db.commit()
-    except IntegrityError:  # 동시 첫 구독 레이스(email 유니크) — 재조회해 confirmed 보장
-        db.rollback()
-        sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
-        if sub is not None and not sub.confirmed:
-            sub.confirmed = True
-            db.commit()
-    return MySubscription(email=user.email, subscribed=True)
-
-
-@router.delete("/me", status_code=204)
-def unsubscribe_me(
-    db: Session = Depends(get_db), user: User = Depends(get_current_user)
-):
-    # 내 계정 이메일 구독 해제 (없으면 그냥 204)
-    sub = db.scalar(select(Subscriber).where(Subscriber.email == user.email))
-    if sub is not None:
-        db.delete(sub)
-        db.commit()
 
 
 @router.get("", response_model=list[SubscriberRead])

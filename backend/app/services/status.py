@@ -41,8 +41,15 @@ def run_checks() -> dict:
         with engine.connect() as conn:
             conn.execute(text("select 1"))
             post_count = conn.execute(text("select count(*) from posts")).scalar()
+            # '구독자' = 승인된 계정 구독을 가진 사람 수(중복 제거).
+            # 2026-07-31 전까지는 폐지된 뉴스레터 테이블(subscribers)을 셌는데, 그 테이블은
+            # 더 이상 늘지 않으므로 그대로 두면 **얼어붙은 숫자를 현재값처럼** 보여주게 된다.
+            # 화면의 라벨은 그대로 '구독자'이므로, 지금 그 말이 뜻하는 것을 센다.
             subscriber_count = conn.execute(
-                text("select count(*) from subscribers")
+                text(
+                    "select count(distinct subscriber_id) from author_subscriptions "
+                    "where approved = true"
+                )
             ).scalar()
     except Exception:
         db_ok = False
