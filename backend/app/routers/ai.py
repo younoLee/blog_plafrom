@@ -32,6 +32,7 @@ from app.services.llm_keys import (
     BYOK_PROVIDERS,
     NEEDS_BASE_URL,
     BYOKNotConfiguredError,
+    CredentialUndecryptableError,
     InvalidAPIKeyError,
     InvalidBaseURLError,
 )
@@ -214,6 +215,15 @@ def _load_byok_credential(db: Session, user_id: int, provider: str) -> tuple[str
         cred = llm_keys.get_credential(db, user_id, provider)
     except BYOKNotConfiguredError:
         raise HTTPException(status_code=503, detail="서버에 BYOK 암호화 키가 설정 안 됐어")
+    except CredentialUndecryptableError as e:
+        # 서버의 암호화 키가 바뀌어 예전 암호문을 못 푼다. 사용자 잘못이 아니므로 5xx로
+        # 답하되, **사용자가 할 수 있는 일**(키 재등록)을 알려준다. 잡지 않으면 여기서
+        # 500 text/plain이 나가 프론트가 파싱조차 못 한다(2026-07-31 심층검사에서 실측).
+        logger.warning("BYOK 자격증명 복호화 실패: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail=f"저장된 {provider} 키를 복호화할 수 없어 (서버 암호화 키가 바뀜). 설정에서 키를 다시 등록해줘.",
+        ) from e
     if cred is None:
         raise HTTPException(status_code=400, detail=f"{provider} 키를 먼저 등록해줘 (설정)")
     user_key, base_url = cred

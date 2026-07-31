@@ -55,6 +55,38 @@ def test_rejects_oversized_file(client, make_user, auth_headers):
     assert r.status_code == 413
 
 
+def test_upload_is_rate_limited(client, make_user, auth_headers):
+    """업로드에도 상한이 있어야 한다.
+
+    2026-07-30 심층검사에서 찾은 것: 글 30/h · 댓글 20/h · AI 10/h · 결제 20/h가 다 있는데
+    **업로드만 상한이 없어** 12연발이 전부 200으로 통과했다. 이 경로는 한 번에 5MB를 S3에
+    얹고 CloudFront로 나가는 '비용이 붙는 쓰기'이고, 공개된 데모 계정(writer)이 그대로 부를
+    수 있었다. 상한이 사라지면 이 테스트가 잡는다.
+
+    레이트리밋은 conftest가 전역으로 꺼두므로(다른 테스트의 반복 호출과 충돌) 이 테스트만
+    켜고, 끝나면 카운터까지 되돌린다 — 안 그러면 뒤 테스트가 이 30건을 물려받는다.
+    """
+    from app.core.ratelimit import limiter
+
+    w = make_user(role="writer")
+    headers = auth_headers(w)
+    limiter.reset()
+    limiter.enabled = True
+    try:
+        codes = [
+            client.post(
+                "/api/upload", headers=headers, files={"file": ("x.png", PNG, "image/png")}
+            ).status_code
+            for _ in range(31)
+        ]
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+
+    assert codes[:30] == [200] * 30  # 상한(30/시간)까지는 그대로 통과
+    assert codes[30] == 429  # 31번째부터 차단
+
+
 def test_extension_is_derived_not_from_filename(client, make_user, auth_headers):
     w = make_user(role="writer")
     # 파일명이 .exe여도 내용이 PNG면 저장 확장자는 .png (사용자 파일명 안 씀)

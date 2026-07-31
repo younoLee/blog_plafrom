@@ -2,10 +2,11 @@ import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 
 from app.core.config import settings
 from app.core.deps import require_writer
+from app.core.ratelimit import limiter
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,19 @@ def _sniff_image(data: bytes) -> tuple[str, str] | None:
 
 
 @router.post("")
-async def upload_image(file: UploadFile, user: User = Depends(require_writer)):
+# 글 작성(30/시간)과 같은 상한. 2026-07-30 심층검사에서 **이 라우트만 상한이 없는 것**을
+# 발견했다: 글 30/h · 댓글 20/h · AI 10/h · 결제 20/h가 다 있는데 여기만 없어서, 12연발이
+# 전부 200으로 통과했다. 그런데 이 경로는 한 번에 5MB를 S3에 얹고 CloudFront로 나가므로
+# **비용이 붙는 쓰기**이고, 하필 공개된 데모 계정(writer)이 그대로 부를 수 있었다.
+# 같은 날 AI 비용 캡을 조여놓고 이쪽을 열어둔 셈이었다.
+#
+# 한계는 정직하게: 이건 IP 기준이라 여러 IP로 몰리면 얇다. 구조적 방어는 AI 캡처럼
+# **계정 기준 DB 카운터**인데 그건 테이블·마이그레이션이 필요해 여기서 하지 않았다
+# (docs/cost-guardrail-drill-20260730.md의 남은 것 참고).
+@limiter.limit("30/hour")
+async def upload_image(
+    request: Request, file: UploadFile, user: User = Depends(require_writer)
+):
     # 승인된 사람(writer/admin)만 — 글쓰기 부속이라 같이 잠금
 
     # 최대 MAX_BYTES까지만 읽음(+1바이트로 초과 감지) → 거대 파일이 메모리를 다 먹기 전에 차단

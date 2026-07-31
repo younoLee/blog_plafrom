@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from starlette.datastructures import Headers
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -110,24 +111,91 @@ app.add_middleware(
 )
 
 # 요청 본문 크기 상한 (t2.micro 메모리 고갈 DoS 방지).
-# Content-Length가 상한을 넘으면 본문을 메모리에 버퍼링하기 '전에' 413으로 끊는다
-# (안 그러면 무인증 큰 요청 몇 개로 OOM 가능 — 실측 확인됨). 이미지 업로드(5MB)는 통과하도록 6MB.
-# 엣지(WAF/CloudFront)에도 같은 상한을 두면 EC2에 닿기 전에 막혀 더 좋다.
+# 이미지 업로드(5MB)는 통과하도록 6MB.
 MAX_BODY_BYTES = 6 * 1024 * 1024
 
 
-@app.middleware("http")
-async def limit_body_size(request: Request, call_next):
-    cl = request.headers.get("content-length")
-    if cl is not None:
-        try:
-            if int(cl) > MAX_BODY_BYTES:
-                return JSONResponse(
-                    {"detail": "요청 본문이 너무 큽니다 (최대 6MB)"}, status_code=413
-                )
-        except ValueError:
-            pass
-    return await call_next(request)
+async def _no_body() -> dict:
+    # 413을 내보낼 때 Response에 넘길 자리 채우기용. Starlette의 Response.__call__은
+    # receive를 쓰지 않지만 시그니처가 요구한다.
+    return {"type": "http.request", "body": b"", "more_body": False}
+
+
+class BodySizeLimitMiddleware:
+    """요청 본문 크기 상한. **Content-Length만 보면 안 된다.**
+
+    2026-07-30 심층검사에서 실측한 것: 같은 20MB 본문을
+      · `Content-Length: 20000035`로 보내면 → 413, 업로드 0바이트 (막힘)
+      · `Transfer-Encoding: chunked`로 보내면 → 20,002,488바이트가 전부 앱까지 들어와
+        7.7초 동안 메모리에 버퍼링된 뒤 422 (**우회**)
+    로그인처럼 무인증으로 부를 수 있는 라우트에서도 되므로, 큰 chunked 요청 몇 개면
+    t2.micro의 메모리를 고갈시킬 수 있다.
+
+    앞단도 못 막는다 —
+      · CloudFront Function은 본문을 볼 수 없어 같은 Content-Length 검사뿐이다
+        (terraform/reqsize-function.js).
+      · WAF의 `SizeRestrictions_BODY`는 **Count로 내려가 있다**(감시만). 그 규칙은 8KB
+        초과 본문을 막는데 그러면 이미지 업로드가 죽으므로, 되돌리는 게 답이 아니다.
+    그래서 방어는 여기서 해야 하고, 여기서는 '수신 스트림을 세는' 방식이어야 한다.
+
+    BaseHTTPMiddleware(@app.middleware) 대신 순수 ASGI로 쓴 이유: 본문이 앱에 닿기 전에
+    receive 채널을 우리가 쥐고 있어야 세면서 끊을 수 있다.
+    """
+
+    def __init__(self, app, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def _too_large(self, scope, send) -> None:
+        response = JSONResponse(
+            {"detail": f"요청 본문이 너무 큽니다 (최대 {self.max_bytes // (1024 * 1024)}MB)"},
+            status_code=413,
+        )
+        await response(scope, _no_body, send)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        cl = Headers(scope=scope).get("content-length")
+        if cl is not None:
+            try:
+                declared = int(cl)
+            except ValueError:
+                declared = None  # 깨진 CL은 판단 근거가 아니다 → 아래 스트림 검사로 넘긴다
+            if declared is not None:
+                # 가장 싼 경로: 본문을 한 바이트도 읽지 않고 판정한다.
+                if declared > self.max_bytes:
+                    return await self._too_large(scope, send)
+                return await self.app(scope, receive, send)
+
+        # CL이 없다(chunked) → 상한까지만 버퍼링하며 읽고, 넘는 순간 앱을 부르지 않고 끊는다.
+        # 버퍼가 상한(6MB)으로 묶이므로 노출은 위 CL 경로와 같다.
+        buffered: list[dict] = []
+        total = 0
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                buffered.append(message)  # http.disconnect 등은 그대로 전달
+                break
+            total += len(message.get("body", b""))
+            if total > self.max_bytes:
+                return await self._too_large(scope, send)
+            buffered.append(message)
+            if not message.get("more_body", False):
+                break
+
+        queued = iter(buffered)
+
+        async def replay():
+            # 먼저 우리가 읽어둔 것을 되돌려주고, 다 쓰면 원래 채널로 넘긴다.
+            message = next(queued, None)
+            return message if message is not None else await receive()
+
+        await self.app(scope, replay, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_BODY_BYTES)
 
 
 # 헬스체크만 시크릿 검사에서 뺀다. 이 둘은 CloudFront를 거치지 않고 오리진을 직접
@@ -138,7 +206,7 @@ async def limit_body_size(request: Request, call_next):
 ORIGIN_SECRET_EXEMPT = frozenset({"/api/health"})
 
 
-# ⚠️ 이 미들웨어는 limit_body_size **뒤에** 등록돼야 한다. Starlette은 나중에 등록된
+# ⚠️ 이 미들웨어는 BodySizeLimitMiddleware **뒤에** 등록돼야 한다. Starlette은 나중에 등록된
 # 것이 바깥쪽이라, 그래야 시크릿 검사가 가장 먼저 돈다. 순서가 뒤집히면 우회 요청이
 # 413(본문 초과)을 먼저 받아 우리 요청 크기 상한을 알려주게 된다. 둘 다 헤더만 보는
 # 검사라 비용은 같으니, 아무것도 안 알려주는 쪽이 낫다.

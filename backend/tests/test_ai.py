@@ -305,3 +305,33 @@ def test_neutralize_code_fences():
     out = _neutralize_code_fences("# 제목\n\n```bash\nrm -rf /\n```\n끝")
     assert "```" not in out and "rm -rf" not in out
     assert "[여기에 코드 예시를 직접 넣어주세요]" in out
+
+
+def test_undecryptable_byok_key_returns_503_not_500(
+    client, make_user, auth_headers, db, monkeypatch, fake_generate
+):
+    """서버 암호화 키가 바뀌면 저장된 BYOK 암호문을 못 푼다 — 그때 **503 JSON**이어야 한다.
+
+    2026-07-31 심층검사에서 실측: Fernet의 InvalidToken이 아무데서도 안 잡혀
+    500 Internal Server Error가 text/plain으로 나갔다. 프론트는 JSON을 기대하므로
+    파싱조차 못 하고, 사용자는 '키를 다시 등록하면 된다'는 걸 알 길이 없었다.
+    (07-28 카오스 훈련에서 DB·S3에 대해 고친 것과 같은 병이 BYOK 경로에만 남아 있었다)
+    """
+    from cryptography.fernet import Fernet
+
+    from app.services import llm_keys
+
+    old_key, new_key = Fernet.generate_key().decode(), Fernet.generate_key().decode()
+    user = make_user(role="writer")
+
+    # 예전 키로 저장해 두고
+    monkeypatch.setattr(settings, "llm_encryption_key", old_key)
+    llm_keys.set_key(db, user.id, "openai", "sk-abc123", None)
+    # 서버 키가 교체된 상태(로테이션·환경 불일치)에서 호출
+    monkeypatch.setattr(settings, "llm_encryption_key", new_key)
+
+    r = _draft(client, auth_headers(user), model="gpt-4o", provider="openai")
+
+    assert r.status_code == 503
+    assert r.headers["content-type"].startswith("application/json")
+    assert "다시 등록" in r.json()["detail"]  # 사용자가 할 수 있는 일을 알려준다

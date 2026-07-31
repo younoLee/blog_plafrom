@@ -82,3 +82,31 @@ def test_mark_all_read(client, make_user, auth_headers):
 
 def test_notifications_require_auth(client):
     assert client.get("/api/notifications").status_code == 401
+
+
+def test_unread_badge_drops_when_post_becomes_invisible(client, make_user, auth_headers):
+    """글이 안 보이게 되면 목록뿐 아니라 **배지 숫자도** 같이 줄어야 한다.
+
+    2026-07-31 심층검사에서 나온 것: 목록에는 가시성 조건이 걸려 있었는데 unread 카운트에는
+    없어서, 글이 private로 바뀌면 **배지엔 1이 떠 있는데 열면 0개**가 됐다. 사용자는 눌러도
+    사라지지 않는 배지를 보게 된다. 한쪽만 고쳐진 전형적인 모양이라 계약으로 못박는다.
+    """
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    _subscribe_approve_notify(client, auth_headers, reader, author)
+    post = _create_post(client, auth_headers(author))
+
+    body = client.get("/api/notifications", headers=auth_headers(reader)).json()
+    assert body["unread"] == 1 and len(body["items"]) == 1
+
+    # 글쓴이가 공개범위를 '나만 보기'로 내린다 → 구독자는 더 이상 볼 수 없다
+    r = client.patch(
+        f"/api/posts/{post['id']}/visibility",
+        headers=auth_headers(author),
+        json={"visibility": "private"},
+    )
+    assert r.status_code == 200
+
+    body = client.get("/api/notifications", headers=auth_headers(reader)).json()
+    assert body["items"] == []
+    assert body["unread"] == 0  # 수정 전: 목록은 비었는데 여기만 1이었다

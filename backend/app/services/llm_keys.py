@@ -9,7 +9,7 @@ import ipaddress
 import socket
 from urllib.parse import urlparse
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -36,6 +36,20 @@ class InvalidBaseURLError(ValueError):
 
 class InvalidAPIKeyError(ValueError):
     """입력한 키가 provider 형식에 안 맞을 때(오타·엉뚱한 값 저장 방지)."""
+
+
+class CredentialUndecryptableError(RuntimeError):
+    """저장된 암호문을 지금의 LLM_ENCRYPTION_KEY로 못 푼다(키 교체·환경 불일치).
+
+    2026-07-31 심층검사에서 실측: 키를 바꾸면 Fernet의 `InvalidToken`이 아무데서도
+    안 잡혀 **500 Internal Server Error가 text/plain으로** 나갔다. 프론트는 JSON을
+    기대하므로 파싱조차 못 하고, 사용자는 '서버가 터졌다'만 본다 — 07-28 카오스 훈련에서
+    DB·S3에 대해 고쳤던 것과 같은 병이 BYOK 경로에만 남아 있었다.
+
+    타입을 따로 두는 이유: 라우터가 cryptography를 import하지 않고도(이 모듈이 자기
+    실패를 자기 언어로 말한다) '설정 안 됨'(BYOKNotConfiguredError)과 '풀 수 없음'을
+    구분해 서로 다른 안내를 낼 수 있다. 둘은 사용자가 할 일이 다르다 —
+    앞은 서버 설정, 뒤는 '키를 다시 등록'이다."""
 
 
 # provider별 키 접두사 — 공개적으로 '안정적인' 것만 강제한다.
@@ -165,7 +179,14 @@ def get_credential(db: Session, user_id: int, provider: str) -> tuple[str, str |
     )
     if cred is None:
         return None
-    return _fernet().decrypt(cred.encrypted_key.encode()).decode(), cred.base_url
+    try:
+        plain = _fernet().decrypt(cred.encrypted_key.encode()).decode()
+    except InvalidToken as e:
+        # 암호문 자체는 남기지 않는다 — 로그로 새면 안 되고, 남겨도 할 수 있는 게 없다.
+        raise CredentialUndecryptableError(
+            f"user={user_id} provider={provider} 자격증명 복호화 실패"
+        ) from e
+    return plain, cred.base_url
 
 
 def get_base_url(db: Session, user_id: int, provider: str) -> str | None:

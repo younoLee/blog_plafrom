@@ -48,7 +48,7 @@ def model_provider(model: str) -> str | None:
 
 def allowed_models_for(user: User, providers_with_keys: set[str]) -> list[str]:
     """이 사용자가 고를 수 있는 모델 목록.
-    - Claude: admin/유료=전부, 일반=Opus만 잠금(소넷+하이쿠)
+    - Claude: admin/유료=전부, 일반은 Opus·Fable 잠금(소넷+하이쿠만)
     - OpenAI/Gemini: 그 provider 키를 등록했을 때만 노출
     """
     allowed: set[str] = set(_CLAUDE_ALL if (user.role == "admin" or user.is_pro) else _CLAUDE_FREE)
@@ -219,15 +219,24 @@ def _openai(memo: str, model: str, api_key: str, base_url: str | None = None) ->
             follow_redirects=False, timeout=COMPATIBLE_TIMEOUT
         )
     client = OpenAI(**kwargs)
-    resp = client.chat.completions.create(
-        model=model,
-        max_tokens=MAX_TOKENS,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _as_material(memo)},
-        ],
-    )
-    return resp.choices[0].message.content or ""
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            max_tokens=MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": _as_material(memo)},
+            ],
+        )
+        return resp.choices[0].message.content or ""
+    finally:
+        # 우리가 만든 httpx 클라이언트는 우리가 닫는다. SDK에 넘긴 http_client의 수명은
+        # SDK가 책임지지 않아서, 안 닫으면 커넥션 풀이 GC 시점까지 살아 있다. 하필 이
+        # 경로(compatible)는 호스트를 사용자가 정하는 유일한 곳이라 소켓이 남는 게
+        # 제일 반갑지 않은 자리다. t2.micro에선 이런 게 쌓인다.
+        made_here = kwargs.get("http_client")
+        if made_here is not None:
+            made_here.close()
 
 
 def _gemini(memo: str, model: str, api_key: str) -> str:
