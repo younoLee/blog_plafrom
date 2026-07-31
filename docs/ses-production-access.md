@@ -174,35 +174,38 @@ Bounce and complaint handling: the account level suppression list is enabled for
 1. ~~프로드 `.env`의 `ALLOW_SIGNUP` 확인~~ → **2026-07-31 완료.** 위 절 참고.
 2. ~~쓰레기 계정 2개 삭제~~ → **2026-07-31 완료.** 본문 숫자도 4로 갱신됨.
 3. ~~폐지된 뉴스레터 잔존 행 4개 삭제~~ → **2026-07-31 완료** (4행 삭제, 0건 확인).
-4. 🔴 **백엔드 재빌드 — 이게 안 되면 사유서가 거짓이다.** 아래 참고.
+4. ~~백엔드 재빌드~~ → **2026-07-31 완료·검증됨.** 아래 참고.
 5. 근거 표를 다시 훑는다 (코드가 또 바뀌었을 수 있다)
-6. 콘솔에서 제출
+6. **콘솔에서 제출** — 이제 이것만 남았다.
 
-### 🔴 4번이 왜 막고 있나
+### ✅ 4번: 배포 전엔 사유서가 거짓이었다 (해결됨)
 
-뉴스레터 폐지는 **커밋됐지만 프로덕션에 배포되지 않았다.** 2026-07-31에 프로덕션에서 실측:
+뉴스레터 폐지는 커밋만 되고 프로덕션에는 안 들어가 있었다. 재빌드 **전** 실측:
 
 ```
 POST /api/subscribers  (오리진 시크릿 포함)  →  200 {"message":"확인 메일을 보냈어..."}
 ```
 
-즉 지금 이 순간에도 프로덕션의 공개 구독 엔드포인트는 **살아 있고 임의 주소를 받는다.**
-그런데 사유서 본문에는 이렇게 적혀 있다:
+사유서 본문의 *"We removed our newsletter subscription feature entirely on 2026-07-31,
+including the endpoint that accepted addresses"*가 그 상태에서는 거짓이었다. 그리고
+**AWS가 직접 부딪혀 확인할 수 있는 종류의 거짓**이다.
 
-> *"We removed our newsletter subscription feature entirely on 2026-07-31, including the
-> endpoint that accepted addresses"*
-
-**재빌드 전에 제출하면 이 문장이 거짓이다.** 그리고 AWS가 확인할 수 있는 종류의 거짓이다
-(엔드포인트를 직접 부르면 된다). 순서가 뒤집히면 안 된다 — 배포가 먼저다.
-
-`scripts/deploy_backend.sh`로 코드는 이미 서버에 올려뒀다(`.env` 지문 동일 확인).
-남은 건 재빌드 한 줄이고, 그건 규칙7이라 사용자가 실행한다.
-
-재빌드 뒤 **반드시 이걸로 확인**한다 — '배포했다'와 '엔드포인트가 사라졌다'는 다르다:
+재빌드 **후** 같은 검사 (이미지 빌드 `2026-07-31T06:57Z` · healthy · alembic `c1d2e3f4a5b6` head):
 
 ```
-POST /api/subscribers  →  404 또는 405 여야 한다 (200이면 아직 옛 이미지다)
+POST /api/subscribers          → 405
+POST /api/subscribers/confirm  → 405
+POST /api/subscribers/unsubscribe → 405
+GET  /api/subscribers/me       → 405
+GET  /api/status               → 200  {"stats":{"posts":21,"subscribers":2}}
 ```
+
+404가 아니라 405인 이유: 관리자용 `GET /subscribers`·`DELETE /subscribers/{id}`가 같은
+경로에 남아 있어 경로는 매치되고 메서드가 없다. 회귀 테스트가 상태코드를 못박지 않고
+'성공하지 않는다'로 쓰인 이유가 이것이다(`test_retired_routes_never_succeed`).
+
+`subscribers: 2`도 확인 지점이다 — 폐지된 테이블은 0건이므로, 2가 나온다는 건
+**계정 구독 인원을 세는 새 쿼리가 돌고 있다**는 뜻이다(옛 코드면 0이 나왔을 것이다).
 
 본문의 숫자는 전부 프로덕션 실측값이라 손댈 곳 없다.
 
