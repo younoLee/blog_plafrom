@@ -17,8 +17,45 @@
 **API로는 재제출할 수 없다.** `sesv2 put-account-details`는 심사 이력이 있으면
 `ConflictException`을 낸다. AWS Support API는 유료 플랜 전용이다. → 콘솔에서 사람이 해야 한다.
 
-- SES 콘솔 → Account dashboard → **Request production access**, 또는
-- Support Center → 케이스 `178238423300607` → **Reply**
+## 제출 절차 (콘솔)
+
+### ⚠️ 먼저: 리전을 반드시 확인한다
+
+프로덕션 액세스는 **리전별**이다. 콘솔 우측 상단이 **서울(ap-northeast-2)**인지 보고 시작한다.
+다른 리전에서 신청하면 승인돼도 이 앱은 그대로 샌드박스다 — 그리고 그 사실을
+한동안 모른다(`watch.sh`는 서울만 본다).
+
+### 경로 A — 새로 신청 (먼저 이걸 시도)
+
+1. SES 콘솔 → 왼쪽 **Account dashboard**
+2. 상단 배너 "Your Amazon SES account is in the sandbox" → **Request production access**
+3. 폼을 이렇게 채운다:
+
+| 항목 | 넣을 값 |
+|---|---|
+| **Mail type** | `Transactional` (Marketing 아님 — 우리는 목록 메일이 0이다) |
+| **Website URL** | `https://d2j66m9udyg9yq.cloudfront.net` |
+| **Use case description** | 아래 '붙여넣을 본문' 블록 **전체** |
+| **Additional contacts** | 비워도 됨 |
+| **Preferred contact language** | English (본문이 영어라 맞춰둔다) |
+| 마지막 체크박스 | AWS 정책·AUP 준수 동의 — 체크 |
+
+4. **Submit**
+
+### 경로 B — 기존 케이스에 회신 (A가 막히면)
+
+이미 심사 이력이 있어 A가 "이미 요청이 있습니다"로 막힐 수 있다. 그러면:
+
+Support Center → **Case history** → 케이스 `178238423300607` → **Reply**
+→ 같은 본문을 붙여넣고 회신.
+
+### 제출 뒤
+
+- 보통 **24시간 안에** 답이 온다(케이스에 회신 형태).
+- 결과 확인은 콘솔 말고 이걸로도 된다:
+  `aws sesv2 get-account --region ap-northeast-2 --query '{Prod:ProductionAccessEnabled,Review:Details.ReviewDetails}'`
+- **승인되면** `scripts/watch.sh`의 `SES_SANDBOX_EXPECTED=true` → `false`로 바꾼다(아래 '승인된 뒤 할 일').
+- **거부되면** 아래 '거부되면' 절대로. 사유를 읽고 그 지점만 회신한다.
 
 ## 승인 전까지의 다리
 
@@ -136,11 +173,38 @@ Bounce and complaint handling: the account level suppression list is enabled for
 
 1. ~~프로드 `.env`의 `ALLOW_SIGNUP` 확인~~ → **2026-07-31 완료.** 위 절 참고.
 2. ~~쓰레기 계정 2개 삭제~~ → **2026-07-31 완료.** 본문 숫자도 4로 갱신됨.
-3. (선택·미완) 폐지된 뉴스레터 잔존 행 4개 삭제 — 관리자 화면. 사유서와 무관하지만 PII다.
-4. 근거 표를 다시 훑는다 (코드가 또 바뀌었을 수 있다)
-5. **콘솔에서 제출** (API 불가) — 이제 이것만 남았다.
+3. ~~폐지된 뉴스레터 잔존 행 4개 삭제~~ → **2026-07-31 완료** (4행 삭제, 0건 확인).
+4. 🔴 **백엔드 재빌드 — 이게 안 되면 사유서가 거짓이다.** 아래 참고.
+5. 근거 표를 다시 훑는다 (코드가 또 바뀌었을 수 있다)
+6. 콘솔에서 제출
 
-본문의 숫자는 전부 프로덕션 실측값이다. 지금 상태로 바로 붙여넣어도 된다.
+### 🔴 4번이 왜 막고 있나
+
+뉴스레터 폐지는 **커밋됐지만 프로덕션에 배포되지 않았다.** 2026-07-31에 프로덕션에서 실측:
+
+```
+POST /api/subscribers  (오리진 시크릿 포함)  →  200 {"message":"확인 메일을 보냈어..."}
+```
+
+즉 지금 이 순간에도 프로덕션의 공개 구독 엔드포인트는 **살아 있고 임의 주소를 받는다.**
+그런데 사유서 본문에는 이렇게 적혀 있다:
+
+> *"We removed our newsletter subscription feature entirely on 2026-07-31, including the
+> endpoint that accepted addresses"*
+
+**재빌드 전에 제출하면 이 문장이 거짓이다.** 그리고 AWS가 확인할 수 있는 종류의 거짓이다
+(엔드포인트를 직접 부르면 된다). 순서가 뒤집히면 안 된다 — 배포가 먼저다.
+
+`scripts/deploy_backend.sh`로 코드는 이미 서버에 올려뒀다(`.env` 지문 동일 확인).
+남은 건 재빌드 한 줄이고, 그건 규칙7이라 사용자가 실행한다.
+
+재빌드 뒤 **반드시 이걸로 확인**한다 — '배포했다'와 '엔드포인트가 사라졌다'는 다르다:
+
+```
+POST /api/subscribers  →  404 또는 405 여야 한다 (200이면 아직 옛 이미지다)
+```
+
+본문의 숫자는 전부 프로덕션 실측값이라 손댈 곳 없다.
 
 ## 거부되면 (두 번째 거부 대비)
 
