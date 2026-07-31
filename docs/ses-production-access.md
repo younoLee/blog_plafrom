@@ -42,10 +42,36 @@
 구조적으로 거의 없다 — 심사가 보려는 게 바로 그것이다. 07-22에는 "누구나 가입할 수 있게
 해달라"는 이야기였는데, 지금은 "초대한 사람에게만 보낸다"는 이야기다.
 
-## 붙여넣을 본문 (2026-07-31판)
+## 실측한 계정 현황 (2026-07-31)
 
-> ⚠️ 아래 `[N]` 두 곳은 **서버를 켜서 실제 숫자로 바꾼 뒤** 제출할 것.
-> 지어내면 이 문서 전체의 신뢰가 무너진다.
+서버를 켜지 않고 **최신 백업**(`s3://blog-db-backups-181568979775/keep/latest.sql.gz`,
+07-30 정지 시점 = 현재 상태)을 로컬 Postgres에 임시 복원해서 셌다. 조회 후 즉시 삭제.
+
+| 이메일 | 역할 | SES 검증 |
+|---|---|---|
+| es2646526@gmail.com | admin | ✅ |
+| jinukkim0305@naver.com | writer | ✅ |
+| youno3249@gmail.com | writer | ✅ |
+| demo@example.com | writer | 데모 계정 (도메인상 검증 불가·불필요) |
+| test@test.com | pending | 쓰레기 |
+| ppap@gmail.com | pending | 쓰레기로 보임 |
+
+- 계정 6개, 전부 `email_verified`
+- **새 글 알림을 켠 사람: 0명** (승인된 계정 구독은 3건이지만 notify는 전부 off)
+- 폐지된 뉴스레터 테이블 잔존 행 4개(PII — 관리자 화면에서 정리 대상)
+
+### ⚠️ 이 숫자가 신청 논거를 바꾼다
+
+**실제 사람 3명이 전부 이미 SES 검증돼 있다.** 즉 지금 이 순간 메일을 못 받는 사람은 없다.
+그래서 "지금 막혀 있다"로 쓸 수 없고, **"앞으로 초대할 때 마찰이 생긴다"**로 써야 한다.
+그건 사실이지만 약한 논거다 — AWS가 "그럼 그때 검증하면 되지 않나"라고 답할 수 있고,
+그 반박이 맞다. 아래 본문은 그 약함을 숨기지 않고 쓴 것이다. 과장해서 통과시키면
+나중에 그 한 줄 때문에 전체를 의심받는다.
+
+**신청 전에 쓰레기 계정 2개를 지우면** 문장이 깨끗해지고(6개 → 4개) 사실도 더 정확해진다.
+관리자 화면에서 지울 수 있다(서버 필요).
+
+## 붙여넣을 본문 (2026-07-31판 · 실측 반영)
 
 ```
 Personal technical blog with a single author, at https://d2j66m9udyg9yq.cloudfront.net. We send transactional email only. No marketing, no bulk mail, no newsletters, and no purchased, rented or imported lists.
@@ -54,19 +80,19 @@ Who can receive mail from us, and why that set is closed:
 
 Public registration is disabled. The registration endpoint returns HTTP 403 unless an explicit server setting enables it, and that setting is off by default and off in production. Accounts are created only by the site owner, using a command line script, for people the owner invites. There is no form anywhere on the site that accepts an email address from an anonymous visitor. We removed our newsletter subscription feature entirely on 2026-07-31, including the endpoint that accepted addresses, so no third party can cause us to send mail to any address.
 
-The practical consequence is that every recipient of every message we send is an account holder that the owner personally invited.
+The practical consequence is that every recipient of every message we send is an account holder that the owner created by hand.
 
 Messages we send and what triggers each:
 
-1. Account verification. Sent when the owner creates an invited account, so the recipient can confirm the address and set up access. Any account still unverified after 24 hours is deleted automatically by a background job.
+1. Account verification. Sent when the owner creates an invited account, so the recipient can confirm the address. Any account still unverified after 24 hours is deleted automatically by a background job.
 
 2. Password reset link. Sent only on explicit request from the login page. Single use, expires in one hour, and invalidated as soon as it is used.
 
-3. New post notification. Sent only to account holders who subscribed to a specific author and then explicitly turned notifications on for that author. Both the subscription and the notification toggle are off by default, require the author's approval, and can be turned off at any time from the account portal.
+3. New post notification. Sent only to account holders who subscribed to a specific author and then explicitly turned notifications on for that author. Both the subscription and the notification toggle are off by default and require the author's approval, and either can be turned off at any time from the account portal.
 
-Volume: [N] registered accounts and [N] account holders with new post notifications enabled. Steady state is under 50 messages per month. We are not asking for a large sending quota, only for removal of the sandbox restriction.
+Current scale, so you can see exactly how small this is: 6 registered accounts. Three belong to real people, the owner and two invited writers. One is a shared read-only demo account we publish so that visitors can look around the interface without registering. Two are leftover test accounts. Nobody currently has new post notifications enabled. Steady state is well under 50 messages per month. We are not asking for a large sending quota, only for removal of the sandbox restriction.
 
-Why we need production access: in the sandbox we can only deliver to three verified addresses. When the owner invites someone, that person cannot receive their verification message or reset their password unless we first add their personal address as a verified identity inside our AWS account and ask them to click an Amazon confirmation email. That is an unreasonable thing to ask of an invited reader, and it is the only reason we are applying.
+Why we are asking: we are not currently blocked, and we want to be straightforward about that. We work around the sandbox by adding each invited person's address as a verified identity inside our own AWS account, and all three current users are verified that way. The problem is what that costs each new person: before they can receive the verification message for the account we created for them, they must first find and click an Amazon confirmation email for an AWS account they have no relationship with. It is confusing, it arrives before any message from us, and it puts a step we cannot support in front of every future invitation. We would like invitations to work the way they should, where the owner creates the account and the person receives exactly one message, from us.
 
 Abuse prevention already in place: registration is rate limited to 5 requests per hour per IP, password reset email to 5 per hour per IP, and login to 10 per minute per IP. AWS WAF sits in front of the API with the AWS managed IP reputation list, core rule set, and known bad inputs rule groups attached in blocking mode.
 
@@ -96,16 +122,19 @@ Bounce and complaint handling: the account level suppression list is enabled for
 
 ## 제출 전 체크리스트
 
-1. 서버를 켠다 → `[N]` 두 개를 실제 숫자로 바꾼다
-   - 등록 계정 수: `select count(*) from users;`
-   - 알림 켠 사람 수: `select count(distinct subscriber_id) from author_subscriptions where approved and notify;`
-2. **프로드 `.env`에 `ALLOW_SIGNUP`이 없는지 확인한다.** 배포 설정(compose·스크립트·워크플로)
+1. **프로드 `.env`에 `ALLOW_SIGNUP`이 없는지 확인한다.** 배포 설정(compose·스크립트·워크플로)
    어디에도 없는 건 확인했지만, 서버의 `.env`는 꺼져 있어 못 읽었다. 거기 켜져 있으면
    "공개 가입이 없다"는 사유서의 **첫 문단이 통째로 거짓**이 된다.
    `docker compose -f docker-compose.prod.yml exec backend python -c \
     "from app.core.config import settings; print(settings.allow_signup)"` → `False`여야 한다.
-3. 위 근거 표를 다시 훑는다 (코드가 또 바뀌었을 수 있다)
-4. 콘솔에서 제출 (API 불가)
+2. (선택) 쓰레기 계정 `test@test.com` · `ppap@gmail.com` 삭제 → 본문의 "6 registered accounts"를
+   "4"로, "Two are leftover test accounts." 문장을 지운다. 사실이 더 깨끗해진다.
+3. (선택) 폐지된 뉴스레터 잔존 행 4개 삭제 — 관리자 화면. 사유서와 무관하지만 PII다.
+4. 근거 표를 다시 훑는다 (코드가 또 바뀌었을 수 있다)
+5. 콘솔에서 제출 (API 불가)
+
+**계정 수는 이미 실측해서 본문에 박아뒀다** — 위 '실측한 계정 현황' 참고.
+백업 복원으로 셌으므로 서버를 켜지 않아도 된다. 다만 1번은 서버가 필요하다.
 
 ## 거부되면 (두 번째 거부 대비)
 
