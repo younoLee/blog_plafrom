@@ -42,10 +42,10 @@
 구조적으로 거의 없다 — 심사가 보려는 게 바로 그것이다. 07-22에는 "누구나 가입할 수 있게
 해달라"는 이야기였는데, 지금은 "초대한 사람에게만 보낸다"는 이야기다.
 
-## 실측한 계정 현황 (2026-07-31)
+## 실측한 계정 현황 (2026-07-31 · 프로덕션 직접 확인)
 
-서버를 켜지 않고 **최신 백업**(`s3://blog-db-backups-181568979775/keep/latest.sql.gz`,
-07-30 정지 시점 = 현재 상태)을 로컬 Postgres에 임시 복원해서 셌다. 조회 후 즉시 삭제.
+서버를 켜서 프로덕션 DB에서 직접 셌고, 쓰레기 계정 2개(`test@test.com`·`ppap@gmail.com`)를
+지운 뒤의 값이다.
 
 | 이메일 | 역할 | SES 검증 |
 |---|---|---|
@@ -53,12 +53,24 @@
 | jinukkim0305@naver.com | writer | ✅ |
 | youno3249@gmail.com | writer | ✅ |
 | demo@example.com | writer | 데모 계정 (도메인상 검증 불가·불필요) |
-| test@test.com | pending | 쓰레기 |
-| ppap@gmail.com | pending | 쓰레기로 보임 |
 
-- 계정 6개, 전부 `email_verified`
-- **새 글 알림을 켠 사람: 0명** (승인된 계정 구독은 3건이지만 notify는 전부 off)
-- 폐지된 뉴스레터 테이블 잔존 행 4개(PII — 관리자 화면에서 정리 대상)
+- 계정 **4개**, 전부 `email_verified`
+- **새 글 알림을 켠 사람: 0명** (승인된 계정 구독 2건이지만 notify는 전부 off)
+- 글 21개
+- 폐지된 뉴스레터 테이블 잔존 행 **4개(PII)** — 사유서와 무관하지만 정리 대상.
+  아직 안 지웠다(요청 범위 밖이라 판단).
+
+### ✅ `ALLOW_SIGNUP` 확인 완료 (2026-07-31)
+
+프로덕션에서 직접 검증했다. 두 방향 모두 확인:
+
+- `/home/ec2-user/blog/.env`에 `ALLOW_SIGNUP` **0건** → 기본값 `False`가 적용된다
+- 실행 중 백엔드가 보는 값: `allow_signup = False`
+- **오리진 시크릿을 붙인 실제 가입 요청** → `403 {"detail":"가입은 현재 초대제로 운영됩니다..."}`
+
+⚠️ 함정: 시크릿 **없이** 부르면 같은 403이지만 `{"detail":"Forbidden"}`이다 —
+그건 오리진 시크릿 미들웨어가 막은 것이지 가입 게이트가 아니다. 처음에 그걸로
+'확인했다'고 할 뻔했다. 상태코드가 같아도 **이유가 다르면 증명이 아니다.**
 
 ### ⚠️ 이 숫자가 신청 논거를 바꾼다
 
@@ -90,7 +102,7 @@ Messages we send and what triggers each:
 
 3. New post notification. Sent only to account holders who subscribed to a specific author and then explicitly turned notifications on for that author. Both the subscription and the notification toggle are off by default and require the author's approval, and either can be turned off at any time from the account portal.
 
-Current scale, so you can see exactly how small this is: 6 registered accounts. Three belong to real people, the owner and two invited writers. One is a shared read-only demo account we publish so that visitors can look around the interface without registering. Two are leftover test accounts. Nobody currently has new post notifications enabled. Steady state is well under 50 messages per month. We are not asking for a large sending quota, only for removal of the sandbox restriction.
+Current scale, so you can see exactly how small this is: 4 registered accounts. Three belong to real people, the owner and two invited writers. The fourth is a shared read-only demo account we publish so that visitors can look around the interface without registering. Nobody currently has new post notifications enabled. Steady state is well under 50 messages per month. We are not asking for a large sending quota, only for removal of the sandbox restriction.
 
 Why we are asking: we are not currently blocked, and we want to be straightforward about that. We work around the sandbox by adding each invited person's address as a verified identity inside our own AWS account, and all three current users are verified that way. The problem is what that costs each new person: before they can receive the verification message for the account we created for them, they must first find and click an Amazon confirmation email for an AWS account they have no relationship with. It is confusing, it arrives before any message from us, and it puts a step we cannot support in front of every future invitation. We would like invitations to work the way they should, where the owner creates the account and the person receives exactly one message, from us.
 
@@ -122,19 +134,13 @@ Bounce and complaint handling: the account level suppression list is enabled for
 
 ## 제출 전 체크리스트
 
-1. **프로드 `.env`에 `ALLOW_SIGNUP`이 없는지 확인한다.** 배포 설정(compose·스크립트·워크플로)
-   어디에도 없는 건 확인했지만, 서버의 `.env`는 꺼져 있어 못 읽었다. 거기 켜져 있으면
-   "공개 가입이 없다"는 사유서의 **첫 문단이 통째로 거짓**이 된다.
-   `docker compose -f docker-compose.prod.yml exec backend python -c \
-    "from app.core.config import settings; print(settings.allow_signup)"` → `False`여야 한다.
-2. (선택) 쓰레기 계정 `test@test.com` · `ppap@gmail.com` 삭제 → 본문의 "6 registered accounts"를
-   "4"로, "Two are leftover test accounts." 문장을 지운다. 사실이 더 깨끗해진다.
-3. (선택) 폐지된 뉴스레터 잔존 행 4개 삭제 — 관리자 화면. 사유서와 무관하지만 PII다.
+1. ~~프로드 `.env`의 `ALLOW_SIGNUP` 확인~~ → **2026-07-31 완료.** 위 절 참고.
+2. ~~쓰레기 계정 2개 삭제~~ → **2026-07-31 완료.** 본문 숫자도 4로 갱신됨.
+3. (선택·미완) 폐지된 뉴스레터 잔존 행 4개 삭제 — 관리자 화면. 사유서와 무관하지만 PII다.
 4. 근거 표를 다시 훑는다 (코드가 또 바뀌었을 수 있다)
-5. 콘솔에서 제출 (API 불가)
+5. **콘솔에서 제출** (API 불가) — 이제 이것만 남았다.
 
-**계정 수는 이미 실측해서 본문에 박아뒀다** — 위 '실측한 계정 현황' 참고.
-백업 복원으로 셌으므로 서버를 켜지 않아도 된다. 다만 1번은 서버가 필요하다.
+본문의 숫자는 전부 프로덕션 실측값이다. 지금 상태로 바로 붙여넣어도 된다.
 
 ## 거부되면 (두 번째 거부 대비)
 
