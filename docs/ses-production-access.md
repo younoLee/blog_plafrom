@@ -25,29 +25,42 @@
 다른 리전에서 신청하면 승인돼도 이 앱은 그대로 샌드박스다 — 그리고 그 사실을
 한동안 모른다(`watch.sh`는 서울만 본다).
 
-### 경로 A — 새로 신청 (먼저 이걸 시도)
+### ❌ 막힌 경로 두 개 (2026-07-31에 실제로 확인함)
 
-1. SES 콘솔 → 왼쪽 **Account dashboard**
-2. 상단 배너 "Your Amazon SES account is in the sandbox" → **Request production access**
-3. 폼을 이렇게 채운다:
+두 번 헛걸음하지 않도록 안 되는 것부터 적는다.
+
+| 경로 | 결과 |
+|---|---|
+| SES 콘솔 → Account dashboard → **Request production access** | **막힘.** 이 버튼은 `PutAccountDetails`를 부르는데, 심사 이력이 있으면 **`ConflictException`**이다. API로 직접 쳐서 확인했다 |
+| Support Center → 케이스 `178238423300607` → **Reply** | **막힘.** 케이스가 닫혀 있어 회신 버튼이 없다 |
+| `aws support` CLI로 케이스 조회·회신 | **막힘.** `SubscriptionRequiredException` — Support API는 유료 플랜 전용 |
+
+계정에는 아직 **07-22의 옛 245자 사유서**가 그대로 들어 있다(`get-account`의
+`Details.UseCaseDescription`). 즉 그동안 새 신청이 접수된 적은 한 번도 없다.
+
+### ✅ 되는 경로 — 새 지원 케이스 (Service limit increase)
+
+**Basic(무료) 플랜에서도 '한도 증가' 케이스는 열 수 있다.** 유료가 필요한 건 기술지원이다.
+
+1. AWS Support Center → **Create case**
+2. 유형: **Service limit increase** (Technical support 아님 — 그건 유료다)
+3. 항목을 이렇게 채운다:
 
 | 항목 | 넣을 값 |
 |---|---|
-| **Mail type** | `Transactional` (Marketing 아님 — 우리는 목록 메일이 0이다) |
+| **Limit type** | `SES Sending Limits` |
+| **Mail Type** | `Transactional` |
 | **Website URL** | `https://d2j66m9udyg9yq.cloudfront.net` |
-| **Use case description** | 아래 '붙여넣을 본문' 블록 **전체** |
-| **Additional contacts** | 비워도 됨 |
-| **Preferred contact language** | English (본문이 영어라 맞춰둔다) |
-| 마지막 체크박스 | AWS 정책·AUP 준수 동의 — 체크 |
+| AWS 서비스 약관·AUP 준수 확인 | **Yes** |
+| **Region** | `Asia Pacific (Seoul)` ← 반드시. 리전별이다 |
+| **Limit** | `Desired Daily Sending Quota` |
+| **New limit value** | `200` (현재값 그대로. 한도를 올리려는 게 아니라 **샌드박스 해제**가 목적이라는 걸 본문에 적는다) |
+| **Use case description** | 아래 '붙여넣을 본문' **전체** (첫 문단이 재신청 사유를 밝힌다) |
+| Contact language | English |
 
 4. **Submit**
 
-### 경로 B — 기존 케이스에 회신 (A가 막히면)
-
-이미 심사 이력이 있어 A가 "이미 요청이 있습니다"로 막힐 수 있다. 그러면:
-
-Support Center → **Case history** → 케이스 `178238423300607` → **Reply**
-→ 같은 본문을 붙여넣고 회신.
+보통 24시간 안에 케이스에 답이 달린다.
 
 ### 제출 뒤
 
@@ -123,6 +136,10 @@ Support Center → **Case history** → 케이스 `178238423300607` → **Reply*
 ## 붙여넣을 본문 (2026-07-31판 · 실측 반영)
 
 ```
+We are asking for the sending sandbox to be removed for this account in the Asia Pacific (Seoul) region. We are not asking for a higher sending quota; the current 200 messages per day is far more than we need, and we have left the requested value unchanged for that reason.
+
+This is a second request. An earlier one was denied under case 178238423300607. That request was two sentences long and did not explain how we obtain recipients or handle bounces, so the denial was reasonable. Rather than resubmit it, we have written this from scratch, and in the meantime we also changed the application itself to remove the parts that carried the most risk. Those changes are described below and can be verified against the live site.
+
 Personal technical blog with a single author, at https://d2j66m9udyg9yq.cloudfront.net. We send transactional email only. No marketing, no bulk mail, no newsletters, and no purchased, rented or imported lists.
 
 Who can receive mail from us, and why that set is closed:
