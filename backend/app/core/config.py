@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     ai_daily_cap: int = 20
     # 유저별 '월간' 서버키 호출 상한. 일일 캡과 별개의 2차 방어선(매일 조금씩 누적되는 비용 방지).
     ai_monthly_cap: int = 200
+    # 유저별 '시간당' AI 가드 위반 상한. 넘으면 그 시간 창 동안 초안 생성을 막는다.
+    # 3인 이유: 정상 사용자는 평생 0이다(가드는 형식 이탈·프롬프트 유출에만 걸린다).
+    # 인젝션은 문구를 바꿔가며 반복하는 시행착오라, 그 반복을 비싸게 만드는 게 목적이다.
+    # 모델이 어쩌다 형식을 흘리는 우발적 위반에 여유를 주려고 1이 아니라 3으로 둔다.
+    ai_guard_violation_cap: int = 3
     # BYOK용 암호화 키(Fernet). 사용자가 맡긴 GPT/Gemini 키를 이걸로 암호화해 DB 저장.
     # 비어 있으면 BYOK 비활성(키 저장 불가). 생성: python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
     llm_encryption_key: str = ""

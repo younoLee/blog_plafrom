@@ -100,6 +100,13 @@ export async function generateDraft(memo: string, model?: string, provider?: str
     throw new Error(d?.detail ?? 'AI 호출이 너무 잦아. 잠시 후 다시 해줘')
   }
   if (res.status === 503) throw new Error('AI 기능이 아직 설정 안 됐어 (서버에 API 키 필요)')
+  if (res.status === 422) {
+    // 서버 가드에 걸렸거나(출력이 초안 형식이 아님·프롬프트 유출 의심) 입력 검증 실패.
+    // FastAPI의 요청 검증 실패도 422인데 그쪽 detail은 **배열**이라 그대로 쓰면
+    // "[object Object]"가 뜬다 → 문자열일 때만 서버 문구를 쓴다.
+    const d = await res.json().catch(() => null)
+    throw new Error(typeof d?.detail === 'string' ? d.detail : '메모를 다시 확인해줘')
+  }
   if (!res.ok) throw new Error('AI 초안 생성에 실패했어')
   const data = await res.json()
   return data.markdown as string

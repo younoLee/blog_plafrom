@@ -10,7 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.models.ai_usage import AiHourlyUsage, AiUsage
+from app.models.ai_usage import AiGuardViolation, AiHourlyUsage, AiUsage
 
 
 def _today() -> date:
@@ -54,6 +54,38 @@ def increment_today(db: Session, user_id: int) -> int:
             set_={"count": AiUsage.count + 1},
         )
         .returning(AiUsage.count)
+    )
+    new_count = int(db.scalar(stmt))
+    db.commit()
+    return new_count
+
+
+def count_guard_violations(db: Session, user_id: int) -> int:
+    """이번 시간 창에 이 사용자가 가드에 걸린 횟수. 정상 사용자는 0이다."""
+    row = db.scalar(
+        select(AiGuardViolation).where(
+            AiGuardViolation.user_id == user_id,
+            AiGuardViolation.hour == _this_hour(),
+        )
+    )
+    return row.count if row else 0
+
+
+def increment_guard_violation(db: Session, user_id: int) -> int:
+    """가드 위반을 원자적으로 +1 (새 count 반환).
+
+    다른 카운터와 달리 이건 **호출 뒤에** 센다 — 위반인지는 응답을 받아봐야 알 수 있다.
+    그래서 reserve-then-check가 아니라 사후 집계이고, 동시 요청이 임계를 살짝 넘겨
+    통과할 수 있다. 여기선 그게 문제가 안 된다: 이 카운터는 비용이 아니라 '시행착오를
+    비싸게' 만드는 장치이고, 비용 자체는 이미 시간당/일일 캡이 하드 캡한다."""
+    stmt = (
+        pg_insert(AiGuardViolation)
+        .values(user_id=user_id, hour=_this_hour(), count=1)
+        .on_conflict_do_update(
+            constraint="uq_ai_guard_violation_user_hour",
+            set_={"count": AiGuardViolation.count + 1},
+        )
+        .returning(AiGuardViolation.count)
     )
     new_count = int(db.scalar(stmt))
     db.commit()

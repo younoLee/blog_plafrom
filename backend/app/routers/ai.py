@@ -19,7 +19,7 @@ from app.schemas.ai import (
     SetKeyRequest,
     UsageResponse,
 )
-from app.services import ai_usage, llm_keys
+from app.services import ai_guard, ai_usage, llm_keys
 from app.services.ai import (
     DEFAULT_MODEL,
     MODELS,
@@ -177,6 +177,26 @@ def _reserve_abuse_slot(db: Session, user_id: int) -> None:
         )
 
 
+def _check_guard_lockout(db: Session, user_id: int) -> None:
+    """가드 위반이 시간당 상한을 넘은 계정은 그 창 동안 막는다(429).
+
+    한 방에 뚫리는 인젝션은 드물다. 실제 공격은 문구를 바꿔가며 반복하는 시행착오라,
+    **그 반복을 끊는 게** 이 캡의 목적이다(작업 지시서 §8). 정상 사용자는 위반 카운트가
+    평생 0이라 이 경로를 밟지 않는다.
+
+    검사는 벤더 호출 '전에' 한다 — 위반이 쌓인 계정이 돈을 더 쓰게 두지 않는다.
+    다만 시간당 '시도' 예약(_reserve_abuse_slot) 뒤에 온다: 막힌 시도도 시도로 세야
+    무한히 두드리는 게 공짜가 안 된다.
+
+    문구는 뭉뚱그린다. 몇 번 걸렸고 몇 번 남았는지 알려주면 공격자에겐 계기판이 된다.
+    """
+    if ai_usage.count_guard_violations(db, user_id) >= settings.ai_guard_violation_cap:
+        raise HTTPException(
+            status_code=429,
+            detail="초안 생성이 잠시 제한됐어. 시간이 지난 뒤 다시 시도해줘.",
+        )
+
+
 def _reserve_server_slot(db: Session, user_id: int) -> None:
     """서버키(Claude) 호출의 일일·월간 비용 캡 — **원자적 예약**. 초과 시 되돌리고 429.
     (BYOK는 본인 비용이라 제외)
@@ -250,6 +270,8 @@ def create_draft(
     # reserve-then-check라 동시요청이 캡을 넘겨 통과하지 못한다(공유 데모 계정 방어의 핵심).
     # 실패하는 호출(느린 BYOK 등)도 이미 차감돼 무한 재시도가 공짜가 아니다.
     _reserve_abuse_slot(db, user.id)
+    # 가드를 반복해서 두드린 계정은 여기서 끊는다(벤더 호출 전 = 돈 쓰기 전).
+    _check_guard_lockout(db, user.id)
     # 비용 슬롯도 호출 '전에' 예약한다. 예전엔 여기서 읽고 성공 뒤에 증가시켜서,
     # 그 사이(=LLM 호출 시간)에 들어온 동시 요청이 캡을 넘겨 통과했다.
     if provider == "claude":
@@ -271,6 +293,30 @@ def create_draft(
         charged = True
     except AIKeyMissingError:
         raise HTTPException(status_code=503, detail="AI 기능이 아직 설정되지 않았어 (서버 키 필요)")
+    except ai_guard.GuardViolation as e:
+        # 가드에 걸린 출력은 **절대 사용자에게 안 내려간다.** 원본을 보여주면 그게 곧
+        # 프롬프트 유출이고, 어떤 가드에 걸렸는지 알려주면 공격자 피드백 루프가 된다
+        # → 사유는 로그에만, 사용자에겐 뭉뚱그린 한 줄.
+        #
+        # 환불하지 않는다(charged=True). 벤더 호출은 **성공했고 토큰은 이미 태웠다.**
+        # 여기서 일일 슬롯을 돌려주면 인젝션 시도만 비용이 0이 되어, 캡이 걸린 계정으로
+        # 가드를 무한히 두드려볼 수 있게 된다 — 정확히 반대로 가야 하는 방향이다.
+        charged = True
+        violations = ai_usage.increment_guard_violation(db, user.id)
+        logger.warning(
+            "AI 가드 위반: reason=%s user=%s model=%s provider=%s memo=%s 누적=%d/%d",
+            e.reason,
+            user.id,
+            model,
+            provider,
+            ai_guard.memo_fingerprint(body.memo),  # 원문 대신 지문만
+            violations,
+            settings.ai_guard_violation_cap,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="초안 생성에 실패했어. 메모를 조금 다르게 써서 다시 시도해줘.",
+        ) from e
     except Exception as e:
         if _upstream_unreachable(e):
             # 업스트림에 못 닿거나 제때 답을 못 받은 것 — 사용자가 고칠 수 있는 게 없다.

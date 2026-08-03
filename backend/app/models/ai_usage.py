@@ -49,3 +49,30 @@ class AiHourlyUsage(Base):
     # UTC 기준 '정시로 내림한' 시각 (예: 14:37 → 14:00). 고정 창(fixed window).
     hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AiGuardViolation(Base):
+    """유저별 '시간당' AI 가드 위반 횟수 — 반복 인젝션 시도 차단용.
+
+    시간당 시도 캡(AiHourlyUsage)이 이미 있는데 왜 또 세나: **세는 대상이 다르다.**
+    시도 캡은 자원(워커 스레드)을 지키느라 성공/실패를 안 가리고 전부 센다. 이건
+    '가드에 걸린 시도'만 센다 — 정상 사용자는 평생 0이고, 문구를 바꿔가며 가드를
+    두드리는 쪽만 쌓인다. 그래서 정상 사용자의 한도를 안 깎으면서 훨씬 낮은 임계로
+    끊을 수 있다(시도 10회 vs 위반 3회).
+
+    한 방에 뚫리는 인젝션은 드물다. 실제 공격은 문구를 바꿔가며 반복하는 시행착오라,
+    그 반복 자체를 비싸게 만드는 게 요점이다.
+
+    계정 삭제 시 CASCADE로 함께 삭제."""
+
+    __tablename__ = "ai_guard_violation"
+    __table_args__ = (
+        UniqueConstraint("user_id", "hour", name="uq_ai_guard_violation_user_hour"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
