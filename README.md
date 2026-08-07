@@ -38,7 +38,7 @@
 | **백엔드** | FastAPI, PostgreSQL, SQLAlchemy 2.0, Alembic, JWT(PyJWT), slowapi(레이트리밋), boto3(S3), Anthropic/OpenAI/Gemini SDK |
 | **프론트엔드** | React 19, TypeScript, Vite, React Router, Tailwind CSS v4, react-markdown |
 | **인프라** | AWS EC2(Docker), CloudFront + S3, SES, Terraform(IaC), GitHub Actions(CI/CD) |
-| **테스트** | pytest(241) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
+| **테스트** | pytest(244) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
 
 ## 아키텍처
 

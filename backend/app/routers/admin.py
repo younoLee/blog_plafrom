@@ -14,6 +14,7 @@ from app.models.user import User
 from app.schemas.invite import InviteCreate, InviteCreated, InviteOut
 from app.schemas.user import UserRead
 from app.services.infra import gather_infra
+from app.services.ses_status import recipient_status
 
 # 관리자 전용 라우터 — 모든 엔드포인트가 require_admin 통과해야 함
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -225,7 +226,20 @@ def create_invite(
     row = InviteOut.model_validate(invite).model_copy(
         update={"created_by_email": admin.email}
     )
-    return InviteCreated(**row.model_dump(), url=url)
+    # 주소가 실재하는지 알려줄 유일한 단서. 초대제는 메일을 한 통도 안 보내므로
+    # 오타나 남의 주소가 들어가도 침묵으로 지나간다 — 여기서 말해주지 않으면
+    # 비번 재설정이 필요해지는 날까지 아무도 모른다.
+    # 발급을 막지는 않는다. 검증 안 된 주소로도 초대는 유효하고(가입엔 메일이
+    # 필요 없다), 관리자가 사정을 알고 보내는 경우가 대부분이라서다.
+    # 여기서 절대 예외가 새면 안 된다. 초대 행은 위에서 **이미 커밋됐고**, 원문
+    # 토큰은 이 응답에만 실린다 — 500이 나가면 초대는 DB에 남는데 링크는 영영
+    # 사라져서 취소하고 다시 발급하는 수밖에 없다. 부가 정보가 본 기능을 망치는
+    # 전형적인 모양이라, 서비스가 이미 삼키더라도 호출부에서 한 번 더 막는다.
+    try:
+        verified = recipient_status(email)["verified"]
+    except Exception:
+        verified = None
+    return InviteCreated(**row.model_dump(), url=url, recipient_verified=verified)
 
 
 @router.delete("/invites/{invite_id}", status_code=204)

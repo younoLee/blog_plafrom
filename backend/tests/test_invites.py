@@ -68,6 +68,65 @@ def test_invite_cannot_grant_admin(client, make_user, auth_headers):
     assert r.status_code == 422  # 스키마의 Literal에서 막힌다
 
 
+def test_unverified_recipient_is_flagged_but_not_blocked(
+    client, make_user, auth_headers, monkeypatch
+):
+    """미검증 주소는 **알려주되 막지 않는다.**
+
+    초대제는 가입에 메일을 안 쓰므로 미검증 주소로도 초대가 정상 동작한다.
+    막아버리면 SES 등록을 강제하게 되는데, 그건 이 기능이 벗어나려던 바로 그
+    사슬이다(샌드박스). 대신 나중에 비번 재설정이 안 닿는다는 걸 화면이 말해준다."""
+    from app.routers import admin as admin_router
+
+    monkeypatch.setattr(
+        admin_router, "recipient_status", lambda _e: {"sandbox": True, "verified": False}
+    )
+    admin = make_user(role="admin")
+    body, _ = _invite(client, auth_headers(admin))
+    assert body["recipient_verified"] is False  # 발급은 됐다
+
+
+def test_unknown_ses_status_is_not_a_warning(
+    client, make_user, auth_headers, monkeypatch
+):
+    """'확인 못 함'과 '문제 있음'을 섞으면 안 된다.
+
+    권한이 없거나 자격증명이 없으면 None이 와야 하고, 화면은 그때 아무 말도 안 한다.
+    모름을 경고로 바꾸면 늑대 소년이 되어 진짜 경고까지 무시하게 된다."""
+    from app.routers import admin as admin_router
+
+    monkeypatch.setattr(
+        admin_router, "recipient_status", lambda _e: {"sandbox": None, "verified": None}
+    )
+    admin = make_user(role="admin")
+    body, _ = _invite(client, auth_headers(admin))
+    assert body["recipient_verified"] is None
+
+
+def test_ses_failure_does_not_break_issuing(client, make_user, auth_headers, monkeypatch):
+    """SES 조회가 터져도 초대 발급은 끝까지 가야 한다.
+
+    초대 행은 SES를 보기 **전에 이미 커밋**되고 원문 토큰은 그 응답에만 실린다.
+    여기서 500이 나가면 초대는 DB에 남는데 링크는 영영 사라져서, 취소하고 다시
+    발급하는 수밖에 없다 — 부가 정보가 본 기능을 망치는 전형적인 모양이다."""
+    from app.routers import admin as admin_router
+
+    def boom(_email):
+        raise RuntimeError("AWS 폭발")
+
+    # 라우터가 import 시점에 바인딩한 이름을 갈아끼워야 실제 호출부가 바뀐다
+    monkeypatch.setattr(admin_router, "recipient_status", boom)
+    admin = make_user(role="admin")
+    r = client.post(
+        "/api/admin/invites",
+        json={"email": "boom@test.com"},
+        headers=auth_headers(admin),
+    )
+    assert r.status_code == 201
+    assert r.json()["url"]  # 링크가 살아서 나왔다
+    assert r.json()["recipient_verified"] is None  # 모름으로 떨어졌을 뿐
+
+
 def test_invite_for_existing_account_rejected(client, make_user, auth_headers):
     admin = make_user(role="admin")
     make_user(role="writer", email="already@test.com")

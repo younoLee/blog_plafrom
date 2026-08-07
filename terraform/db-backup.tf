@@ -204,6 +204,23 @@ resource "aws_iam_role_policy" "ec2_backup" {
         Action   = "s3:PutObject"
         Resource = "${aws_s3_bucket.frontend.arn}/uploads/*"
       },
+      # 초대 발급 화면이 "이 주소가 SES에 검증돼 있나"를 표시하는 데 쓴다.
+      #
+      # 왜 필요한가 — 초대제는 가입에 메일을 한 통도 안 쓴다. 그래서 관리자가 오타나
+      # 남의 주소를 넣어도 **침묵으로 지나가고**, 비번 재설정이 필요해지는 날까지
+      # 아무도 모른다. SES 검증은 AWS가 그 주소로 확인 메일을 보내고 주인이 눌러야
+      # 끝나므로, 검증됨 = '실재하고 그 사람이 메일함을 연다'는 증거가 된다.
+      #
+      # **읽기 전용이다.** VerifyEmailIdentity(등록)는 일부러 안 준다 — 앱이 탈취되면
+      # 임의 주소로 AWS 확인 메일을 뿌리는 수단이 되고, 등록은 관리자가
+      # scripts/ses_verify_recipients.sh로 하는 편이 낫다(폭발 반경을 안 넓힌다).
+      # 이게 없으면 기능이 조용히 '모름'으로 떨어질 뿐 앱은 그대로 돈다.
+      {
+        Sid      = "ReadSesRecipientStatus"
+        Effect   = "Allow"
+        Action   = ["ses:GetAccount", "ses:GetEmailIdentity"]
+        Resource = "*"
+      },
     ]
   })
 }

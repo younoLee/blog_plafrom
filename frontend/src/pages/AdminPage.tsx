@@ -137,6 +137,20 @@ function InviteSection() {
           <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
             {issued.email} 초대 링크 — 지금 복사해둬. 다시 볼 수 없어.
           </p>
+          {/* 초대제는 가입에 메일을 한 통도 안 쓴다. 그래서 주소가 틀려도 침묵으로
+              지나가고, 비번 재설정이 필요해지는 날까지 아무도 모른다. 여기가
+              말해줄 수 있는 유일한 지점이다. null(모름)일 땐 아무 말도 안 한다. */}
+          {issued.recipient_verified === false && (
+            <p className="mt-2 rounded-lg bg-white/60 px-3 py-2 text-xs leading-relaxed text-amber-900 dark:bg-black/20 dark:text-amber-200">
+              ⚠️ 이 주소는 <span className="font-medium">SES에 검증돼 있지 않아</span> — 실재하는
+              주소인지 확인된 적이 없어. 초대는 그대로 유효하지만(가입에 메일이 필요 없어),
+              나중에 <span className="font-medium">비밀번호 재설정 메일이 안 닿는다.</span>
+              <br />
+              확인하려면: <code className="rounded bg-black/10 px-1 dark:bg-white/10">
+                scripts/ses_verify_recipients.sh {issued.email}
+              </code> → 상대가 AWS 확인 메일의 링크를 누르면 끝.
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <code className="flex-1 basis-64 overflow-x-auto rounded-lg bg-white/70 px-3 py-2 text-xs dark:bg-black/30">
               {issued.url}

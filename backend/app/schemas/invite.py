@@ -38,6 +38,11 @@ class InviteOut(BaseModel):
 # 이 응답을 놓치면 다시 볼 방법이 없다(취소 후 재발급).
 class InviteCreated(InviteOut):
     url: str
+    # 이 주소가 SES에 검증돼 있는가 = '실재하고 그 사람이 메일함을 여는가'.
+    # **None은 '모름'이다**(권한 없음·자격증명 없음·프로덕션 액세스라 무의미).
+    # 화면은 False일 때만 경고하고 None이면 아무 말도 하지 않아야 한다 —
+    # '확인 못 함'을 '문제 있음'으로 바꾸면 진짜 경고까지 무시하게 된다.
+    recipient_verified: bool | None = None
 
 
 # 토큰만 담는 요청 본문.

@@ -86,6 +86,10 @@ export interface Invite {
 // 발급 응답에만 url이 실린다. 서버는 토큰 해시만 저장하므로 이 값은 다시 볼 수 없다.
 export interface InviteCreated extends Invite {
   url: string
+  // 이 주소가 SES에 검증됐는가 = 실재하고 그 사람이 메일함을 여는가.
+  // **null은 '모름'** (서버가 SES를 못 읽거나 프로덕션 액세스라 무의미).
+  // false일 때만 경고한다 — 모름을 경고로 바꾸면 진짜 경고까지 무시하게 된다.
+  recipient_verified: boolean | null
 }
 
 export async function listInvites(): Promise<Invite[]> {
