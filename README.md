@@ -11,7 +11,11 @@
 > 💤 **서버는 평소 꺼져 있습니다.** 개인 프로젝트라 안 쓸 땐 EC2를 정지해 비용을 아끼는데,
 > 그러면 글 목록이 안 뜹니다. 화면이 8초 안에 "절전 중"이라고 알려주니 고장은 아닙니다 —
 > 오리진을 fail-closed로 주차해두는 것까지 의도된 운영 방식입니다.
-> **글 내용은 서버 없이도 읽을 수 있습니다** → [`content/devlog/`](./content/devlog) (개발일지 17편)
+> **글 내용은 서버 없이도 읽을 수 있습니다** — 웹에서도 그렇습니다:
+> [개발일지 아카이브](https://d2j66m9udyg9yq.cloudfront.net/devlog.html) ·
+> [RSS](https://d2j66m9udyg9yq.cloudfront.net/rss.xml) ·
+> 저장소에서는 [`content/devlog/`](./content/devlog) (개발일지 24편).
+> 이 셋은 S3에서 정적으로 나가므로 EC2가 꺼져 있어도 열립니다.
 
 > 이 프로젝트는 기능뿐 아니라 **왜 그렇게 만들었는지**를 개발일지로 남긴다 —
 > 비용 구조 분석, RDS→EC2 이전, 보안 하드닝 결정 등. → [`PROGRESS.md`](./PROGRESS.md)

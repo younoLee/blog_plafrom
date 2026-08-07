@@ -74,6 +74,13 @@ function Layout() {
 
       <footer className="mx-auto max-w-7xl px-4 py-12 text-center text-xs text-gray-400 dark:text-gray-500">
         © 2026 DEV 블로그 · FastAPI · React · Tailwind
+        {/* 정적 아카이브와 피드. 서버(EC2)가 꺼져 있어도 열리는 경로라, 절전 중에
+            글 목록이 안 뜰 때 여기로 빠져나갈 수 있다. React Router가 가로채면
+            안 되므로(SPA 라우트가 아니라 S3의 실제 파일이다) <a>를 쓴다. */}
+        <span className="mx-1.5">·</span>
+        <a href="/devlog.html" className="hover:underline">개발일지 아카이브</a>
+        <span className="mx-1.5">·</span>
+        <a href="/rss.xml" className="hover:underline">RSS</a>
       </footer>
     </div>
   )

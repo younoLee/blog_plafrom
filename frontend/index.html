@@ -24,6 +24,11 @@
     <meta name="twitter:description" content="개발과 인프라를 기록하는 블로그. 글 작성·구독·AI 초안까지 직접 만든 풀스택 사이트." />
     <meta name="twitter:image" content="https://d2j66m9udyg9yq.cloudfront.net/og-image.png" />
 
+    <!-- 피드 자동발견. 브라우저·리더가 이 태그를 보고 구독 경로를 찾는다.
+         내용은 scripts/gen-static.mjs가 content/devlog/에서 만들며, 서버(EC2)와
+         무관하게 S3에서 서빙된다 — 서버가 꺼져 있어도 살아 있는 경로다. -->
+    <link rel="alternate" type="application/rss+xml" title="DEV 블로그" href="/rss.xml" />
+
     <!-- PWA: 홈화면 설치용. iOS는 '홈화면에 추가'로 설치돼야 Web Push가 동작한다
          (사파리 탭에서는 알림 권한 자체를 안 준다) → 알림 기능의 전제 조건이다.
          apple-touch-icon은 SVG를 안 받으므로 PNG를 따로 둔다(scripts/gen_pwa_icons.py). -->
