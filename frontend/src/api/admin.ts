@@ -68,6 +68,60 @@ export async function deleteUser(id: number): Promise<void> {
   if (!res.ok) throw new Error('삭제에 실패했어')
 }
 
+// --- 초대 (초대제 가입의 실제 절차) ---
+
+export interface Invite {
+  id: number
+  email: string
+  role: 'pending' | 'writer'
+  created_at: string
+  expires_at: string
+  used_at: string | null
+  // 누가 발급했고 누가 그 링크로 들어왔는지. 발급자·가입계정이 지워졌으면 null
+  // (FK가 SET NULL이라 초대 기록 자체는 남는다).
+  created_by_email: string | null
+  used_by_email: string | null
+}
+
+// 발급 응답에만 url이 실린다. 서버는 토큰 해시만 저장하므로 이 값은 다시 볼 수 없다.
+export interface InviteCreated extends Invite {
+  url: string
+}
+
+export async function listInvites(): Promise<Invite[]> {
+  const res = await fetch(`${BASE}/admin/invites`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('초대 목록을 불러오지 못했어')
+  return res.json()
+}
+
+export async function createInvite(
+  email: string,
+  role: 'pending' | 'writer',
+): Promise<InviteCreated> {
+  const res = await fetch(`${BASE}/admin/invites`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role }),
+  })
+  // 400=이미 가입된 주소, 409=아직 안 쓴 초대가 남아 있음 — 둘 다 관리자에겐
+  // 그대로 알려주는 게 맞다(가입자 목록을 볼 수 있는 사람이라 노출될 정보가 없다).
+  if (res.status === 400 || res.status === 409) {
+    const d = await res.json().catch(() => null)
+    throw new Error(d?.detail ?? '초대를 발급하지 못했어')
+  }
+  if (res.status === 422) throw new Error('이메일 형식을 확인해줘')
+  if (!res.ok) throw new Error('초대를 발급하지 못했어')
+  return res.json()
+}
+
+export async function revokeInvite(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/admin/invites/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('초대를 취소하지 못했어')
+}
+
 // 관리자 인프라 대시보드: 서버(EC2)+DB 실측 지표
 export interface InfraStatus {
   cpu_percent: number

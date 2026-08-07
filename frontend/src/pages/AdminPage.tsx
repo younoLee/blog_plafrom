@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser, fetchInfra, type InfraStatus } from '../api/admin'
+import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser, fetchInfra, listInvites, createInvite, revokeInvite, type InfraStatus, type Invite, type InviteCreated } from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 
@@ -39,6 +39,159 @@ function formatUptime(s: number): string {
   const h = Math.floor((s % 86400) / 3600)
   const m = Math.floor((s % 3600) / 60)
   return d > 0 ? `${d}일 ${h}시간` : h > 0 ? `${h}시간 ${m}분` : `${m}분`
+}
+
+// 초대 상태를 한 단어로. 순서가 중요하다 — 사용됨이 만료보다 먼저다(쓰고 나서
+// 만료 시각이 지난 초대는 '만료'가 아니라 '사용됨'으로 읽혀야 한다).
+function inviteState(inv: Invite): { label: string; badge: string } {
+  if (inv.used_at) return { label: '사용됨', badge: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300' }
+  if (new Date(inv.expires_at) <= new Date())
+    return { label: '만료', badge: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300' }
+  return { label: '대기 중', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' }
+}
+
+// 초대 발급/취소. '초대제'라는 말에 실체를 주는 화면이다 — 그전까지 초대는
+// 관리자가 DB를 직접 만지는 것이었다.
+function InviteSection() {
+  const [invites, setInvites] = useState<Invite[]>([])
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<'pending' | 'writer'>('pending')
+  const [issued, setIssued] = useState<InviteCreated | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  // 불러오기가 '끝났는지'를 따로 안다. 실패해도 invites는 []라서, 이걸 구분하지
+  // 않으면 못 불러온 상태에서 "아직 발급한 초대가 없어"라고 단언하게 된다
+  // (HomePage가 절전 중에 '글이 없다'를 안 띄우는 것과 같은 이유).
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    listInvites()
+      .then(setInvites)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoaded(true))
+  }, [])
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      const created = await createInvite(email.trim(), role)
+      const { url, ...row } = created
+      setIssued(created)
+      setCopied(false)
+      // 목록엔 url을 **뺀** 것만 넣는다. 원문 토큰이 두 군데 살아 있으면 아래
+      // setIssued(null)이 '토큰을 화면에서 지웠다'는 뜻이 아니게 된다.
+      void url
+      setInvites((prev) => [row, ...prev])
+      setEmail('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '발급 실패')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRevoke(id: number, target: string) {
+    if (!window.confirm(`${target}에게 보낸 초대를 취소할까?\n이미 건넨 링크는 즉시 무효가 돼.`)) return
+    try {
+      await revokeInvite(id)
+      setInvites((prev) => prev.filter((i) => i.id !== id))
+      if (issued?.id === id) setIssued(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '취소 실패')
+    }
+  }
+
+  return (
+    <section className="mt-8">
+      <h2 className="mb-1 text-xl font-semibold tracking-tight">초대</h2>
+      <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+        발급한 링크를 직접 건네줘(카톡·메일 등). 링크를 연 사람은 비밀번호만 정하면 가입돼 —
+        확인 메일이 없어서 SES 샌드박스에서도 그대로 동작해.
+      </p>
+
+      <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2">
+        <input
+          type="email"
+          required
+          placeholder="초대할 이메일"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className={`${ui.input} flex-1 basis-56`}
+        />
+        <select value={role} onChange={(e) => setRole(e.target.value as 'pending' | 'writer')} className={`${ui.select} basis-40`}>
+          <option value="pending">승인 대기로</option>
+          <option value="writer">글쓰기 가능으로</option>
+        </select>
+        <button type="submit" disabled={busy} className={ui.btnPrimary}>
+          {busy ? '발급 중…' : '초대 발급'}
+        </button>
+      </form>
+
+      {/* 원문 토큰이 나오는 건 이 응답 하나뿐이다. 서버는 해시만 저장하므로
+          이 카드를 닫으면 링크를 다시 볼 방법이 없다 — 그 사실을 분명히 적는다. */}
+      {issued && (
+        <div className="mt-3 rounded-xl border border-amber-300/60 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+            {issued.email} 초대 링크 — 지금 복사해둬. 다시 볼 수 없어.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="flex-1 basis-64 overflow-x-auto rounded-lg bg-white/70 px-3 py-2 text-xs dark:bg-black/30">
+              {issued.url}
+            </code>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard.writeText(issued.url).then(() => setCopied(true))}
+              className={ui.btnGhost}
+            >
+              {copied ? '복사됨' : '복사'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+
+      <ul className="mt-4 space-y-2">
+        {invites.map((inv) => {
+          const st = inviteState(inv)
+          return (
+            <li
+              key={inv.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-black/[0.07] bg-white px-4 py-3 dark:border-white/10 dark:bg-white/[0.06]"
+            >
+              <span className="text-sm font-medium">{inv.email}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${st.badge}`}>{st.label}</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                {inv.role === 'writer' ? '글쓰기 가능' : '승인 대기'}로 · 만료 {new Date(inv.expires_at).toLocaleDateString()}
+              </span>
+              {/* 사용된 초대는 지우지 않는다 — '누가 이 계정을 들였나'가 초대제의 감사 기록이다 */}
+              {!inv.used_at && (
+                <button
+                  type="button"
+                  onClick={() => handleRevoke(inv.id, inv.email)}
+                  className="ml-auto text-xs text-red-500 hover:underline"
+                >
+                  취소
+                </button>
+              )}
+              {/* 그 감사 기록을 실제로 보여주는 줄. 이게 없으면 위 주석이 근거로 삼는
+                  답을 psql로만 볼 수 있다. 계정이 지워지면 null이라 '(삭제됨)'으로 적는다. */}
+              <span className="basis-full text-xs text-gray-400 dark:text-gray-500">
+                발급 {inv.created_by_email ?? '(삭제된 계정)'}
+                {inv.used_at && ` · 가입 ${inv.used_by_email ?? '(삭제된 계정)'} · ${new Date(inv.used_at).toLocaleDateString()}`}
+              </span>
+            </li>
+          )
+        })}
+        {loaded && !error && invites.length === 0 && (
+          <li className="text-sm text-gray-400 dark:text-gray-500">아직 발급한 초대가 없어.</li>
+        )}
+      </ul>
+    </section>
+  )
 }
 
 function AdminPage() {
@@ -121,6 +274,8 @@ function AdminPage() {
       )}
 
       {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
+
+      <InviteSection />
 
       <h2 className="mb-3 mt-8 text-xl font-semibold tracking-tight">가입자 관리</h2>
       <ul className="space-y-3">

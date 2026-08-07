@@ -5,7 +5,8 @@ import { ui } from '../ui'
 
 // 가입은 초대제로 닫혀 있으므로, 방문자(면접관 등)가 로그인 뒤 화면 — 에디터·AI 초안·설정 —
 // 을 직접 둘러볼 수 있게 미리 만든 '체험 계정'으로 로그인시킨다.
-// 계정은 scripts/create_user.py --demo 로 만든다(writer, email_verified). 자격증명은 공개가 목적.
+// 계정은 backend/scripts/create_user.py --demo 로 만든다(writer, email_verified). 자격증명은 공개가 목적.
+// 초대 링크로 만들지 않는 이유: 초대는 1회용이라 데모처럼 계속 살아 있어야 하는 계정엔 안 맞는다.
 // AI는 유저당 캡(시간10/일20/월200)이 걸려 있고 데모 계정 하나를 다 함께 쓰므로 비용이 묶인다.
 const DEMO_EMAIL = import.meta.env.VITE_DEMO_EMAIL ?? 'demo@example.com'
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD ?? 'demo1234!'

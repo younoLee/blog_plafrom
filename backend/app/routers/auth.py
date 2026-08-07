@@ -1,5 +1,7 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -11,10 +13,13 @@ from app.core.security import (
     create_access_token,
     create_email_token,
     decode_email_token,
+    hash_invite_token,
     hash_password,
     verify_password,
 )
+from app.models.invite import Invite
 from app.models.user import User
+from app.schemas.invite import InvitePreview, InviteRedeem, InviteToken
 from app.schemas.user import (
     ForgotPasswordRequest,
     RegisterRequest,
@@ -40,7 +45,7 @@ def register(request: Request, data: RegisterRequest, background: BackgroundTask
     if not settings.allow_signup:
         raise HTTPException(
             status_code=403,
-            detail="가입은 현재 초대제로 운영됩니다. 관리자에게 문의하세요.",
+            detail="가입은 초대제로 운영돼. 초대 링크가 있으면 그 링크로 가입하면 돼.",
         )
     # 계정 존재 여부를 HTTP 응답으로 노출하지 않으려고 신규/기존 구분 없이 동일한 202 응답.
     # 실제 안내는 '메일로만' 간다 (forgot-password와 같은 패턴) → 이메일 enumeration 방지.
@@ -92,6 +97,118 @@ def register(request: Request, data: RegisterRequest, background: BackgroundTask
     return {"message": "확인 메일을 보냈어. 메일함을 확인해줘."}
 
 
+# ── 초대 가입 ────────────────────────────────────────────────────────────────
+#
+# 위의 register와 나란히 두되 **분리한다.** 같은 라우트에 토큰 분기를 넣지 않은 이유:
+# register는 이메일 enumeration을 막으려고 신규/기존을 안 가리고 항상 202를 준다.
+# 초대 가입은 반대로 "만료됐다"를 분명히 말해줘야 쓸 수 있는데, 두 규칙을 한
+# 함수에 넣으면 어느 쪽 응답 규칙이 적용되는지가 분기마다 헷갈린다.
+# 분리하면 각자의 규칙이 함수 하나에 하나씩만 산다.
+#
+# 그리고 초대 가입에는 enumeration 걱정이 없다 — 유효한 토큰을 쥔 사람만 의미 있는
+# 응답을 받고, 그 토큰은 관리자가 그 주소를 위해 직접 발급한 것이다.
+
+# 유효하지 않은 초대에 대한 **단일** 응답. 만료/이미 사용됨/위조를 구분해 알려주면
+# 그것 자체가 오라클이 된다("이 토큰은 존재는 하는군"). 셋 다 같은 말을 준다.
+_INVITE_INVALID = "이 초대 링크는 유효하지 않아 (만료됐거나 이미 사용됐어)"
+
+
+def _live_invite(token: str, now: datetime):
+    """'아직 쓸 수 있는 초대'의 조건. 미리보기(읽기)와 소각(쓰기)이 **반드시 같은
+    판정**을 써야 한다 — 조건을 두 군데에 따로 적어두면 한쪽만 고쳤을 때
+    미리보기는 "유효하다"며 폼을 띄우고 소각은 거절하는 상태가 되고, 그건
+    테스트가 각각 통과하므로 CI로도 안 잡힌다."""
+    return (
+        Invite.token_hash == hash_invite_token(token),
+        Invite.used_at.is_(None),
+        Invite.expires_at > now,
+    )
+
+
+@router.post("/invite", response_model=InvitePreview)
+@limiter.limit("30/hour")  # 토큰 유효성을 묻는 창구라 두드리는 속도를 제한한다
+def preview_invite(
+    request: Request, data: InviteToken, db: Session = Depends(get_db)
+):
+    """초대 링크를 연 사람에게 '어떤 주소로 가입되는지'를 보여준다.
+
+    화면에서 이메일을 읽기 전용으로 띄우기 위한 것이다. 토큰을 이미 쥔 사람에게만
+    나가므로 주소 노출이 아니다 — 그 주소를 위해 발급된 토큰이니까.
+
+    **읽기인데 POST인 이유**는 토큰을 URL에 싣지 않기 위해서다. 초대 토큰은 그
+    자체가 자격증명이고, uvicorn 액세스 로그는 쿼리스트링까지 찍는다 — GET으로
+    두면 원문 토큰이 로그에 평문으로 남아 '해시로만 저장한다'가 거짓이 된다.
+    (실측: `GET /api/auth/invite?token=...`이 로그 라인에 그대로 나온다.)"""
+    invite = db.scalar(
+        select(Invite).where(*_live_invite(data.token, datetime.now(UTC)))
+    )
+    if invite is None:
+        raise HTTPException(status_code=404, detail=_INVITE_INVALID)
+    return InvitePreview(email=invite.email, role=invite.role)
+
+
+@router.post("/register/invite", response_model=Token, status_code=201)
+@limiter.limit("10/hour")
+def redeem_invite(
+    request: Request, data: InviteRedeem, db: Session = Depends(get_db)
+):
+    """초대 토큰을 소각하고 계정을 만든다. `allow_signup`과 무관하게 동작한다.
+
+    **이메일 인증 메일을 보내지 않고 email_verified=True로 만든다.** 근거: 인증
+    메일의 목적은 '이 주소가 실제로 존재하고 신청자의 것인가'인데, 초대제에선
+    주소를 관리자가 골랐다. 관리자의 보증이 이미 그 답이다. 덤으로 가입 경로가
+    SES에서 완전히 풀린다 — 샌드박스가 막고 있던 게 정확히 이 지점이었다.
+    (role은 초대에 적힌 값. 기본은 pending이라 글쓰기는 여전히 관리자 승인이 필요하다.)
+    """
+    now = datetime.now(UTC)
+    # 소각을 **조건부 UPDATE 한 방**으로 한다. 조건이 걸린 UPDATE는 행 잠금을 잡고,
+    # 뒤에 온 요청은 앞의 커밋 후 조건을 다시 평가해 0행을 돌려받는다.
+    # 읽고-쓰기와의 실제 차이는 models/invite.py에 재본 대로 적어뒀다 —
+    # 계정 복제가 아니라 **진 쪽이 받는 안내**가 갈린다(여기선 "링크가 이미 쓰였어",
+    # 읽고-쓰기면 유니크 충돌을 타서 "이미 가입된 주소야").
+    claimed = db.execute(
+        update(Invite)
+        .where(*_live_invite(data.token, now))
+        .values(used_at=now)
+        .returning(Invite.id, Invite.email, Invite.role)
+        .execution_options(synchronize_session=False)
+    ).first()
+    if claimed is None:
+        raise HTTPException(status_code=400, detail=_INVITE_INVALID)
+    invite_id, email, role = claimed
+
+    user = User(
+        email=email,
+        hashed_password=hash_password(data.password),
+        role=role,
+        email_verified=True,
+    )
+    db.add(user)
+    try:
+        db.flush()  # id가 필요하다(아래 used_by_id). 커밋은 마지막에 한 번.
+    except IntegrityError:
+        # 초대 발급 시점엔 없던 계정이 그 사이 생긴 경우(email unique 충돌).
+        # 롤백하면 위의 소각도 같이 되돌아간다 — 같은 트랜잭션이라 초대는 안 타버린다.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="이미 가입된 주소야") from None
+
+    # 누가 이 계정을 들였나 — 초대제에서는 이게 감사 기록이다.
+    db.execute(
+        update(Invite)
+        .where(Invite.id == invite_id)
+        .values(used_by_id=user.id)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    # refresh를 지우지 말 것 — 이건 정리용이 아니라 **토큰에 필요한 값을 읽어오는**
+    # 단계다. token_version은 Python 기본값이 없고 server_default='0'이라 INSERT
+    # 직후엔 파이썬 쪽이 비어 있다. 여기서 채우지 않으면 아래 토큰에 None이 실린다.
+    db.refresh(user)
+    # 바로 로그인시킨다. 초대 링크를 눌러 비번을 정한 사람에게 로그인 화면을 다시
+    # 보여줄 이유가 없다(이메일 인증 단계가 없으므로 기다릴 것도 없다).
+    return Token(access_token=create_access_token(user.id, user.token_version))
+
+
 @router.post("/verify", response_model=UserRead)
 def verify_email(token: str, db: Session = Depends(get_db)):
     # 메일 링크의 토큰으로 이메일 인증 처리 (purpose=verify인 토큰만 통과)
@@ -108,10 +225,26 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     return user
 
 
+# 이메일로 계정을 찾을 때 쓰는 조회. **대소문자를 무시한다.**
+#
+# 왜 바꿨나 — 2026-08-07 초대제 가입을 붙이면서 잠금 사고가 생길 수 있게 됐다.
+# 초대는 주소를 관리자가 입력하고 소문자로 저장한다(routers/admin.py). 그래서
+# 'Bob@Example.com'으로 초대하면 계정은 'bob@example.com'이 된다. 그런데 로그인은
+# 원문 그대로 비교했으므로, Bob이 평소 쓰는 대로 대문자를 섞어 치면 **맞는 비번인데도
+# 401**이고, 비번 재설정은 202를 주면서 메일을 안 보낸다 — 어디에도 단서가 없는 잠금이다.
+# 초대 전에는 가입 때 친 문자열을 로그인 때도 그대로 쳤으므로 이 어긋남이 없었다.
+#
+# 도메인부는 원래 대소문자를 안 가리고, 로컬부를 가리는 메일 서비스는 사실상 없다.
+# 그래서 무시하는 쪽이 맞다. 다만 users.email의 유니크는 여전히 대소문자를 구분하므로
+# 이건 '조회'만 고친 것이고, 구조적으로 막으려면 lower(email) 유니크 인덱스가 필요하다.
+def _find_user_by_email(db: Session, email: str) -> User | None:
+    return db.scalar(select(User).where(func.lower(User.email) == email.lower()))
+
+
 @router.post("/login", response_model=Token)
 @limiter.limit("10/minute")  # 무차별 비번 대입 속도 제한
 def login(request: Request, data: UserCreate, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == data.email))
+    user = _find_user_by_email(db, data.email)
     # 사용자 없거나 비밀번호 틀리면 동일한 401 (어느 쪽이 틀렸는지 안 알려줌 = 보안)
     if user is None or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 틀렸어")
@@ -132,7 +265,7 @@ def forgot_password(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    user = db.scalar(select(User).where(User.email == data.email))
+    user = _find_user_by_email(db, data.email)
     # 가입돼 있고 차단 안 된 계정에만 실제 발송. 단 응답은 항상 동일(존재 여부 노출 안 함)
     if user is not None and user.role != "banned":
         # ver=현재 token_version → 재설정 후 token_version이 바뀌면 이 토큰은 무효(1회용)

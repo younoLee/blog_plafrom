@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './http'
+
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 const TOKEN_KEY = 'token'
 
@@ -92,6 +94,56 @@ export async function login(email: string, password: string): Promise<void> {
   }
   if (res.status === 429) throw new Error('로그인 시도가 너무 많아. 잠시 후 다시 해줘')
   if (!res.ok) throw new Error('로그인 실패')
+  const data = await res.json()
+  setToken(data.access_token)
+}
+
+// --- 초대제 가입 ---
+// 열린 가입(register)과 달리 이쪽은 실패 사유를 분명히 말해줘야 쓸 수 있다.
+// register는 enumeration 방지로 신규/기존을 안 가리고 항상 성공처럼 응답하지만,
+// 초대는 유효한 토큰을 쥔 사람만 오므로 숨길 게 없다.
+
+export interface InvitePreview {
+  email: string
+  role: Role
+}
+
+/** 초대 링크의 토큰으로 '어떤 주소로 가입되는지'를 확인. 무효/만료/사용됨은 전부 null.
+ *
+ * 읽기인데 POST인 건 서버 사정이다 — 토큰이 자격증명이라 URL에 실으면 액세스 로그에
+ * 평문으로 남는다. 본문으로 보내면 안 남는다. */
+export async function previewInvite(token: string): Promise<InvitePreview | null> {
+  const res = await fetchWithTimeout(`${BASE}/auth/invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  if (res.status === 404) return null // 서버가 셋을 구분해주지 않는다(오라클 방지)
+  if (!res.ok) throw new Error('초대 정보를 확인하지 못했어')
+  return res.json()
+}
+
+/** 초대 토큰 소각 + 계정 생성. 성공하면 그대로 로그인 상태가 된다(토큰 저장).
+ *
+ * **여기엔 fetchWithTimeout을 쓰지 않는다.** abort는 내 기다림만 끊을 뿐 서버 일을
+ * 되돌리지 않는다 — 8초에 끊어도 소각과 계정 생성은 그대로 끝난다. 그러면 상대는
+ * "서버가 절전 중"을 보고 새로고침하고, 이번엔 "더 이상 쓸 수 없는 링크"를 만난다.
+ * 1회용이라 그걸로 끝이고 관리자만 되살릴 수 있다. 하필 갓 건넨 링크를 누르는 순간이
+ * 오리진이 차가울 확률이 제일 높은 때다(거기에 bcrypt까지 얹힌다).
+ * 이 저장소가 읽기에만 타임아웃을 거는 것도 같은 이유다(api/http.ts). */
+export async function redeemInvite(token: string, password: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/register/invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  })
+  if (res.status === 422) throw new Error('비밀번호는 8~72자로 정해줘')
+  if (res.status === 429) throw new Error('시도가 너무 많아. 잠시 후 다시 해줘')
+  if (res.status === 400) {
+    const d = await res.json().catch(() => null)
+    throw new Error(d?.detail ?? '이 초대 링크는 더 이상 쓸 수 없어')
+  }
+  if (!res.ok) throw new Error('가입에 실패했어')
   const data = await res.json()
   setToken(data.access_token)
 }

@@ -22,6 +22,7 @@
 
 - **글**: 작성/수정/삭제, 마크다운 + 이미지 업로드, 공개범위(전체/구독자/비공개), 연재(시리즈), 태그, 검색(pg_trgm)
 - **계정**: JWT 인증, 이메일 인증, 비밀번호 재설정, 역할(pending/writer/admin/banned), 세션 무효화
+- **가입**: 열린 가입은 닫혀 있고 **관리자 발급 1회용 초대 링크**로만 들어온다. 토큰은 해시로만 저장(원문은 발급 응답 1회), 소각은 조건부 UPDATE로 원자적. 초대는 주소를 관리자가 고르므로 확인 메일 단계가 없다 — 그래서 **SES 샌드박스에서도 가입이 성립한다**
 - **구독**: 글쓴이별 구독 **신청 → 글쓴이 승인** → 구독자 공개 글 열람. 승인 후 글쓴이별 알림 opt-in(이메일 SES + 인앱 알림)
 - **댓글**: 로그인/익명, 공개범위 연동
 - **AI 초안**: 메모 → 정돈된 글 구조 생성. Claude(서버 키, 티어 게이팅) + BYOK 5종(Anthropic/OpenAI/Gemini/Cohere/OpenAI호환). 시간당·일일·월간 캡, BYOK 키는 암호화 저장 + base_url SSRF 검증
@@ -36,7 +37,7 @@
 | **백엔드** | FastAPI, PostgreSQL, SQLAlchemy 2.0, Alembic, JWT(PyJWT), slowapi(레이트리밋), boto3(S3), Anthropic/OpenAI/Gemini SDK |
 | **프론트엔드** | React 19, TypeScript, Vite, React Router, Tailwind CSS v4, react-markdown |
 | **인프라** | AWS EC2(Docker), CloudFront + S3, SES, Terraform(IaC), GitHub Actions(CI/CD) |
-| **테스트** | pytest(116) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
+| **테스트** | pytest(225) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
 
 ## 아키텍처
 

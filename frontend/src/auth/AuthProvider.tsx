@@ -25,6 +25,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await authApi.register(email, password)
   }
 
+  async function redeemInvite(token: string, password: string) {
+    // 위 register와 반대로 **바로 로그인된다.** 초대는 관리자가 그 주소를 골라
+    // 발급한 것이라 이메일 인증으로 소유를 다시 확인할 이유가 없다 → 기다릴 단계가 없다.
+    await authApi.redeemInvite(token, password)
+    setUser(await authApi.fetchMe())
+  }
+
   function logout() {
     authApi.clearToken()
     setUser(null)
@@ -36,7 +43,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, redeemInvite, logout, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   )
