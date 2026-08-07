@@ -93,17 +93,25 @@ export async function subscribePush(): Promise<SubscribeResult> {
   return 'ok'
 }
 
-/** 이 기기만 알림 끄기 — 브라우저 구독도 함께 해제한다. */
+/** 이 기기만 알림 끄기 — 브라우저 구독도 함께 해제한다.
+ *
+ * **로컬 구독이 없으면 서버를 건드리지 않는다.** 예전엔 endpoint 없이 DELETE를
+ * 보냈는데, 서버는 그걸 '이 계정의 전 기기 해제'로 해석한다(routers/push.py).
+ * 그래서 노트북에서 구독이 만료·삭제된 상태로 '이 기기 알림 끄기'를 누르면
+ * **폰 알림까지 같이 꺼졌다.** 버튼이 약속한 것과 다른 일을 하면 안 된다. */
 export async function unsubscribePush(): Promise<void> {
   const reg = await navigator.serviceWorker.getRegistration()
   const sub = await reg?.pushManager.getSubscription()
+  if (!sub) return // 이 기기엔 이미 없다 — 지울 것도 없다
 
   // 서버를 먼저 지운다. 순서를 뒤집으면 브라우저 구독은 사라졌는데 서버엔 남아,
   // 다음 발송이 죽은 endpoint로 나가고 그제서야 정리된다.
-  const url = sub ? `${BASE}/push?endpoint=${encodeURIComponent(sub.endpoint)}` : `${BASE}/push`
-  const res = await fetch(url, { method: 'DELETE', headers: authHeaders() })
+  const res = await fetch(`${BASE}/push?endpoint=${encodeURIComponent(sub.endpoint)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
   if (!res.ok) throw new Error('알림 해제에 실패했어')
-  await sub?.unsubscribe()
+  await sub.unsubscribe()
 }
 
 /** 이 브라우저가 지금 구독 중인지 (화면의 켜짐/꺼짐 표시용). */

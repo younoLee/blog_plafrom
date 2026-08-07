@@ -182,6 +182,202 @@ def test_account_deletion_removes_subscriptions(
     assert db.scalars(select(PushSubscription)).all() == []
 
 
+# ── 엔드포인트 허용목록 (SSRF 차단) ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://10.0.1.23:8080/probe",  # 내부망
+        "http://127.0.0.1:8000/api/health",  # 자기 자신
+        "http://169.254.169.254/latest/meta-data/",  # 메타데이터
+        "https://evil.example/x",  # 외부지만 푸시 서비스 아님
+        "http://fcm.googleapis.com/fcm/send/x",  # 평문 https 아님
+        "https://fcm.googleapis.com.evil.com/x",  # 접미사 위장
+    ],
+)
+def test_subscribe_rejects_non_push_endpoints(
+    client, make_user, auth_headers, push_on, endpoint
+):
+    """서버가 나중에 이 URL로 POST한다 — 검사 없으면 SSRF다."""
+    user = make_user(role="pending")
+    r = client.post(
+        "/api/push", json={**FAKE, "endpoint": endpoint}, headers=auth_headers(user)
+    )
+    assert r.status_code == 422, f"{endpoint} 가 통과했다"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://fcm.googleapis.com/fcm/send/abc",
+        "https://updates.push.services.mozilla.com/wpush/v2/abc",
+        "https://web.push.apple.com/abc",
+        "https://xyz.notify.windows.com/w/?token=abc",
+    ],
+)
+def test_subscribe_accepts_real_push_services(
+    client, make_user, auth_headers, push_on, endpoint
+):
+    """허용목록이 실제 브라우저를 막으면 기능이 죽는다."""
+    user = make_user(role="pending")
+    r = client.post(
+        "/api/push", json={**FAKE, "endpoint": endpoint}, headers=auth_headers(user)
+    )
+    assert r.status_code == 204
+
+
+def test_send_push_refuses_disallowed_endpoint_even_if_stored():
+    """등록을 막아도 이 검사 이전에 저장된 행·DB 직접 수정이 남는다.
+    발송 시점에도 한 번 더 본다."""
+    from app.services.push import PushGone, send_push
+
+    with pytest.raises(PushGone):
+        send_push("http://169.254.169.254/x", FAKE["p256dh"], FAKE["auth"], {"a": 1})
+
+
+def test_endpoint_only_cannot_steal_another_users_device(
+    client, make_user, auth_headers, db, push_on
+):
+    """endpoint만 아는 사람이 남의 구독을 가져가면 안 된다.
+
+    정당한 구독자는 브라우저에서 endpoint·p256dh·auth를 함께 받으므로 셋을 다
+    갖는다. 키가 다르면 그 기기를 실제로 쥔 사람이 아니다."""
+    victim = make_user(role="pending")
+    attacker = make_user(role="pending")
+    client.post("/api/push", json=FAKE, headers=auth_headers(victim))
+
+    other_key = base64.urlsafe_b64encode(os.urandom(16)).rstrip(b"=").decode()
+    r = client.post(
+        "/api/push", json={**FAKE, "auth": other_key}, headers=auth_headers(attacker)
+    )
+    assert r.status_code == 409
+    row = db.scalar(
+        select(PushSubscription).where(PushSubscription.endpoint == FAKE["endpoint"])
+    )
+    assert row.user_id == victim.id  # 주인이 그대로다
+
+
+# ── 발송 경로 (notify_new_post_push) ─────────────────────────────────────────
+#
+# 이 경로가 통째로 미검증이었다(2026-08-07 검사). 대상 조건을 뒤집거나, 죽은 구독
+# 정리를 지우거나, 기기별 예외 격리를 없애도 전부 초록이었다 — 셋 다 프로덕션에서만
+# 드러나는 종류다(옵트아웃한 사람에게 알림이 가거나, 일시적 장애에 멀쩡한 구독이
+# 전멸하거나, 잘못된 행 하나가 뒤의 모든 기기를 막거나).
+
+
+def _sub(client, headers, endpoint):
+    client.post("/api/push", json={**FAKE, "endpoint": endpoint}, headers=headers)
+
+
+class _KeepOpen:
+    """테스트 세션을 넘겨주되 close()만 무시하는 껍데기.
+
+    notify_new_post_push는 자기 세션을 열고 finally에서 닫는다(백그라운드라 맞는
+    동작이다). 그런데 테스트에선 그 자리에 테스트 세션을 끼워넣으므로, 그대로
+    닫히면 이후 객체가 전부 detached가 되어 검증을 못 한다."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+    def close(self):
+        pass
+
+
+def test_push_goes_only_to_approved_and_notifying_subscribers(
+    client, make_user, auth_headers, db, push_on, monkeypatch
+):
+    from app.models.author_subscription import AuthorSubscription
+    from app.services import push as push_svc
+
+    author = make_user(role="writer")
+    want = make_user(role="pending")  # 승인 + 알림 켬
+    optout = make_user(role="pending")  # 승인됐지만 알림 끔
+    pending_sub = make_user(role="pending")  # 알림 켰지만 미승인
+
+    db.add_all(
+        [
+            AuthorSubscription(subscriber_id=want.id, author_id=author.id, approved=True, notify=True),
+            AuthorSubscription(subscriber_id=optout.id, author_id=author.id, approved=True, notify=False),
+            AuthorSubscription(subscriber_id=pending_sub.id, author_id=author.id, approved=False, notify=True),
+        ]
+    )
+    db.commit()
+    base = "https://fcm.googleapis.com/fcm/send/"
+    _sub(client, auth_headers(want), base + "want")
+    _sub(client, auth_headers(optout), base + "optout")
+    _sub(client, auth_headers(pending_sub), base + "pending")
+
+    sent = []
+    monkeypatch.setattr(push_svc, "send_push", lambda e, p, a, d: sent.append(e))
+    monkeypatch.setattr(push_svc, "SessionLocal", lambda: _KeepOpen(db))
+
+    author_id = author.id
+    push_svc.notify_new_post_push(1, "새 글", author_id)
+    assert sent == [base + "want"]
+
+
+def test_dead_subscription_is_removed_and_others_still_get_sent(
+    client, make_user, auth_headers, db, push_on, monkeypatch
+):
+    """410은 영구 무효라 지운다. 하지만 **일시적 실패는 지우면 안 되고**,
+    한 기기의 실패가 뒤의 기기를 막아서도 안 된다."""
+    from app.models.author_subscription import AuthorSubscription
+    from app.services import push as push_svc
+
+    author = make_user(role="writer")
+    sub_user = make_user(role="pending")
+    db.add(
+        AuthorSubscription(
+            subscriber_id=sub_user.id, author_id=author.id, approved=True, notify=True
+        )
+    )
+    db.commit()
+    base = "https://fcm.googleapis.com/fcm/send/"
+    for name in ("dead", "flaky", "ok"):
+        _sub(client, auth_headers(sub_user), base + name)
+
+    tried = []
+
+    def fake_send(endpoint, p256dh, auth, data):
+        tried.append(endpoint)
+        if endpoint.endswith("dead"):
+            raise push_svc.PushGone("410")
+        if endpoint.endswith("flaky"):
+            raise RuntimeError("일시적 오류")
+
+    monkeypatch.setattr(push_svc, "send_push", fake_send)
+    monkeypatch.setattr(push_svc, "SessionLocal", lambda: _KeepOpen(db))
+    author_id, user_id = author.id, sub_user.id
+    push_svc.notify_new_post_push(1, "새 글", author_id)
+
+    assert len(tried) == 3, "한 기기 실패가 나머지를 막았다"
+    left = {
+        e
+        for (e,) in db.execute(
+            select(PushSubscription.endpoint).where(
+                PushSubscription.user_id == user_id
+            )
+        ).all()
+    }
+    assert base + "dead" not in left  # 영구 무효는 정리됐다
+    assert base + "flaky" in left and base + "ok" in left  # 일시 실패는 살아 있다
+
+
+def test_push_is_noop_when_keys_missing(client, make_user, auth_headers, db, monkeypatch):
+    """키가 없으면 기능이 통째로 꺼진다 — 조회조차 하지 않아야 한다."""
+    from app.services import push as push_svc
+
+    called = []
+    monkeypatch.setattr(push_svc, "send_push", lambda *a: called.append(a))
+    monkeypatch.setattr(push_svc, "SessionLocal", lambda: _KeepOpen(db))
+    push_svc.notify_new_post_push(1, "새 글", 1)
+    assert called == []
+
+
 # ── 암호화 배선 ──────────────────────────────────────────────────────────────
 
 

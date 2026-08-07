@@ -20,7 +20,7 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { marked } from 'marked'
+import { Marked } from 'marked'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const SRC = join(HERE, '..', '..', 'content', 'devlog')
@@ -32,23 +32,60 @@ const DESC = '개발과 인프라를 기록하는 블로그. 글 작성·구독�
 const esc = (s) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+// **원시 HTML을 글자로 취급한다.** marked에는 새니타이저가 없어 마크다운 안의 raw
+// HTML을 그대로 통과시킨다. 이 개발일지는 주제가 보안이라 본문에 <script> 같은 걸
+// 산문으로 쓴다 — 실제로 2026-07-30.md의 "글 본문에 <script>를 넣어도 렌더러가
+// 글자로만 취급한다"는 문장이 닫히지 않은 <script>가 되어 **그 편의 마지막 15%가
+// 통째로 안 보이고 있었다**(2026-08-07 검사에서 발견). 게다가 같은 HTML이 rss.xml의
+// content:encoded로 나가는데, 피드 리더에는 우리 CSP가 안 걸린다.
+// 저자를 믿는 대신 파싱 단계에서 중화한다.
+const md = new Marked({
+  renderer: {
+    html({ text }) {
+      return esc(text)
+    },
+  },
+})
+
+/** 요약 뽑기 — meta description·OG·RSS·목록에 함께 쓴다.
+ *
+ * 첫 인용문을 쓰면 안 된다. 이 저장소의 개발일지는 그 자리에 **글쓰기 지침**을
+ * 적어두는 관례라(“입문자가 읽어도 이해되게 —”), 24편 중 21편이 같은 접두사로
+ * 시작하는 설명을 갖게 된다. 거의 같은 설명은 검색엔진이 버리는 신호고, 이 기능은
+ * 애초에 '검색 유입이 구조적으로 0'인 걸 고치려고 만든 것이다.
+ * 그래서 첫 ## 섹션 아래의 실제 본문 문단을 쓴다. */
+function summarize(body) {
+  const afterFirstHeading = body.replace(/^[\s\S]*?\n##\s+.+\n/, '')
+  for (const source of [afterFirstHeading, body]) {
+    for (const block of source.split(/\n{2,}/).map((s) => s.trim())) {
+      if (!block || /^[#>|]|^```/.test(block)) continue
+      const text = block
+        .replace(/^[-*]\s+/gm, '')
+        .replace(/[#*`>_[\]]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      // '이번 편의 형식:'도 편마다 거의 같은 메타 문장이라 건너뛴다.
+      if (text.length >= 40 && !/^이번 편의 형식/.test(text)) return text.slice(0, 200)
+    }
+  }
+  return ''
+}
+
 /** 마크다운 한 편 읽기. 제목은 첫 H1, 날짜는 파일명 — 프론트매터가 없어서다. */
 function readPost(file) {
   const date = file.replace(/\.md$/, '')
   const raw = readFileSync(join(SRC, file), 'utf8')
   const h1 = raw.match(/^#\s+(.+)$/m)
-  // H1은 본문에서 뺀다. 아래 템플릿이 <h1>을 따로 넣으므로 남기면 제목이 두 번 나온다.
-  const body = raw.replace(/^#\s+.+$/m, '').trim()
+  // H1은 본문에서 뺀다(템플릿이 <h1>을 따로 넣으므로 남기면 제목이 두 번 나온다).
+  // **matched 문자열만 지운다** — 정규식으로 다시 지우면 H1이 없는 파일에서
+  // 코드펜스 안의 `# 주석` 첫 줄이 조용히 사라진다(이 일지들은 쉘 주석이 많다).
+  const body = (h1 ? raw.replace(h1[0], '') : raw).trim()
   return {
     date,
     slug: `devlog/${date}.html`,
     title: h1 ? h1[1].trim() : date,
-    // 요약: 첫 인용문(> …)이 대개 그 편의 한 줄 소개라 그걸 쓰고, 없으면 첫 문단.
-    summary: (body.match(/^>\s*(.+)$/m)?.[1] ?? body.split('\n\n')[0] ?? '')
-      .replace(/[#*`>_]/g, '')
-      .slice(0, 200)
-      .trim(),
-    html: marked.parse(body),
+    summary: summarize(body),
+    html: md.parse(body),
   }
 }
 
@@ -189,7 +226,7 @@ ${feedPosts
 <guid isPermaLink="true">${SITE}/${p.slug}</guid>
 <pubDate>${new Date(`${p.date}T09:00:00+09:00`).toUTCString()}</pubDate>
 <description>${esc(p.summary)}</description>
-<content:encoded><![CDATA[${p.html.replace(/]]>/g, ']]&gt;')}]]></content:encoded>
+<content:encoded><![CDATA[${p.html.replace(/]]>/g, ']]]]><![CDATA[>')}]]></content:encoded>
 </item>`,
   )
   .join('\n')}

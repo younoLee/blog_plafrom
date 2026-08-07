@@ -9,6 +9,7 @@ from app.core.ratelimit import limiter
 from app.models.push_subscription import PushSubscription
 from app.models.user import User
 from app.schemas.push import PushKey, PushStatus, PushSubscribe
+from app.services.push import is_allowed_endpoint
 
 router = APIRouter(prefix="/push", tags=["push"])
 
@@ -63,10 +64,26 @@ def subscribe(
     if not settings.push_enabled:
         raise HTTPException(status_code=503, detail="푸시 알림이 설정돼 있지 않아")
 
+    # 서버가 나중에 이 URL로 POST한다(services/push.py). 검사하지 않으면 내부 주소를
+    # 등록해 우리 서버를 통해 VPC 안을 두드릴 수 있다 — 저장 전에 막는다.
+    if not is_allowed_endpoint(data.endpoint):
+        raise HTTPException(status_code=422, detail="지원하지 않는 푸시 서비스야")
+
     existing = db.scalar(
         select(PushSubscription).where(PushSubscription.endpoint == data.endpoint)
     )
     if existing is not None:
+        # 남의 구독을 **endpoint만 알고** 가로채지 못하게 한다. 정당한 구독자는
+        # 브라우저에서 endpoint·p256dh·auth를 함께 받으므로 셋을 다 갖고 있다.
+        # 반대로 endpoint만 아는 사람(공유 화면·로그 유출 등)은 키를 모른다.
+        # 키까지 일치할 때만 주인을 옮기면 공용 PC 시나리오는 그대로 통과하고
+        # (같은 브라우저면 같은 구독 = 같은 키) 가로채기는 막힌다.
+        if existing.user_id != user.id and (
+            existing.p256dh != data.p256dh or existing.auth != data.auth
+        ):
+            raise HTTPException(
+                status_code=409, detail="다른 계정이 등록한 기기야"
+            )
         existing.user_id = user.id
         existing.p256dh = data.p256dh
         existing.auth = data.auth

@@ -22,8 +22,12 @@ import http_ece
 import httpx
 from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
+from sqlalchemy import delete, select
 
 from app.core.config import settings
+from app.core.database import SessionLocal
+from app.models.author_subscription import AuthorSubscription
+from app.models.push_subscription import PushSubscription
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,43 @@ TTL_SECONDS = 24 * 60 * 60
 # VAPID JWT 유효기간. 표준 상한은 24시간이고, 짧을수록 유출 시 노출이 줄지만
 # 발송 때마다 새로 서명하므로 길 이유가 없다.
 _JWT_TTL_SECONDS = 12 * 60 * 60
+
+
+# 알려진 푸시 서비스 호스트. 점으로 시작하면 서브도메인 접미사 매칭.
+#
+# **왜 허용목록인가** — send_push는 클라이언트가 등록한 URL로 서버가 POST한다.
+# 검사가 없으면 인증된 사용자가 내부 주소(10.x, 127.0.0.1, 169.254.169.254,
+# 컨테이너 이름)를 등록해 **VPC 안에서 우리 서버가 대신 요청하게** 만들 수 있다(SSRF).
+# 일반적인 SSRF와 달리 여기선 정당한 목적지 집합이 작고 공개돼 있고 잘 안 바뀐다 —
+# 그럴 땐 사설 IP 차단(DNS 리바인딩에 취약)보다 허용목록이 확실하다.
+# httpx는 리다이렉트를 따라가지 않으므로(기본값) 우회 경로도 없다.
+# 새 브라우저가 나오면 여기 한 줄 추가한다.
+ALLOWED_PUSH_HOSTS = (
+    "fcm.googleapis.com",  # Chrome · Edge · Android
+    "android.googleapis.com",  # 구형 FCM
+    "updates.push.services.mozilla.com",  # Firefox
+    "web.push.apple.com",  # Safari · iOS
+    ".push.services.mozilla.com",  # Mozilla 서브도메인
+    ".notify.windows.com",  # Windows · 구형 Edge
+)
+
+
+def is_allowed_endpoint(endpoint: str) -> bool:
+    """푸시 서비스로 알려진 https 주소인가.
+
+    등록 시점(routers/push.py)과 발송 시점(send_push) **양쪽에서** 부른다.
+    등록만 막으면 이 검사가 생기기 전에 저장된 행이 그대로 발송된다."""
+    try:
+        parts = urlparse(endpoint)
+    except ValueError:
+        return False
+    if parts.scheme != "https" or not parts.hostname:
+        return False
+    host = parts.hostname.lower()
+    return any(
+        host == h if not h.startswith(".") else host.endswith(h)
+        for h in ALLOWED_PUSH_HOSTS
+    )
 
 
 class PushGone(Exception):
@@ -87,6 +128,12 @@ def send_push(endpoint: str, p256dh: str, auth: str, data: dict) -> None:
       - 그 외    → 일시적일 수 있으므로 로그만 남기고 삼킨다. 알림 하나 때문에
                    글 발행 요청이 실패하면 안 된다.
     """
+    # 등록 시점에도 막지만 여기서 한 번 더 본다 — 이 검사가 생기기 전에 들어온 행,
+    # 또는 DB를 직접 만져 넣은 행이 그대로 나가면 안 된다.
+    if not is_allowed_endpoint(endpoint):
+        logger.warning("허용되지 않은 푸시 엔드포인트 — 발송하지 않음")
+        raise PushGone("허용 목록에 없는 엔드포인트")
+
     body = _encrypt(json.dumps(data, ensure_ascii=False).encode(), p256dh, auth)
     headers = {
         **_vapid_headers(endpoint),
@@ -122,12 +169,6 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
         return
 
     # 백그라운드라 요청 세션과 별개로 자체 세션을 연다(email.py와 같은 이유).
-    from sqlalchemy import delete, select
-
-    from app.core.database import SessionLocal
-    from app.models.author_subscription import AuthorSubscription
-    from app.models.push_subscription import PushSubscription
-
     db = SessionLocal()
     try:
         subs = db.execute(

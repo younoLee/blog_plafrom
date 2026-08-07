@@ -17,10 +17,12 @@ if config.config_file_name is not None:
 import app.models.ai_usage  # noqa: F401
 import app.models.author_subscription  # noqa: F401
 import app.models.comment  # noqa: F401
+import app.models.invite  # noqa: F401
 import app.models.llm_credential  # noqa: F401 — 빠지면 autogenerate가 이 테이블을 drop하려 함
 import app.models.notification  # noqa: F401
 import app.models.payment  # noqa: F401
 import app.models.post  # noqa: F401 — 모델을 import해야 Base에 테이블이 등록됨
+import app.models.push_subscription  # noqa: F401
 import app.models.status_check  # noqa: F401
 import app.models.subscriber  # noqa: F401
 import app.models.user  # noqa: F401

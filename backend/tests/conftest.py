@@ -177,6 +177,46 @@ def open_signup(monkeypatch):
     monkeypatch.setattr(settings, "allow_signup", True)
 
 
+# ── SES 조회: 네트워크로 안 나간다 ──────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def no_ses(monkeypatch):
+    """초대 발급이 부르는 SES 조회를 가로챈다.
+
+    routers/admin.py의 create_invite가 recipient_status()를 부르는데, 그건 boto3로
+    **실제 AWS에 나간다.** 자격증명이 없으면 예외로 끝나긴 하지만 그 전에
+    자격증명 탐색(환경변수 → 공유파일 → IMDS 169.254.169.254)을 돌고, IMDS가
+    닿지 않는 곳에서는 연결 타임아웃까지 기다린다. 초대를 만드는 테스트가 수십 개라
+    그만큼 곱해진다 — 로컬 전체 스위트가 74초에서 152초로 늘었고, CI도 같은 이유로
+    흔들린다. 무엇보다 **테스트가 바깥 네트워크에 의존하면 안 된다.**
+
+    기본값은 '모름'(None) — 프로덕션에서 권한이 없을 때와 같은 상태다. 특정 값이
+    필요한 테스트는 admin 라우터의 이름을 직접 갈아끼운다(test_invites.py 참고).
+    no_smtp·no_push와 같은 방침이다."""
+    from app.routers import admin as admin_router
+
+    monkeypatch.setattr(
+        admin_router, "recipient_status", lambda _e: {"sandbox": None, "verified": None}
+    )
+
+
+# ── 푸시: 기본은 '꺼짐' ──────────────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def no_push(monkeypatch):
+    """VAPID 키를 비워 푸시를 전 테스트에서 끈다 (no_smtp와 같은 이유).
+
+    켜져 있으면 글 발행 테스트가 실제로 바깥을 때린다. routers/posts.py가
+    notify_new_post_push를 BackgroundTask로 걸고 TestClient는 그걸 **동기로**
+    실행하므로, .env에 키가 있는 개발자·CI에서는 fcm.googleapis.com으로 진짜
+    HTTPS 요청이 나간다(기기당 최대 10초). 게다가 그 함수는 자체 SessionLocal을
+    열어 테스트 트랜잭션 **바깥**에서 DELETE를 하므로 롤백되지도 않는다.
+
+    이미 test_push.py가 같은 함정을 겪고 그 파일 안에서만 막아뒀는데, 나머지
+    스위트는 무방비였다. 2026-07-22에 SMTP로 하루 겪은 일과 같은 모양이라
+    같은 자리에서 같은 방식으로 막는다. 켜고 싶은 테스트는 push_on을 쓴다."""
+    monkeypatch.setattr(settings, "vapid_public_key", "")
+    monkeypatch.setattr(settings, "vapid_private_key", "")
+
+
 @pytest.fixture
 def sent_mail(no_smtp):
     """가로챈 메일 목록. 필요하면 테스트에서 발송 여부·수신자를 확인한다."""

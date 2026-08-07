@@ -29,9 +29,21 @@ def recipient_status(email: str) -> dict:
     result: dict = {"sandbox": None, "verified": None}
     try:
         import boto3
+        from botocore.config import Config
         from botocore.exceptions import BotoCoreError, ClientError
 
-        ses = boto3.client("sesv2", region_name=settings.aws_region)
+        # **타임아웃을 반드시 준다.** 이 호출은 초대 발급 응답 경로에 있고, 그 응답에만
+        # 원문 토큰이 실린다. botocore 기본값은 연결·읽기 각 60초에 재시도까지 붙어
+        # CloudFront의 오리진 타임아웃(60초)을 넘긴다 — 그러면 초대는 DB에 커밋됐는데
+        # 링크는 504와 함께 사라진다. 호출부의 try/except는 예외를 잡지 그 위에서
+        # 벌어지는 지연을 잡지 못하므로, 여기서 시간을 끊는 것 말고는 방법이 없다.
+        ses = boto3.client(
+            "sesv2",
+            region_name=settings.aws_region,
+            config=Config(
+                connect_timeout=2, read_timeout=3, retries={"max_attempts": 1}
+            ),
+        )
 
         try:
             account = ses.get_account()

@@ -40,7 +40,10 @@ class PushSubscription(Base):
     # 푸시 서비스 URL. 길이 제한이 표준에 없어 Text로 둔다(FCM은 200자 안팎이지만
     # 벤더가 바꿔도 잘리지 않게). unique 인덱스는 마이그레이션에서 md5 해시가 아니라
     # 전체 값에 건다 — Postgres 인덱스 상한(약 2700B)보다 훨씬 짧아 문제없다.
-    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    # index=True를 빼면 SQLAlchemy가 유니크 '제약'(pg_constraint)을 내는데,
+    # 마이그레이션은 유니크 '인덱스'를 낸다 → autogenerate가 영구 드리프트를 본다.
+    # 초대 테이블에서 같은 실수를 하고 고쳤는데 여기서 되풀이했다(2026-08-07 검사).
+    endpoint: Mapped[str] = mapped_column(Text, unique=True, index=True)
     p256dh: Mapped[str] = mapped_column(String(255))
     auth: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
