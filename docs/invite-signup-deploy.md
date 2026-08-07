@@ -103,13 +103,24 @@ curl -s -X POST https://d2j66m9udyg9yq.cloudfront.net/api/auth/register \
 
 기대: `403` + `가입은 초대제로 운영돼. 초대 링크가 있으면 그 링크로 가입하면 돼.`
 
-## 6. 프론트 배포
+## 6. 프론트 배포 — **경로 A: Actions에서 직접 실행** (2026-08-07 확정)
 
-**경로 A (권장) — Actions에서 직접 실행.** 이 환경엔 GitHub 자격증명이 없어
-대신 눌러줄 수 없다. 저장소 → Actions → `Deploy Frontend` → `Run workflow`.
-(옛 실패 실행의 `Re-run`은 안 된다 — 이벤트가 그대로 `push`라 게이트에 또 걸린다.)
+저장소 → Actions → `Deploy Frontend` → **`Run workflow`** (브랜치 `main`).
 
-**경로 B — 손으로 재현.** 빌드는 이미 끝나 있다(`frontend/dist`).
+- 이 환경엔 GitHub 자격증명이 없어 **대신 눌러줄 수 없다.** 사람이 눌러야 한다.
+- **옛 실패 실행의 `Re-run`은 안 된다** — 이벤트가 그대로 `push`라 게이트에 또 걸린다.
+  반드시 `Run workflow`로 새로 띄운다.
+- 게이트는 `if: github.event_name == 'push'`라 `workflow_dispatch`에선 **건너뛴다.**
+  그게 이 경로가 존재하는 이유다.
+
+A로 가면 S3 업로드·무효화를 워크플로가 한다 — `--exclude "uploads/*"`가 워크플로에
+박혀 있으므로 손으로 `aws s3 sync`를 칠 일이 없고, `--delete`가 업로드 이미지를
+지울 위험을 사람 손에서 아예 뗀다. **A를 고른 실질적 이득이 이것이다.**
+
+<details>
+<summary>경로 B — Actions를 못 쓸 때만 (손으로 재현)</summary>
+
+빌드는 이미 끝나 있다(`frontend/dist`).
 
 ```bash
 cd frontend
@@ -122,8 +133,9 @@ aws s3 sync dist/ s3://blogplafromops --delete --exclude "uploads/*"
 aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"
 ```
 
-> 경로 B로 가면 `Deploy Frontend` 워크플로는 실패로 남는다. Actions만 보면
-> "프론트가 안 나갔다"로 읽히니, 배포 여부는 워크플로가 아니라 **라이브 번들**로 판단한다.
+경로 B로 가면 워크플로는 실패로 남는다. Actions만 보면 "프론트가 안 나갔다"로
+읽히니, 배포 여부는 워크플로가 아니라 **라이브 번들**로 판단한다.
+</details>
 
 ## 7. 스모크 — 실제로 한 명 들여본다
 
@@ -135,6 +147,19 @@ curl -s https://d2j66m9udyg9yq.cloudfront.net/ | grep -o '/index-[A-Za-z0-9_-]*\
 curl -s https://d2j66m9udyg9yq.cloudfront.net/index-DRcZWkAE.js | grep -c '가입하고 시작하기'
 # 기대: 파일명이 index-DRcZWkAE.js, grep 결과 1 이상
 ```
+
+> **경로 A를 골라서 생긴 공짜 검증 하나.** 위 파일명은 내가 로컬에서
+> *워크플로와 같은 env*로 빌드해 나온 해시다. Actions가 만든 것이 같은
+> `index-DRcZWkAE.js`면 두 빌드가 같은 물건이라는 뜻이고, 그건 곧
+> **`vars.TOSS_CLIENT_KEY`가 여전히 미설정**이라는 확인이기도 하다
+> (설정돼 있었다면 키 문자열이 바뀌어 해시가 달라진다).
+>
+> 해시가 다르면 배포가 잘못된 게 아니라 **전제가 바뀐 것**이다. 멈추고 확인한다:
+> ```bash
+> curl -s https://d2j66m9udyg9yq.cloudfront.net/<나온파일명> | grep -o '\(live\|test\)_ck_[A-Za-z0-9]*'
+> ```
+> `live_ck_`가 나오면 실결제 키가 들어간 것이고, 그건 이 배포와 무관한 별개 사건이다.
+> (2026-08-04에도 로컬 재현과 워크플로 산출물이 바이트 단위로 같았다 — 등가성의 근거.)
 
 7-2. 브라우저에서 관리자로 로그인 → `/admin` → **초대** 섹션에서 자기 주소로 발급
 → 링크 복사(**이 화면을 닫으면 다시 못 본다**).
