@@ -1,6 +1,9 @@
-# 초대제 가입 배포 런북 (2026-08-07)
+# 배포 런북 — 초대제 가입 · Web Push (2026-08-07)
 
-> 대상 커밋: `f898890` (브랜치 `feat/invite-signup`, 원격에 푸시됨)
+> **서버를 켜서 배포하는 절차 전반**에 쓴다. 초대제 배포에서 출발했지만
+> 4-B(오리진 주차 해제)와 8(정지·백업)은 어떤 배포에나 해당한다.
+>
+> 대상 커밋: `f898890` 초대제 · `3dbe132` Web Push
 > 명령은 **사용자가 실행한다(규칙7)**. 결과는 같이 읽는다.
 >
 > 공통 변수: EC2 `i-0abdd1afc7041e167` · 키 `~/.ssh/blog-key.pem` · 버킷 `blogplafromops`
@@ -84,6 +87,40 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> 'for i in $(seq 1 40); do
 ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> \
   'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T backend alembic current'
 ```
+
+## 4-B. 오리진 주차 해제 — **빼먹으면 배포한 게 안 보인다**
+
+서버를 끌 때 CloudFront의 `api-backend` 오리진은 EC2가 아니라 **S3를 가리키게
+주차**된다(README의 "fail-closed로 주차"). EC2를 켜는 것만으로는 안 풀린다.
+2026-08-07 배포에서 이 단계가 이 문서에 없어서, 백엔드가 `healthy`인데도
+`/api/*`가 전부 504였다 — 증상만 보면 배포 실패로 보이지만 배포는 멀쩡했다.
+
+```bash
+# 1) 먼저 plan으로 '무엇이 바뀌는지' 확인한다. apply는 그 시점의 전체 플랜을
+#    적용하므로, ec2.tf에 인스턴스 교체가 섞여 있으면 루트 볼륨과 함께 DB가 날아간다
+#    (pgdata가 그 위에 있다). stop_server.sh가 같은 이유로 plan을 먼저 뽑는다.
+terraform -chdir=terraform plan -out=/tmp/unpark.tfplan \
+  -var="backend_origin_dns=$(aws ec2 describe-instances \
+    --instance-ids i-0abdd1afc7041e167 \
+    --query 'Reservations[0].Instances[0].PublicDnsName' --output text)"
+
+# 2) 'Plan: 0 to add, 1 to change, 0 to destroy' 이고 바뀌는 게
+#    aws_cloudfront_distribution.main 뿐인지 눈으로 확인한 뒤에만 적용한다.
+#    ⚠️ -chdir을 빼면 저장소 루트에서 돌아 프로바이더 락을 못 찾는다.
+terraform -chdir=terraform apply "/tmp/unpark.tfplan"
+
+# 3) 전파 확인 (CloudFront 반영에 수십 초)
+curl -s -o /dev/null -w '%{http_code}\n' https://d2j66m9udyg9yq.cloudfront.net/api/health
+```
+
+기대: `200`. 계속 504면 오리진이 아직 S3다:
+```bash
+aws cloudfront get-distribution-config --id E1438IL9CSVBS4 \
+  --query 'DistributionConfig.Origins.Items[?Id==`api-backend`].DomainName' --output text
+```
+
+> 되돌리기는 `scripts/stop_server.sh`가 알아서 한다(1단계가 주차다). 배포 후
+> 서버를 끄면 다시 주차되므로, **다음에 켤 때 이 단계를 또 해야 한다.**
 
 ## 5. 열린 가입이 여전히 닫혀 있는지 — **가장 중요한 확인**
 
@@ -238,3 +275,36 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> \
   받는 쪽이 예고 없는 AWS 메일을 피싱으로 의심할 일이 없고, 샌드박스와도 무관해진다.
 - 남은 백로그: `users(lower(email))` 유니크 인덱스(대소문자 중복을 구조적으로 차단).
   users 테이블 전체를 건드리고 기존 데이터에 중복이 있으면 실패하므로 별도 판단.
+
+---
+
+## Web Push를 함께 배포할 때 (커밋 `3dbe132`)
+
+푸시는 **VAPID 키가 없으면 통째로 꺼진다**(엔드포인트 503, 발송 무동작). 즉 키를
+안 넣어도 배포는 안전하고, 넣는 순간 켜진다. 로컬 키를 프로드에 재사용하지 않는다.
+
+```bash
+# 1) 프로드용 키쌍 생성 (서버에서, 배포 후)
+ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> \
+  'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T backend \
+     python scripts/gen_vapid_keys.py'
+
+# 2) 출력된 3줄을 서버 .env에 추가 → 컨테이너 재시작
+#    (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT)
+
+# 3) 짝이 맞는지 확인 — 어긋나면 구독은 되는데 발송만 조용히 실패한다
+ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> \
+  'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T backend \
+     python scripts/gen_vapid_keys.py --check'
+
+# 4) 공개키가 나오는지
+curl -s https://d2j66m9udyg9yq.cloudfront.net/api/push/key
+```
+
+> **키를 한 번 정하면 바꾸지 않는다.** 공개키는 브라우저의 구독 정보에 박혀 있어서,
+> 갈면 기존 구독이 전부 무효가 되고 발송이 조용히 실패한다. 갈아야 한다면
+> `push_subscriptions`를 비우고 사용자에게 다시 켜달라고 해야 한다.
+>
+> compose 수정은 **필요 없다.** 프로드 백엔드는 `env_file: - .env`라 `.env`에 적힌
+> 값이 그대로 환경변수가 된다(로컬 `docker-compose.yml`은 변수를 하나씩 나열하는
+> 방식이라 거기엔 줄을 추가해야 했다 — 두 파일의 방식이 다르다).
