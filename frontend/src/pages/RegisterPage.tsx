@@ -6,7 +6,6 @@ import { ServerAsleepError } from '../api/http'
 import { ui } from '../ui'
 import { IconArrowLeft } from '../components/icons'
 import { Reveal } from '../components/Reveal'
-import DemoLoginButton from '../components/DemoLoginButton'
 
 const { input, btnPrimary } = ui
 
@@ -46,22 +45,24 @@ function Notice({ title, children, gradient = false }: { title: string; children
 }
 
 // 가입은 현재 '초대제'로 닫아둔 상태다. 열어두면 봇이 존재하지 않는 주소로 가입 →
-// 하드 바운스 누적 → SES 발송 정지 위험이 생기고, 포트폴리오 시연에는 체험 계정으로 충분하다.
-// 그래서 폼을 없애고 '의도적으로 닫았다'는 걸 방문자에게 명확히 보여준다
-// (예전엔 202 + "메일 확인해줘"만 주고 메일은 영영 안 왔다 → 깨진 사이트처럼 보였다).
+// 하드 바운스 누적 → SES 발송 정지 위험이 생긴다. 그래서 폼을 없애고 '의도적으로
+// 닫았다'는 걸 방문자에게 명확히 보여준다 (예전엔 202 + "메일 확인해줘"만 주고
+// 메일은 영영 안 왔다 → 깨진 사이트처럼 보였다).
+//
+// 2026-08-07: 공개 체험 계정(demo@example.com)을 없애면서 그 버튼도 뺐다. 이제
+// 로그인 뒤 화면을 보려면 초대를 받아야 한다 — 방문자에게 없는 문을 가리키지 않도록
+// 문구도 '읽기는 열려 있다' 쪽으로 고쳤다.
 function ClosedNotice() {
   return (
     <Notice title="현재 초대제로 운영 중" gradient>
       <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-300">
         이 블로그는 개인 포트폴리오 프로젝트라, 새 계정 가입은 지금 닫아뒀어.<br />
-        글은 로그인 없이 자유롭게 읽고, 댓글도 남길 수 있어.<br />
-        글쓰기·AI 초안 같은 로그인 화면이 궁금하면 <span className="font-medium">체험 계정</span>으로 둘러봐.
+        글은 로그인 없이 자유롭게 읽고, 댓글도 남길 수 있어.
       </p>
       <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
         초대 링크를 받았다면 그 링크에서 바로 가입돼.
       </p>
-      <DemoLoginButton className="mt-6" />
-      <div className="mt-4 flex flex-col items-center gap-2">
+      <div className="mt-6 flex flex-col items-center gap-2">
         <Link to="/" className="text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">그냥 글만 보러 가기</Link>
         <Link to="/login" className="text-sm text-gray-500 hover:underline dark:text-gray-400">
           초대받은 계정으로 로그인

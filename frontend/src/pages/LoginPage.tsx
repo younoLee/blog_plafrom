@@ -4,7 +4,6 @@ import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconArrowLeft } from '../components/icons'
 import { Reveal } from '../components/Reveal'
-import DemoLoginButton from '../components/DemoLoginButton'
 
 const { input, btnPrimary } = ui
 
@@ -48,10 +47,6 @@ function LoginPage() {
           <Link to="/register" className="font-medium text-[#0071e3] hover:underline dark:text-[#0a84ff]">초대제</Link>
           로 운영 중이야
         </p>
-        <div className="mt-5 border-t border-black/[0.07] pt-5 dark:border-white/10">
-          <p className="mb-2 text-xs text-gray-400 dark:text-gray-500">계정 없이 로그인 화면을 둘러보고 싶다면</p>
-          <DemoLoginButton />
-        </div>
       </Reveal>
     </div>
   )
