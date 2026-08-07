@@ -14,6 +14,7 @@ import {
 } from '../api/subscriptions'
 import { ui } from '../ui'
 import { IconCheck } from '../components/icons'
+import PushToggle from '../components/PushToggle'
 
 function SubscriptionsPage() {
   const { user } = useAuth()
@@ -98,6 +99,11 @@ function SubscriptionsPage() {
         </p>
       )}
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+
+      {/* 알림 '경로'. 위 🔔이 '누구의 알림을 받을지'라면 이건 '어디로 받을지'다.
+          SettingsPage가 아니라 여기 두는 이유: 저쪽은 canWrite 게이트가 있어
+          구독자(pending)가 못 본다 — 알림이 정작 필요한 사람이 못 보는 자리다. */}
+      {user && <PushToggle />}
 
       {/* 받은 구독 신청 (글쓴이용) — 신청이 있을 때만 뜬다 */}
       {user && requests.length > 0 && (

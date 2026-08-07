@@ -24,6 +24,7 @@ from app.schemas.post import (
     TagCount,
 )
 from app.services.email import notify_new_post
+from app.services.push import notify_new_post_push
 
 # 연재 네비에 담을 최대 편수. 네비 목록이라 상한이 필요하다(제목만이라 가볍긴 하다).
 SERIES_ITEMS_MAX = 100
@@ -283,6 +284,11 @@ def create_post(
             db.commit()
         # 이메일 알림 — 실패해도 응답 막지 않게 백그라운드
         background.add_task(notify_new_post, post.id, post.title, post.owner_id)
+        # 푸시 알림 — 같은 대상(위 notify_uids와 조건이 같다)에게 다른 채널로.
+        # 메일과 **따로** 태스크를 거는 이유: 한쪽이 예외로 죽어도 다른 쪽은 나가야
+        # 한다. 지금 이메일은 발신 도메인이 없어 스팸함에 꽂히므로, 실제로 닿는
+        # 채널은 이쪽이다. 푸시 키가 없으면 함수 안에서 조용히 무동작.
+        background.add_task(notify_new_post_push, post.id, post.title, post.owner_id)
     return post
 
 

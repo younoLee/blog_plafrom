@@ -19,6 +19,26 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_use_tls: bool = False  # SES는 True (587 STARTTLS)
 
+    # --- Web Push (VAPID) ---
+    #
+    # 왜 붙였나 — 이메일 알림이 사실상 안 닿는다. 발신 도메인이 없어(MAIL_FROM이
+    # gmail.com) SPF·DKIM 정렬이 깨지고 받는 쪽이 스팸함으로 보낸다. 푸시는 SES를
+    # 안 거치므로 그 사슬 밖에 있다.
+    #
+    # 키는 `python scripts/gen_vapid_keys.py`로 만들어 .env에 넣는다. **공개키는
+    # 브라우저에 그대로 나가는 값이라 비밀이 아니고**, 개인키는 비밀이다.
+    #
+    # 비어 있으면 푸시 기능 전체가 꺼진다(구독 엔드포인트 503, 발송은 무동작).
+    # 켜지 않아도 앱이 그대로 도는 게 요점 — AI 키가 없을 때와 같은 방식이다.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    # 푸시 서비스가 문제 발생 시 연락할 곳. mailto: 또는 https: 여야 한다(RFC 8292).
+    vapid_subject: str = "mailto:admin@example.com"
+
+    @property
+    def push_enabled(self) -> bool:
+        return bool(self.vapid_public_key and self.vapid_private_key)
+
     # 업로드 이미지 URL의 베이스 (프로드는 CloudFront 주소)
     public_base_url: str = "http://localhost:8000"
     # 이미지 저장소: s3_bucket 설정 시 S3에 업로드, 비어있으면 로컬 디스크(로컬 개발)

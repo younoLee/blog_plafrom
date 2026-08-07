@@ -24,6 +24,19 @@
     <meta name="twitter:description" content="개발과 인프라를 기록하는 블로그. 글 작성·구독·AI 초안까지 직접 만든 풀스택 사이트." />
     <meta name="twitter:image" content="https://d2j66m9udyg9yq.cloudfront.net/og-image.png" />
 
+    <!-- PWA: 홈화면 설치용. iOS는 '홈화면에 추가'로 설치돼야 Web Push가 동작한다
+         (사파리 탭에서는 알림 권한 자체를 안 준다) → 알림 기능의 전제 조건이다.
+         apple-touch-icon은 SVG를 안 받으므로 PNG를 따로 둔다(scripts/gen_pwa_icons.py). -->
+    <!-- 확장자가 .webmanifest가 아니라 .json인 이유: 프로덕션은 nginx가 아니라
+         S3+CloudFront가 서빙하는데, `aws s3 sync`도 nginx 기본 mime.types도
+         .webmanifest를 몰라 application/octet-stream으로 내보낸다. 양쪽에
+         MIME 설정을 따로 넣느니 둘 다 아는 확장자를 쓰는 편이 덜 깨진다. -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#863bff" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="DEV 블로그" />
+
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
   </head>
   <body>

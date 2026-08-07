@@ -39,6 +39,11 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # BYOK(사용자 GPT/Gemini 키) 암호화용. .env의 LLM_ENCRYPTION_KEY 치환.
       LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:-}
+      # Web Push(VAPID). 비면 푸시 기능이 통째로 꺼진다(엔드포인트 503, 발송 무동작)
+      # → 키 없이도 앱은 그대로 돈다. 키는 scripts/gen_vapid_keys.py로 만든다.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
     depends_on:
       db:
         condition: service_healthy   # DB 준비될 때까지 대기

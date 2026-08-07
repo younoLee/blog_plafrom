@@ -27,6 +27,7 @@
 - **댓글**: 로그인/익명, 공개범위 연동
 - **AI 초안**: 메모 → 정돈된 글 구조 생성. Claude(서버 키, 티어 게이팅) + BYOK 5종(Anthropic/OpenAI/Gemini/Cohere/OpenAI호환). 시간당·일일·월간 캡, BYOK 키는 암호화 저장 + base_url SSRF 검증
 - **Pro 구독**: 토스페이먼츠 결제(승인검증 → 상위 AI 모델 해금)
+- **알림**: 인앱 + **Web Push**(VAPID). 홈화면에 설치하면 iOS에서도 뜬다. 메일은 발신 도메인이 없어 스팸함으로 가므로 실제로 닿는 건 푸시 쪽
 - **상태 페이지**: 백엔드/DB/메일 실시간 점검 + 일별 업타임 집계
 - **관리자**: 사용자 승인/차단, 인프라 대시보드
 
@@ -37,7 +38,7 @@
 | **백엔드** | FastAPI, PostgreSQL, SQLAlchemy 2.0, Alembic, JWT(PyJWT), slowapi(레이트리밋), boto3(S3), Anthropic/OpenAI/Gemini SDK |
 | **프론트엔드** | React 19, TypeScript, Vite, React Router, Tailwind CSS v4, react-markdown |
 | **인프라** | AWS EC2(Docker), CloudFront + S3, SES, Terraform(IaC), GitHub Actions(CI/CD) |
-| **테스트** | pytest(225) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
+| **테스트** | pytest(241) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
 
 ## 아키텍처
 
