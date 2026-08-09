@@ -160,13 +160,35 @@ resource "aws_iam_role_policy" "github_watch" {
         # SNS 이메일 구독은 받는 사람이 링크를 눌러야 활성화되는데, 안 누른 동안
         # 알람은 정상적으로 울리고 아무에게도 안 간다. 07-22에 `WARN`이 종료코드에
         # 안 들어가 알림 0건이던 것과 같은 모양이라, 같은 방식으로 감시한다.
-        Sid    = "ReadAlertDelivery"
-        Effect = "Allow"
-        Action = [
-          "cloudwatch:DescribeAlarms",
-          "sns:ListSubscriptionsByTopic",
-        ]
-        Resource = "*" # 둘 다 리소스 단위 제한을 지원하지 않는다(읽기 전용)
+        #
+        # **이 토픽 하나로 좁힌다.** `ListSubscriptionsByTopic`의 응답에는 `Endpoint`가
+        # 들어 있다 — 즉 구독자의 이메일 주소다. `Resource = "*"`로 두면 이 역할을 쥔
+        # 쪽이 계정의 **모든** 토픽의 구독 주소를 읽는다. 이 역할은 공개 저장소의
+        # GitHub Actions가 OIDC로 assume하므로, 오염된 액션이나 빌드 의존성 하나가
+        # 그 경로다.
+        Sid      = "ReadAlertSubscriptions"
+        Effect   = "Allow"
+        Action   = ["sns:ListSubscriptionsByTopic"]
+        Resource = aws_sns_topic.alerts.arn
+      },
+      {
+        # 알람 존재·상태 확인. 위와 달리 **Resource를 좁히지 않는다.**
+        #
+        # 2026-08-09 처음 쓸 때 "둘 다 리소스 단위 제한을 지원하지 않는다"고 적었는데
+        # **SNS 쪽은 거짓이었다**(보안검사가 잡았다). 그래서 SNS는 위에서 좁혔다.
+        # CloudWatch 쪽은 아직 재보지 못했다 — IAM 시뮬레이터는 정책 문서만 평가하고,
+        # 서비스가 런타임에 리소스 단위 권한을 **실제로 존중하는지**는 알려주지 않는다.
+        # `DescribeAlarms`는 목록형 액션이라 "*"를 요구하는 부류일 가능성이 높다.
+        #
+        # 좁혔다가 틀리면 CI에서 AccessDenied가 나고 watch.sh 6-B가
+        # "상태검사 알람을 못 읽었다"로 실패한다 — 조용히 눈이 머는 게 아니라
+        # 시끄럽게 실패하므로 재볼 수 있는 변경이다. 다만 **재보기 전에는 넓은 쪽**을
+        # 둔다. 노출되는 건 알람 이름·설명·차원이고 이 저장소는 공개다.
+        # 재보려면: Resource를 알람 ARN으로 바꿔 apply하고 다음 정시 watch 실행을 본다.
+        Sid      = "ReadAlarmState"
+        Effect   = "Allow"
+        Action   = ["cloudwatch:DescribeAlarms"]
+        Resource = "*"
       },
       {
         # watch.sh 5번(2026-07-27 IR 훈련) — 감사기록이 살아 있는지. 침해자의 첫 수가
