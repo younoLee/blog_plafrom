@@ -85,4 +85,15 @@ regexes = [
   # 라이브 키는 .env에만 있고 PAYMENTS_REQUIRE_LIVE=true가 test_ 키로의 승인을 막는다.
   '''^test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R$''',
   '''^test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq$''',
+
+  # JWT 헤더 `{"typ":"JWT","alg":"ES256"}` 의 base64. **비밀이 아니라 상수다** —
+  # ES256으로 서명하는 모든 JWT의 첫 마디가 이 값이고, 토큰의 서명·페이로드는
+  # 뒤에 오는데 여기서는 `...` 로 잘려 있다(즉 이 문자열만으로는 아무것도 못 한다).
+  # 걸린 자리: scripts/make_devlog_20260807.py:280 — 개발일지 #26이 Web Push의
+  # `Authorization: vapid t=…` 헤더 모양을 증거로 인용한 대목이다(6aa075f).
+  # 잡은 규칙은 generic-api-key(엔트로피 4.31). 이미 푸시된 히스토리라 파일을
+  # 고쳐도 스캔에는 계속 남는다.
+  # **값 전체를 앵커로 지목한다** — 접두사(`^eyJ…`)만 걸면 헤더가 같은 *진짜* 토큰이
+  # 전부 통과한다. ES256 JWT는 전부 이 26자로 시작하므로 그게 정확히 위험한 경우다.
+  '''^eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9\.\.\.$''',
 ]

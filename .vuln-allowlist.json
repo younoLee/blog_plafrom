@@ -11,25 +11,12 @@
     "  3. why에는 '왜 이 앱에 해당하지 않는가'를 근거와 함께 쓴다.",
     "     '나중에 고칠 것'은 근거가 아니다."
   ],
-  "npm": [
-    {
-      "id": "GHSA-qwww-vcr4-c8h2",
-      "package": "react-router",
-      "severity": "high",
-      "title": "React Router: RSC Mode CSRF Bypass Allows Action Execution Before 400 Response",
-      "why": [
-        "취약한 코드 경로가 RSC(React Server Components) 모드 전용인데, 이 앱은 RSC를 안 쓴다.",
-        "src/App.tsx가 선언형 BrowserRouter/Routes/Route만 쓰는 순수 Vite SPA이고,",
-        "서버 렌더링도 서버 액션도 없다(@react-router/dev·serve 미사용, 빌드 산출물은 정적 파일뿐).",
-        "즉 CSRF로 실행될 '서버 액션'이라는 것이 이 앱에는 존재하지 않는다.",
-        "수정 버전은 8.3.0이라 7.18.0 → 8.x 메이저 업그레이드가 필요하다.",
-        "라우팅은 앱 전체가 의존하는 부분이라, 배포 예정이 없는 날 곁다리로 올릴 변경이 아니다.",
-        "(npm이 제안하는 7.11.0 다운그레이드는 취약점 공개 전 버전으로 되돌리는 것이라 택하지 않는다)"
-      ],
-      "accepted_on": "2026-07-28",
-      "expires": "2026-10-26",
-      "next_step": "react-router-dom 8.x 업그레이드. 프론트 배포가 있는 날에 묶어서."
-    }
+  "_지운_기록": [
+    "GHSA-qwww-vcr4-c8h2 (react-router, high) — 2026-07-28에 '해당 없음'으로 받아들였다가",
+    "2026-08-09에 **고쳐서** 지웠다. 예외를 쓸 때는 수정 버전이 8.3.0뿐이라 메이저",
+    "업그레이드가 필요했는데, 그 사이 7.x로 백포트돼서 7.18.1 → 7.18.2 패치로 끝났다.",
+    "위 규칙 2대로다: 안 뜨는 예외는 남겨두지 않는다."
   ],
+  "npm": [],
   "pip": []
 }
