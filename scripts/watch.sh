@@ -364,35 +364,80 @@ fi
 # 2026-07-22에 `WARN`이 종료코드에 안 들어가 알림이 0건이던 것과 같은 모양이다.
 # **"발동했다"와 "사람에게 닿았다"는 다르다**(07-30 비용 훈련의 결론).
 ALARM_NAME="blog-ec2-status-check-failed"
-ALERT_TOPIC="arn:aws:sns:${REGION}:${ACCOUNT_ID}:blog-alerts"
 
-if ! alarm_state=$(aws cloudwatch describe-alarms --alarm-names "$ALARM_NAME" \
-      --query 'MetricAlarms[0].StateValue' --output text 2>/dev/null); then
+# 알람의 상태와 **알림 대상 토픽을 함께** 읽는다. 토픽 ARN을 손으로 조립하지 않는
+# 이유가 이 검사의 목적 그 자체다 — 알람이 다른 토픽을 가리키도록 바뀌어도(이름 변경,
+# 토픽 추가, apply 실수) 조립한 ARN에는 확인된 구독이 그대로 있어서 매시 초록이 난다.
+# 알람이 **실제로 부르는 곳**을 봐야 '울렸을 때 닿는가'에 답이 된다.
+if ! alarm=$(aws cloudwatch describe-alarms --alarm-names "$ALARM_NAME" --region "$REGION" \
+      --query 'MetricAlarms[0].[StateValue,AlarmActions[0]]' --output text 2>/dev/null); then
   fail "상태검사 알람을 못 읽었다 — 알람이 있는지조차 모르는 상태다."
   echo "     CI에서 이게 뜨면 watch-readonly 정책에 cloudwatch:DescribeAlarms가 빠진 것이다."
-elif [ "$alarm_state" = "None" ] || [ -z "$alarm_state" ]; then
-  fail "'$ALARM_NAME' 알람이 없다 — 인스턴스가 통째로 죽으면 이 감시(매시)가 알 때까지 최대 1시간이다."
-  echo "     복구: terraform -chdir=terraform apply (alerts.tf)"
 else
+  alarm_state=$(printf '%s\n' "$alarm" | awk '{print $1}')
+  alarm_topic=$(printf '%s\n' "$alarm" | awk '{print $2}')
+  if [ "$alarm_state" = "None" ] || [ -z "$alarm_state" ]; then
+    fail "'$ALARM_NAME' 알람이 없다 — 인스턴스가 통째로 죽으면 이 감시(매시)가 알 때까지 최대 1시간이다."
+    echo "     복구: terraform -chdir=terraform apply (alerts.tf)"
+  elif [ "$alarm_topic" = "None" ] || [ -z "$alarm_topic" ]; then
+    fail "'$ALARM_NAME'에 알림 대상이 없다 — 상태는 바뀌지만 아무도 안 부른다."
+    echo "     alerts.tf의 alarm_actions 를 확인하세요."
   # ALARM 상태 자체는 여기서 실패로 세지 않는다 — 그때는 SNS가 이미 알렸고,
   # 이 스크립트 1번 검사가 'EC2 running인데 API 죽음'으로 따로 잡는다. 중복 신호를
   # 만들면 둘 다 무뎌진다. 여기서는 '전달 경로'만 본다.
-  if ! subs=$(aws sns list-subscriptions-by-topic --topic-arn "$ALERT_TOPIC" \
+  elif ! subs=$(aws sns list-subscriptions-by-topic --topic-arn "$alarm_topic" --region "$REGION" \
         --query 'Subscriptions[].SubscriptionArn' --output text 2>/dev/null); then
     fail "알림 토픽의 구독을 못 읽었다 — 알람이 어디로 가는지 모르는 상태다."
-  elif [ -z "$subs" ]; then
-    fail "'$ALARM_NAME'은 있는데 구독이 0개다 — 울려도 아무에게도 안 간다."
-    echo "     terraform.tfvars에 alert_email 을 넣고 apply 하세요."
-  elif echo "$subs" | grep -q "PendingConfirmation"; then
-    # 확인 안 누른 구독만 있는지, 확인된 것도 섞여 있는지를 가른다.
-    if echo "$subs" | tr '\t' '\n' | grep -qv "PendingConfirmation"; then
-      warn "확인 대기 중인 구독이 섞여 있다(확인된 구독은 있음) — 지운 주소가 아닌지 보세요."
-    else
+  else
+    # **확인된 구독은 ARN처럼 생긴 것만 센다.** SubscriptionArn 자리에는 진짜 ARN 말고
+    # 의사값이 둘 온다: 아직 확인 안 누른 것은 `PendingConfirmation`, 최근에 지운 것은
+    # `Deleted`다. 전에는 'PendingConfirmation이 아니면 확인된 것'으로 갈랐는데, 그러면
+    # **구독을 전부 지운 직후가 초록**이 된다 — 이 검사가 잡겠다고 만든 바로 그 상태다.
+    subs_n=$(printf '%s\n' "$subs" | tr '\t' '\n' | sed '/^$/d')
+    confirmed=$(printf '%s\n' "$subs_n" | grep -c '^arn:aws:sns:' || true)
+    pending=$(printf '%s\n' "$subs_n" | grep -cx 'PendingConfirmation' || true)
+    if [ "$confirmed" -eq 0 ] && [ "$pending" -gt 0 ]; then
       fail "구독이 전부 확인 대기(PendingConfirmation) 상태다 — 알람이 울려도 메일이 안 간다."
       echo "     받는 편지함에서 AWS 확인 메일의 링크를 누르세요(스팸함도 확인)."
+    elif [ "$confirmed" -eq 0 ]; then
+      fail "알람은 있는데 확인된 구독이 0개다 — 울려도 아무에게도 안 간다."
+      echo "     terraform.tfvars에 alert_email 을 넣고 apply 하세요. (토픽: $alarm_topic)"
+    else
+      # 확인된 구독이 하나라도 있으면 **전달은 된다.** 남은 pending은 경고가 아니라
+      # 정보다 — SNS는 확인 안 된 구독을 최대 3일 들고 있고, alert_email을 바꾸면
+      # 그동안 pending 하나가 남는다. 그걸 WARN으로 잡으면 종료코드에 들어가
+      # **매시 빨간불이 사흘**이고, 그건 이 저장소가 반복해 경계한 '아무도 안 보는 신호'다.
+      [ "$pending" -gt 0 ] && echo "  --   확인 대기 구독 ${pending}개 (전달은 되고 있음 — 만료되거나 확인되면 사라진다)"
+      # 상태값을 '정상' 옆에 그대로 찍지 않는다. 전에는 ALARM일 때도
+      # `✅ 상태검사 알람 정상 (ALARM …)`이 나왔다 — 초록 표시와 ALARM이 한 줄에 있었다.
+      ok "알람 전달 경로 정상 (확인된 구독 ${confirmed}개 · 현재 알람 상태 $alarm_state)"
+
+      # ── 최근에 ALARM이 있었나 (복구를 '확인된 뒤에' 드러내는 자리) ──
+      # 알람에는 `ok_actions`를 안 붙였다. 복구를 전이 순간에 메일로 알리면 거짓이
+      # 될 수 있어서다 — 끄면 지표가 끊기고 그 구간이 '정상'으로 평가돼 죽은 채로
+      # "복구됨"이 나간다(alerts.tf에 첫날 이력과 함께 적어뒀다).
+      #
+      # 그래서 복구는 여기서 말한다. 이 줄은 **위 1번 검사와 같이 읽어야** 뜻이 산다:
+      #   여기 '지난 24시간에 ALARM' + 1번 '공개 API 200' = 고장났었고 지금은 진짜 돌아왔다
+      #   여기 '지난 24시간에 ALARM' + 1번 실패            = 아직 안 돌아왔다
+      # 전이 순간에 추측으로 말하는 대신, 잴 수 있게 된 다음에 말한다.
+      #
+      # **정보로만 찍는다.** 지난 사건을 WARN으로 잡으면 종료코드에 들어가 24시간 동안
+      # 매시 빨간불이고, 그건 이 저장소가 반복해 경계한 '아무도 안 보는 신호'다.
+      since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+      if [ -n "$since" ] && hist=$(aws cloudwatch describe-alarm-history \
+            --alarm-name "$ALARM_NAME" --history-item-type StateUpdate \
+            --start-date "$since" --region "$REGION" \
+            --query 'AlarmHistoryItems[?contains(HistorySummary, `to ALARM`)].Timestamp' \
+            --output text 2>/dev/null); then
+        n=$(printf '%s\n' "$hist" | tr '\t' '\n' | sed '/^$/d' | wc -l)
+        if [ "$n" -gt 0 ]; then
+          last=$(printf '%s\n' "$hist" | tr '\t' '\n' | sed '/^$/d' | sort | tail -1)
+          echo "  --   지난 24시간에 상태검사 ALARM ${n}회 (마지막 $last)"
+          echo "       위 1번 검사가 통과했다면 복구된 것이다. 실패했다면 아직이다."
+        fi
+      fi
     fi
-  else
-    ok "상태검사 알람 정상 ($alarm_state · 확인된 구독 $(echo "$subs" | wc -w)개)"
   fi
 fi
 

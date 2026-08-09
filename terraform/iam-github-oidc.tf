@@ -185,9 +185,14 @@ resource "aws_iam_role_policy" "github_watch" {
         # 시끄럽게 실패하므로 재볼 수 있는 변경이다. 다만 **재보기 전에는 넓은 쪽**을
         # 둔다. 노출되는 건 알람 이름·설명·차원이고 이 저장소는 공개다.
         # 재보려면: Resource를 알람 ARN으로 바꿔 apply하고 다음 정시 watch 실행을 본다.
+        # `DescribeAlarmHistory`가 같이 있는 이유 — 알람에 `ok_actions`를 안 붙였다.
+        # 복구를 전이 순간에 메일로 알리면 거짓말이 되기 때문이다(alerts.tf 참고).
+        # 대신 watch.sh가 매시 이력을 읽어 '지난 24시간에 ALARM이 있었다'를 알리고,
+        # 같은 실행의 1번 검사가 공개 API가 실제로 200인지를 잰다. 복구는 그 둘을
+        # 같이 읽어야 참이 된다 — 그래서 이력 읽기가 알림 설계의 일부다.
         Sid      = "ReadAlarmState"
         Effect   = "Allow"
-        Action   = ["cloudwatch:DescribeAlarms"]
+        Action   = ["cloudwatch:DescribeAlarms", "cloudwatch:DescribeAlarmHistory"]
         Resource = "*"
       },
       {

@@ -58,7 +58,7 @@ Base.metadata.create_all(bind=engine)
 
 
 def _assert_schema_fresh(eng) -> None:
-    """모델이 요구하는 테이블·인덱스가 **실제로 DB에 있는지** 확인한다.
+    """모델이 요구하는 테이블·컬럼·인덱스가 **실제로 DB에 있는지** 확인한다.
 
     `create_all`은 **이미 있는 테이블은 통째로 건너뛴다.** 컬럼이나 인덱스를
     새로 추가해도 기존 테이블에는 반영되지 않는다. CI는 매번 새 Postgres
@@ -70,6 +70,17 @@ def _assert_schema_fresh(eng) -> None:
     반대 방향이었으면 더 나빴다 — 낡은 DB에 우연히 맞는 테스트였다면
     **없는 방어를 있다고 믿은 채** CI까지 초록이었을 것이다.
     (개발일지 #26의 "신호가 어디까지 봤는가"가 그대로 여기다)
+
+    **컬럼을 함께 본다.** 처음 쓸 때는 테이블·인덱스 *이름*만 비교했는데, 그러면
+    가장 흔한 변경인 '컬럼 추가'가 그대로 통과한다(테이블도 인덱스도 안 늘어나니까).
+    그 경우 이 함수는 초록을 내고, 정작 실패는 한참 뒤 관계없는 픽스처에서
+    `UndefinedColumn`으로 터진다 — 이 가드가 없애겠다고 만든 바로 그 불친절한 실패다.
+    자기가 못 보는 범위를 자기 설명이 덮고 있었던 셈이라, 2026-08-09 코드검사가 잡았다.
+
+    **여전히 안 보는 것**(알고 두는 것): 컬럼의 타입·nullable·기본값, 유니크/체크
+    제약, 외래키. 이름이 같은데 정의만 바뀌는 변경은 여기서 안 걸린다. 그 경우까지
+    보려면 사실상 마이그레이션을 돌려야 하고, 그건 이 파일의 몫이 아니다
+    (CI의 '빈 DB에 upgrade head' 잡이 그걸 본다).
     """
     from sqlalchemy import inspect
 
@@ -78,6 +89,8 @@ def _assert_schema_fresh(eng) -> None:
     missing = [t for t in Base.metadata.tables if t not in have_tables]
     for name, table in Base.metadata.tables.items():
         if name in have_tables:
+            have_cols = {c["name"] for c in insp.get_columns(name)}
+            missing += [f"{name}.{c}" for c in table.columns.keys() if c not in have_cols]
             have = {i["name"] for i in insp.get_indexes(name)}
             missing += [f"{name}.{ix.name}" for ix in table.indexes if ix.name not in have]
     if missing:
