@@ -354,6 +354,48 @@ else
       || warn "'$GROSS_BUDGET' 예산이 없다 — 크레딧 소모 속도를 보는 눈이 사라졌다."
 fi
 
+# ── 6-B. 상태검사 알람이 '사람에게 닿을 수 있는' 상태인가 ────────────────────
+# 2026-08-09에 EC2 상태검사 알람을 붙였다(terraform/alerts.tf). 이 절은 그 알람이
+# 존재하는지가 아니라 **울렸을 때 실제로 누군가에게 가는지**를 본다.
+#
+# 왜 그 구분이 중요한가 — SNS 이메일 구독은 받는 사람이 확인 메일의 링크를 눌러야
+# 활성화된다. 안 누른 동안 상태는 PendingConfirmation이고, 알람은 정상적으로 울리며
+# 정상적으로 아무에게도 안 간다. 콘솔에서는 구독이 '있는' 것으로 보인다.
+# 2026-07-22에 `WARN`이 종료코드에 안 들어가 알림이 0건이던 것과 같은 모양이다.
+# **"발동했다"와 "사람에게 닿았다"는 다르다**(07-30 비용 훈련의 결론).
+ALARM_NAME="blog-ec2-status-check-failed"
+ALERT_TOPIC="arn:aws:sns:${REGION}:${ACCOUNT_ID}:blog-alerts"
+
+if ! alarm_state=$(aws cloudwatch describe-alarms --alarm-names "$ALARM_NAME" \
+      --query 'MetricAlarms[0].StateValue' --output text 2>/dev/null); then
+  fail "상태검사 알람을 못 읽었다 — 알람이 있는지조차 모르는 상태다."
+  echo "     CI에서 이게 뜨면 watch-readonly 정책에 cloudwatch:DescribeAlarms가 빠진 것이다."
+elif [ "$alarm_state" = "None" ] || [ -z "$alarm_state" ]; then
+  fail "'$ALARM_NAME' 알람이 없다 — 인스턴스가 통째로 죽으면 이 감시(매시)가 알 때까지 최대 1시간이다."
+  echo "     복구: terraform -chdir=terraform apply (alerts.tf)"
+else
+  # ALARM 상태 자체는 여기서 실패로 세지 않는다 — 그때는 SNS가 이미 알렸고,
+  # 이 스크립트 1번 검사가 'EC2 running인데 API 죽음'으로 따로 잡는다. 중복 신호를
+  # 만들면 둘 다 무뎌진다. 여기서는 '전달 경로'만 본다.
+  if ! subs=$(aws sns list-subscriptions-by-topic --topic-arn "$ALERT_TOPIC" \
+        --query 'Subscriptions[].SubscriptionArn' --output text 2>/dev/null); then
+    fail "알림 토픽의 구독을 못 읽었다 — 알람이 어디로 가는지 모르는 상태다."
+  elif [ -z "$subs" ]; then
+    fail "'$ALARM_NAME'은 있는데 구독이 0개다 — 울려도 아무에게도 안 간다."
+    echo "     terraform.tfvars에 alert_email 을 넣고 apply 하세요."
+  elif echo "$subs" | grep -q "PendingConfirmation"; then
+    # 확인 안 누른 구독만 있는지, 확인된 것도 섞여 있는지를 가른다.
+    if echo "$subs" | tr '\t' '\n' | grep -qv "PendingConfirmation"; then
+      warn "확인 대기 중인 구독이 섞여 있다(확인된 구독은 있음) — 지운 주소가 아닌지 보세요."
+    else
+      fail "구독이 전부 확인 대기(PendingConfirmation) 상태다 — 알람이 울려도 메일이 안 간다."
+      echo "     받는 편지함에서 AWS 확인 메일의 링크를 누르세요(스팸함도 확인)."
+    fi
+  else
+    ok "상태검사 알람 정상 ($alarm_state · 확인된 구독 $(echo "$subs" | wc -w)개)"
+  fi
+fi
+
 # ── 요약 ────────────────────────────────────────────────────────────────────
 echo
 if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then

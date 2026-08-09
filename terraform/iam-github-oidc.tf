@@ -156,6 +156,19 @@ resource "aws_iam_role_policy" "github_watch" {
         Resource = "*"
       },
       {
+        # watch.sh 6-B(2026-08-09) — 상태검사 알람이 **사람에게 닿을 수 있는 상태인지**.
+        # SNS 이메일 구독은 받는 사람이 링크를 눌러야 활성화되는데, 안 누른 동안
+        # 알람은 정상적으로 울리고 아무에게도 안 간다. 07-22에 `WARN`이 종료코드에
+        # 안 들어가 알림 0건이던 것과 같은 모양이라, 같은 방식으로 감시한다.
+        Sid    = "ReadAlertDelivery"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic",
+        ]
+        Resource = "*" # 둘 다 리소스 단위 제한을 지원하지 않는다(읽기 전용)
+      },
+      {
         # watch.sh 5번(2026-07-27 IR 훈련) — 감사기록이 살아 있는지. 침해자의 첫 수가
         # 보통 로깅 정지라 이게 꺼진 걸 늦게 알면 '누가 뭘 했나'에 영영 답할 수 없다.
         Sid      = "ReadTrailStatus"
