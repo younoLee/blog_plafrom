@@ -56,6 +56,42 @@ with engine.connect() as conn:
     conn.commit()
 Base.metadata.create_all(bind=engine)
 
+
+def _assert_schema_fresh(eng) -> None:
+    """모델이 요구하는 테이블·인덱스가 **실제로 DB에 있는지** 확인한다.
+
+    `create_all`은 **이미 있는 테이블은 통째로 건너뛴다.** 컬럼이나 인덱스를
+    새로 추가해도 기존 테이블에는 반영되지 않는다. CI는 매번 새 Postgres
+    컨테이너라 이 구멍을 안 밟지만, 로컬은 `blog_test`가 계속 남아 있어서
+    **옛 스키마 위에서 초록이 난다.** 2026-08-09에 실제로 겪었다:
+    lower(email) 유니크 인덱스를 넣고 테스트를 짰는데, 인덱스가 안 생긴 채
+    "중복이 안 막힌다"로 실패했다. 코드는 맞았고 DB가 낡았던 것이다.
+
+    반대 방향이었으면 더 나빴다 — 낡은 DB에 우연히 맞는 테스트였다면
+    **없는 방어를 있다고 믿은 채** CI까지 초록이었을 것이다.
+    (개발일지 #26의 "신호가 어디까지 봤는가"가 그대로 여기다)
+    """
+    from sqlalchemy import inspect
+
+    insp = inspect(eng)
+    have_tables = set(insp.get_table_names())
+    missing = [t for t in Base.metadata.tables if t not in have_tables]
+    for name, table in Base.metadata.tables.items():
+        if name in have_tables:
+            have = {i["name"] for i in insp.get_indexes(name)}
+            missing += [f"{name}.{ix.name}" for ix in table.indexes if ix.name not in have]
+    if missing:
+        raise RuntimeError(
+            "테스트 DB 스키마가 모델보다 낡았습니다 — 없는 것: "
+            f"{', '.join(sorted(missing))}\n"
+            "create_all은 기존 테이블을 건드리지 않습니다. 테스트 DB를 지우고 다시 도세요:\n"
+            "  docker compose exec -T db psql -U postgres -c "
+            "'DROP DATABASE IF EXISTS blog_test WITH (FORCE)'"
+        )
+
+
+_assert_schema_fresh(engine)
+
 # 레이트리밋은 테스트에서 끈다 (login 10/min·register 5/hour 등이 반복 호출과 충돌)
 limiter.enabled = False
 

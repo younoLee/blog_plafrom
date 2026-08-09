@@ -26,7 +26,7 @@ import sys
 # (cwd가 어디든 동작하게 — 컨테이너에선 /app, 로컬에선 backend/).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import func, select  # noqa: E402
 
 from app.core.database import SessionLocal  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
@@ -65,7 +65,14 @@ def main() -> int:
 
     db = SessionLocal()
     try:
-        existing = db.scalar(select(User).where(User.email == args.email))
+        # 대소문자를 무시해서 찾는다. 원문 비교로 두면 `Bob@x.com`이 있는데
+        # `bob@x.com`을 주었을 때 '없음'으로 읽어 새로 만들려 하고, lower(email)
+        # 유니크 인덱스에 걸려 IntegrityError 트레이스백으로 죽는다. 이 스크립트는
+        # 프로드 컨테이너 안에서 손으로 돌리는 도구라, 그 자리에서 읽을 수 있는
+        # 메시지가 나와야 한다 — `--update-if-exists` 안내가 그 메시지다.
+        existing = db.scalar(
+            select(User).where(func.lower(User.email) == args.email.lower())
+        )
         if existing is not None:
             if not args.update_if_exists:
                 print(

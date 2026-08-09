@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -8,6 +8,25 @@ from app.core.database import Base
 
 class User(Base):
     __tablename__ = "users"
+
+    # 대소문자만 다른 중복 계정을 **DB 차원에서** 막는다.
+    #
+    # 왜 필요한가 — 조회는 이미 대소문자를 무시한다(routers/auth.py의
+    # `_find_user_by_email`). 하지만 아래 `unique=True`는 원문 그대로를 비교하므로
+    # `Bob@x.com`과 `bob@x.com`은 **둘 다 만들어질 수 있었다.** 그러면 그 시점부터
+    # 대소문자 무시 조회가 둘 중 하나를 임의로 집는다 — 로그인이 어느 계정으로
+    # 붙는지가 행 순서에 달리고, 비번 재설정은 사람이 안 쓰는 쪽을 고칠 수 있다.
+    # 조회를 고친 2026-08-07에 "구조적으로 막으려면 인덱스가 필요하다"고 적어뒀던 것.
+    #
+    # 기존 `unique=True`(원문)는 남긴다. 이 인덱스가 그것을 함의하므로 중복이지만,
+    # 유니크 제약을 떼는 건 별개의 변경이고 3행짜리 테이블에서 아낄 것이 없다.
+    #
+    # **`text()`로 쓰는 이유**: 클래스 본문에서는 아직 `User.email`이 없어서
+    # `func.lower(User.email)`을 못 쓴다. 이름으로 쓰면 create_all과 마이그레이션이
+    # 같은 DDL을 낸다 — 모델과 마이그레이션이 갈라지는 게 2026-08-07 CI 빨간불의 원인이었다.
+    __table_args__ = (
+        Index("uq_users_email_lower", text("lower(email)"), unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)

@@ -49,7 +49,10 @@ def register(request: Request, data: RegisterRequest, background: BackgroundTask
         )
     # 계정 존재 여부를 HTTP 응답으로 노출하지 않으려고 신규/기존 구분 없이 동일한 202 응답.
     # 실제 안내는 '메일로만' 간다 (forgot-password와 같은 패턴) → 이메일 enumeration 방지.
-    existing = db.scalar(select(User).where(User.email == data.email))
+    # 조회도 대소문자를 무시한다. 안 하면 `Bob@x.com`이 '신규'로 읽혀 INSERT까지 갔다가
+    # lower(email) 유니크 인덱스에 걸린다 — 아래 IntegrityError 분기가 그걸 동시 가입
+    # 레이스로 오인해 "확인 메일을 보냈어"를 돌려주는데, 메일은 아무도 안 보낸다.
+    existing = _find_user_by_email(db, data.email)
     if existing is None:
         # 신규: pending + 미인증으로 생성 후 인증메일 (관리자 승격은 DB에서만)
         user = User(
@@ -235,8 +238,11 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 # 초대 전에는 가입 때 친 문자열을 로그인 때도 그대로 쳤으므로 이 어긋남이 없었다.
 #
 # 도메인부는 원래 대소문자를 안 가리고, 로컬부를 가리는 메일 서비스는 사실상 없다.
-# 그래서 무시하는 쪽이 맞다. 다만 users.email의 유니크는 여전히 대소문자를 구분하므로
-# 이건 '조회'만 고친 것이고, 구조적으로 막으려면 lower(email) 유니크 인덱스가 필요하다.
+# 그래서 무시하는 쪽이 맞다.
+#
+# 2026-08-09: 그때 "구조적으로 막으려면 lower(email) 유니크 인덱스가 필요하다"고
+# 적어둔 것을 실제로 걸었다(`uq_users_email_lower`, models/user.py). 이제 이 조회가
+# 두 행을 만날 수 없다 — 그전까지는 만나면 **둘 중 아무 행이나** 돌려줬다.
 def _find_user_by_email(db: Session, email: str) -> User | None:
     return db.scalar(select(User).where(func.lower(User.email) == email.lower()))
 
