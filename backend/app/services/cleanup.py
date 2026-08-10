@@ -58,6 +58,15 @@ def cleanup_old_usage_rows() -> None:
                 StatusCheck.checked_at < now - timedelta(days=STATUS_CHECK_TTL_DAYS)
             )
         )
+        # ai_guard_violation은 **일부러 안 지운다.** 2026-08-10 심층검사에서 "count_hour와
+        # 같은 모양(현재 창만 읽음)인데 여기만 빠졌다"고 지적됐지만, 검토 결과 빼는 게 맞다:
+        #   · 이건 사용량 카운터가 아니라 **보안 이벤트 기록**이다(인젝션 시도가 남는 유일한 자리).
+        #   · "앱이 현재 시간만 읽는다"는 "아무도 안 읽는다"가 아니다. 같은 날 status_checks의
+        #     180일 보관을 '낭비'라고 걸었다가 철회했는데, 그 근거가 services/status.py에 적힌
+        #     "4주 동안 25,826번 '메일 정상'이라고 답했다"였다 — UI가 안 보여주는 과거 행을
+        #     사람이 psql로 집계해서 나온 숫자다. 이 테이블도 사고 뒤에 그렇게 읽게 된다.
+        #   · 크기가 사실상 0이다. 위반이 난 user-hour당 1행이고 정상 사용자는 평생 0이다.
+        # 지울 이유가 '일관성'뿐이고 남길 이유가 '조사 가능성'이면 남기는 쪽이 싸다.
         db.commit()
     except Exception:
         db.rollback()

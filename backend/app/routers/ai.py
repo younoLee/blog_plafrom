@@ -283,6 +283,20 @@ def create_draft(
         else (None, None)
     )
 
+    # 여기서부터 벤더를 최대 55초(compatible은 20초) 기다린다. 그런데 바로 위까지의 마지막
+    # DB 접근이 **커밋되지 않은 SELECT**다 — BYOK면 llm_keys.get_credential, 서버키면
+    # _reserve_server_slot 끝의 count_month(둘 다 commit이 없다). 그래서 그 시간 내내 풀
+    # 커넥션 하나가 'idle in transaction'으로 묶인다(2026-08-10 실측: checkedout=1).
+    # 풀은 기본값 5 + overflow 10 = **15칸뿐**이라, 동시 15건이면 무관한 요청까지 30초
+    # 기다린 뒤 죽는다. 그 죽는 모양도 원래는 500 text/plain이었다(main.py의 풀 고갈 핸들러 참고).
+    #
+    # 커밋하면 그 자리에서 반납된다(실측: checkedout 1 → 0). 뒤에서 DB가 다시 필요해지면
+    # (가드 위반 기록·슬롯 환불) 그때 새로 빌리면 되고, 비용은 쿼리 1개다
+    # (expire_on_commit으로 user가 만료돼 PK 조회 하나가 더 는다 — 1ms 미만).
+    # rollback()도 반납되지만 commit을 쓴다. 이 지점에 밀린 쓰기가 없다는 보장이 코드에
+    # 명시돼 있지 않고, rollback은 있으면 조용히 버린다.
+    db.commit()
+
     # 실패한 서버키 호출은 세지 않는다(기존 의도) → 예약을 되돌린다. 무한 재시도가
     # 공짜가 되는 건 시간당 '시도' 캡이 막는다(그건 실패도 센다).
     # 되돌리기는 finally에 둔다 — 실패 경로가 셋(503/503/502)이라 각 except에 흩어놓으면

@@ -225,8 +225,13 @@ def post_series(
     if not post.series:
         return None
 
-    rows = db.scalars(
-        select(Post)
+    # 3컬럼만 고른다. 예전엔 `select(Post)`로 엔티티 전체를 읽었는데 쓰는 값은 아래 셋뿐이라,
+    # 연재 전 편의 **본문(TEXT)이 통째로** Postgres→앱으로 흘렀다. 26편 기준 실측
+    # **5.77ms → 0.40ms**(약 200KB 전송이 사라진다). 그리고 이건 글 상세를 열 때마다
+    # 무조건 발생한다(프론트가 조건 없이 fetchSeries를 부른다). 상한이 100편이라
+    # 연재가 차면 상세 1회당 약 800KB로 고정된다. — 2026-08-10 심층검사
+    rows = db.execute(
+        select(Post.id, Post.title, Post.created_at)
         .where(visible_condition(user, db), Post.series == post.series)
         .order_by(Post.created_at)  # 연재는 쓴 순서대로 = 1편이 위
         .limit(SERIES_ITEMS_MAX)

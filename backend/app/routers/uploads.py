@@ -49,13 +49,30 @@ def _sniff_image(data: bytes) -> tuple[str, str] | None:
 # **계정 기준 DB 카운터**인데 그건 테이블·마이그레이션이 필요해 여기서 하지 않았다
 # (docs/cost-guardrail-drill-20260730.md의 남은 것 참고).
 @limiter.limit("30/hour")
-async def upload_image(
+# ⚠️ **이 함수는 `def`여야 한다. `async def`로 되돌리지 마라.**
+#
+# 2026-08-10 심층검사 실측: 이 라우트는 앱 전체에서 **유일한 `async def` 엔드포인트**였고,
+# 그 안에서 boto3의 `put_object`(동기)를 불렀다. `async def`는 threadpool로 안 빠지고
+# **이벤트 루프 스레드에서 직접** 돌기 때문에 그 동안 루프가 통째로 멈춘다. uvicorn 워커가
+# 1개라(docker-compose.prod.yml에 --workers 없음) 그건 곧 API 전체 정지다 — sync
+# 엔드포인트들조차 threadpool로 **디스패치될 수 없다**(디스패치가 루프 위에서 일어난다).
+#
+# 얼마나 멈추나: 도달 불가 주소로 put_object를 걸어 재봤더니 **112.3초**였다.
+# 요청 **1개**로 그렇게 된다. /api/health도 못 나가므로 도커 헬스체크(30s×3)가
+# 약 95초 뒤 unhealthy로 뒤집힌다.
+#
+# `def`로 두면 FastAPI가 threadpool에서 돌리므로 느려도 그 요청 하나만 느리다.
+def upload_image(
     request: Request, file: UploadFile, user: User = Depends(require_writer)
 ):
     # 승인된 사람(writer/admin)만 — 글쓰기 부속이라 같이 잠금
 
     # 최대 MAX_BYTES까지만 읽음(+1바이트로 초과 감지) → 거대 파일이 메모리를 다 먹기 전에 차단
-    content = await file.read(MAX_BYTES + 1)
+    # sync 함수이므로 `await file.read()` 대신 밑의 파일 객체를 직접 읽는다. 완전히 같은
+    # 동작이다 — starlette의 UploadFile.read는 결국 `self.file.read(size)`이고, 인메모리가
+    # 아닐 때만 threadpool로 한 번 넘긴다. 여기는 이미 threadpool 안이라 그 홉이 불필요하다.
+    # (5MB 업로드는 formparsers의 spool_max_size=1MB를 넘어 이미 디스크에 스풀돼 있다)
+    content = file.file.read(MAX_BYTES + 1)
     if len(content) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="파일이 너무 커 (최대 5MB)")
 
@@ -77,9 +94,37 @@ async def upload_image(
         # CloudFront가 /uploads/* 를 이 버킷에서 서빙 → 인스턴스 교체에도 안전.
         # ContentType도 판별값으로 고정 → 브라우저가 절대 HTML로 실행 못 함
         import boto3
+        from botocore.config import Config
         from botocore.exceptions import BotoCoreError, ClientError
 
-        s3 = boto3.client("s3", region_name=settings.aws_region)
+        # **타임아웃과 재시도 상한을 반드시 준다.** botocore 기본값은 connect 60초 /
+        # read 60초 / retries max_attempts=5(_retry.json의 __default__, S3 오버라이드 없음)라,
+        # S3가 블랙홀이면 한 요청이 100초를 훌쩍 넘긴다(위 112.3초가 그 값이다).
+        # 연결·읽기 타임아웃 둘 다 재시도 대상이라 기본값이면 5회가 다 돈다.
+        # services/ses_status.py가 같은 함정에 이미 Config를 준 이유와 같다 —
+        # 그때 업로드 경로만 빠져 있었다.
+        #
+        # 숫자의 근거는 대역폭이 아니라 **전체 예산**이다. CloudFront의 /api/* 오리진
+        # read timeout이 60초라(terraform/cloudfront.tf) 그보다 오래 걸린 응답은 사용자가
+        # 볼 수 없다 — services/ai.py가 REQUEST_TIMEOUT=55를 정한 것과 같은 앵커다.
+        #   2회 시도 × (connect 5 + read 20) + 백오프 ≈ 51초 < 60초
+        # read=20의 검산: 5MB=40Mbit. t2.micro 지속 대역폭은 AWS 미공표라 추정이지만 극단적
+        # 비관 하한 10Mbps로 잡아도 4초다. 게다가 read_timeout은 '요청 전체의 데드라인'이
+        # 아니라 소켓 한 번의 I/O 타임아웃이라 더 여유가 있다.
+        # ses_status.py의 read=3을 그대로 옮기면 안 된다 — 그쪽은 본문 없는 제어 API다.
+        #
+        # 재시도를 1회 남긴 이유: Body가 bytes라 재전송이 안전하고(파일 객체면 seek가
+        # 필요했다) Key가 매번 새 uuid라 중복도 안 생긴다. 사용자가 5MB를 이미 올려보낸
+        # 뒤라 TCP 한 번 튄 걸로 버리기엔 아깝다.
+        s3 = boto3.client(
+            "s3",
+            region_name=settings.aws_region,
+            config=Config(
+                connect_timeout=5,
+                read_timeout=20,
+                retries={"max_attempts": 2},
+            ),
+        )
         try:
             s3.put_object(
                 Bucket=settings.s3_bucket,

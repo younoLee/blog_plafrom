@@ -10,7 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
+
+# PoolTimeoutError = 풀 고갈. 파이썬 빌트인 TimeoutError(=OSError 하위)와 **이름만 같고
+# 계통이 완전히 다르다**(issubclass → False). 별칭 없이 들여오면 모듈 전역에서 빌트인을
+# 조용히 가리므로 반드시 이름을 바꿔 받는다.
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 from starlette.datastructures import Headers
 
@@ -57,6 +62,19 @@ async def lifespan(app: FastAPI):
             "ORIGIN_SECRET에 ASCII가 아닌 문자가 있음. 헤더로 전달되는 값이라 "
             "ASCII여야 한다 (예: openssl rand -hex 32)."
         )
+    # 업로드 저장소 가드. S3_BUCKET이 비면 routers/uploads.py가 **예외 없이** 로컬 디스크로
+    # 떨어져서, 정성 들인 503 방어를 통째로 건너뛰고 200 + CloudFront URL을 돌려준다.
+    # 파일은 컨테이너 안에 있으므로 그 URL은 404이고 컨테이너를 갈면 사라진다.
+    # 글쓴이는 업로드 성공으로 보고, 깨진 이미지는 발행 뒤 독자만 본다. 감시도 못 잡는다
+    # (watch.sh는 원본/사본 **개수 비교**라 '원본이 안 늘어남'은 신호가 아니다).
+    # 07-22 IAM 사고는 그래도 AccessDenied라도 났는데 이건 예외조차 없다 — 2026-08-10 심층검사.
+    # 로컬 개발은 이 값이 비어 있는 게 정상이므로, 프로드 표식(PUBLIC_BASE_URL이 http로
+    # 시작하지 않는 로컬 기본값이 아닌 경우)일 때만 막는다.
+    if settings.public_base_url.startswith("https://") and not settings.s3_bucket:
+        raise RuntimeError(
+            "S3_BUCKET이 비어 있는데 PUBLIC_BASE_URL이 https다. 이 조합이면 업로드가 "
+            "컨테이너 디스크에 저장되고 그 URL은 404가 된다. .env에 S3_BUCKET을 설정해줘."
+        )
     # 앱 기동 시 1분 간격 자가 점검 기록 시작 (업타임 집계용)
     start_recorder()
     # 미인증 계정 1시간 간격 자동 정리 시작
@@ -102,6 +120,36 @@ async def db_unavailable(request: Request, exc: OperationalError):
         {"detail": "일시적으로 서비스에 접속할 수 없어. 잠시 후 다시 시도해줘."},
         status_code=503,
         headers={"Retry-After": "30"},
+    )
+
+
+@app.exception_handler(PoolTimeoutError)
+async def db_pool_exhausted(request: Request, exc: PoolTimeoutError):
+    """커넥션 풀이 다 찼을 때 503. **DB는 멀쩡하다** — 우리 쪽 커넥션이 없는 것이다.
+
+    2026-08-10 심층검사: 위 db_unavailable이 잡는 OperationalError에 풀 고갈은 **안 걸린다**
+    (sqlalchemy.exc.TimeoutError는 SQLAlchemyError 직계지 OperationalError 하위가 아니다).
+    그래서 위 주석이 "07-28에 고쳤다"고 적은 500 text/plain이 **이 입구에만 그대로 남아**
+    있었다. 실측으로 재현했다(pool_size=1에 동시 요청 → 500 text/plain).
+
+    함정 셋을 실측으로 확인했으니 고치기 전에 읽을 것:
+      ① **위 핸들러를 재사용하면 안 된다.** db_unavailable은 `exc.orig`를 읽는데 그건
+         DBAPIError에만 있는 속성이라, 이 예외에 물리면 핸들러가 자기 안에서
+         AttributeError로 터져 **결국 똑같이 500 text/plain**이 나간다.
+      ② `@app.exception_handler((OperationalError, PoolTimeoutError))`처럼 튜플로 묶는 것도
+         안 된다. 등록은 에러 없이 통과하지만 Starlette은 type(exc).__mro__로만 찾으므로
+         튜플 키는 **영원히 매치되지 않는다** — 조용히 아무 일도 안 일어난다.
+      ③ SQLAlchemyError로 넓히지 말 것. ProgrammingError·IntegrityError까지 503이 되어
+         '코드가 틀렸다'가 '서버가 지금 못 한다'로 둔갑한다(위 핸들러 주석과 같은 이유).
+
+    로그 문구도 분리한다. '접속 실패'라고 적으면 사고 때 사람을 DB로 보내는데, 실제로 볼 곳은
+    커넥션을 오래 쥔 요청이다. Retry-After도 짧게 준다 — 풀은 몇 초면 빈다.
+    """
+    logger.warning("DB 커넥션 풀 고갈: %s", exc)
+    return JSONResponse(
+        {"detail": "지금 요청이 몰려 있어. 잠시 후 다시 시도해줘."},
+        status_code=503,
+        headers={"Retry-After": "5"},
     )
 
 app.add_middleware(

@@ -1,3 +1,4 @@
+import logging
 import smtplib
 from email.message import EmailMessage
 from html import escape as html_escape
@@ -8,6 +9,52 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.author_subscription import AuthorSubscription
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
+
+# SMTP 소켓 타임아웃(초). **인자를 빼면 socket 기본값 = 무한 대기다**
+# (socket.setdefaulttimeout도 이 앱 어디에서도 안 부른다).
+#
+# 왜 무는가: send_email은 전부 BackgroundTask에서 불리고, BackgroundTask의 sync 함수는
+# Starlette이 threadpool에서 돌린다. 무한 대기가 걸리면 그 스레드는 **재시작 전까지
+# 안 돌아온다** — 40칸짜리 풀에서 한 칸이 영구히 사라진다. 자연 복구가 없다.
+# notify_new_post는 수신자마다 연결을 새로 여니 N명이면 N번의 기회다.
+#
+# 10초인 이유: services/status.py의 메일 점검은 3초를 쓰는데 그건 connect+STARTTLS+login까지의
+# **생존 확인**이고 본문이 없다. 실제 발송은 DATA(본문 전송 + 250 대기)가 더 붙는다.
+# 본문은 수 KB고 SES의 250 응답은 통상 1초 미만이라 10초면 약 10배 여유다.
+# 여기는 요청 경로가 아니라서 CloudFront 60초 예산과 무관하다 — 지켜야 할 건
+# '스레드풀 슬롯이 반드시 돌아온다' 하나뿐이다. (2026-08-10 심층검사)
+SMTP_TIMEOUT = 10
+
+
+def _background_send(kind: str, **kw) -> None:
+    """BackgroundTask에서 부르는 발송의 유일한 출구. **예외를 여기서 로그로 만든다.**
+
+    왜 필요한가 — BackgroundTask는 응답을 **다 보낸 뒤에** 돈다. 그래서 여기서 예외가 나도
+    사용자는 이미 202 "재설정 링크를 보냈어"를 받은 뒤고, 서버 로그에는 처리되지 않은
+    트레이스백만 남는다. 이 저장소가 이미 실측해 적어둔 그대로다(routers/subscribers.py의
+    폐지 사유: "메일 서버를 죽여놓고 호출 → HTTP 200, 로그엔 처리 안 된 트레이스백만").
+    그때 그 라우터는 없앴는데 **같은 병이 forgot-password에 남아 있었다** — 그리고 가입이
+    초대제로 닫혀 있어서 그게 지금 살아 있는 유일한 발송 경로다.
+
+    **이게 메일을 도착시키지는 않는다.** 재시도도 영속 큐도 아니다(프로세스가 죽으면 대기
+    중이던 태스크는 그대로 유실된다 — 인메모리 큐다). '조용한 실패'를 '읽을 수 있는 실패'로
+    바꾸는 것까지다. 진짜 재시도는 별개의 판단이라 여기 안 넣는다.
+
+    수신 주소를 로그에 남긴다. 이 저장소는 보통 원문 대신 지문을 남기지만, 여기선 '어느
+    주소가 실패했나'가 곧 조치 그 자체라 지우면 로그가 쓸모없어진다. SES 샌드박스라 대상
+    주소는 어차피 유한하고 콘솔에 다 적혀 있다.
+    """
+    try:
+        send_email(**kw)
+    except Exception:
+        logger.exception(
+            "메일 발송 실패 (kind=%s to=%s) — 사용자는 이미 성공 응답을 받았다",
+            kind,
+            kw.get("to"),
+        )
+
 
 
 def send_email(to: str, subject: str, body: str, html: str | None = None) -> None:
@@ -21,7 +68,7 @@ def send_email(to: str, subject: str, body: str, html: str | None = None) -> Non
         # HTML 버전 추가 → 메일 클라이언트가 클릭 가능한 링크/버튼으로 렌더
         msg.add_alternative(html, subtype="html")
     # 로컬 Mailpit = 평문/무인증, 프로드 SES = STARTTLS + 로그인 (config로 분기)
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=SMTP_TIMEOUT) as smtp:
         if settings.smtp_use_tls:
             smtp.starttls()
         if settings.smtp_user:
@@ -46,7 +93,8 @@ def _action_html(intro: str, link: str, button_label: str) -> str:
 
 def send_verification_email(to: str, link: str) -> None:
     """가입 시 이메일 인증 링크 발송."""
-    send_email(
+    _background_send(
+        "verify",
         to=to,
         subject="[블로그] 이메일 인증을 완료해줘",
         body=(
@@ -61,7 +109,8 @@ def send_verification_email(to: str, link: str) -> None:
 def send_already_registered_email(to: str, login_link: str) -> None:
     """이미 가입·인증된 이메일로 또 가입 시도가 들어왔을 때 안내.
     계정 존재 여부를 HTTP 응답으로는 노출하지 않으려고 '메일로만' 알린다."""
-    send_email(
+    _background_send(
+        "already_registered",
         to=to,
         subject="[블로그] 이미 가입된 계정이야",
         body=(
@@ -80,7 +129,8 @@ def send_already_registered_email(to: str, login_link: str) -> None:
 
 def send_reset_email(to: str, link: str) -> None:
     """비밀번호 재설정 링크 발송."""
-    send_email(
+    _background_send(
+        "reset",
         to=to,
         subject="[블로그] 비밀번호 재설정",
         body=(
