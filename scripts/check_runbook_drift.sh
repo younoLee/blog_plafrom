@@ -160,7 +160,10 @@ else
   for s in stop_server restore_drill env_escrow watch deploy_backend; do
     if [ ! -f "$ROOT/scripts/$s.sh" ]; then
       miss="$miss $s.sh(파일없음)"
-    elif ! grep -q 'resolve_instance_id' "$ROOT/scripts/$s.sh"; then
+    # **호출**을 본다. 예전엔 `grep -q 'resolve_instance_id'`였는데 그건 주석에도 매치해서,
+    # 누가 호출을 지우고 "resolve_instance_id를 쓴다"는 주석만 남겨도 초록이었다
+    # (2026-08-10 심층검사). 대입 형태까지 요구하면 그 통로가 닫힌다.
+    elif ! grep -qE '^[[:space:]]*INSTANCE_ID=\$\(resolve_instance_id\)' "$ROOT/scripts/$s.sh"; then
       miss="$miss $s.sh"
     fi
   done

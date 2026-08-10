@@ -36,14 +36,24 @@ resolve_instance_id() {
 
   # terminated·shutting-down은 뺀다. 재건 직후에는 옛 인스턴스가 아직 목록에 남아 있어서,
   # 넣어두면 "둘이 보인다"고 멈춰 서는 자리가 재해 한복판이 된다.
+  # ⚠️ stderr를 **값에 섞지 않는다.** 2026-08-10 심층검사에서 잡힌 결함이다 —
+  # 처음엔 실패 메시지를 보여주려고 `2>&1`로 합쳐 받았는데, 그러면 aws가 성공하면서
+  # 경고 한 줄만 내도(urllib3/OpenSSL 경고, 자격증명 파일 경고 등) 그 줄이 ID 목록에
+  # 섞여 단어 수가 늘고 **"인스턴스가 8개입니다"로 죽는다.** 재현했다.
+  # 즉 오탐 방지 장치(여러 건이면 멈춤)가 오탐 생성기가 돼 있었다.
+  # 그래서 stdout(값)과 stderr(진단)를 끝까지 분리한다.
+  local errfile
+  errfile=$(mktemp)
   if ! ids=$(aws ec2 describe-instances --region "$region" \
       --filters "Name=tag:Name,Values=$INSTANCE_NAME_TAG" \
                 "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-      --query 'Reservations[].Instances[].InstanceId' --output text 2>&1); then
+      --query 'Reservations[].Instances[].InstanceId' --output text 2>"$errfile"); then
     echo "인스턴스 조회 실패 — 자격증명이나 ec2:DescribeInstances 권한을 확인하세요." >&2
-    echo "  aws 응답: $ids" >&2
+    sed 's/^/  aws: /' "$errfile" >&2
+    rm -f "$errfile"
     return 1
   fi
+  rm -f "$errfile"
 
   # --output text는 여러 건을 탭으로 한 줄에 준다. 공백으로 정규화해서 센다.
   ids=$(printf '%s' "$ids" | tr '\t\r\n' '   ' | tr -s ' ' | sed 's/^ *//; s/ *$//')
