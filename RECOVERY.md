@@ -178,6 +178,11 @@ sudo curl -sSL -o /usr/local/lib/docker/cli-plugins/docker-buildx \
   https://github.com/docker/buildx/releases/download/v0.35.0/buildx-v0.35.0.linux-amd64
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 mkdir -p ~/blog/uploads
+# ⚠️ 컨테이너는 **비-root(uid 10001)** 로 돈다(2026-08-10 보안검사). 이 폴더는 호스트
+#    바인드 마운트라, 소유자가 ec2-user(1000)면 컨테이너가 못 쓴다. 2026-08-10 배포에서
+#    실제로 겪었다 — 앱은 healthy인데 `touch /app/uploads/x`가 Permission denied였다.
+#    운영 업로드는 S3로 가고 이 폴더는 폴백이라 조용히 지나가기 쉬운 자리다.
+sudo chown -R 10001:10001 ~/blog/uploads
 
 # 3) 코드와 compose 파일 올리기 (평소 배포와 같은 모양)
 #    ⚠️ `.dockerignore`를 반드시 같이 넣는다. 이게 빠지면 빌드 컨텍스트의 `.env`가
