@@ -258,7 +258,18 @@ echo "  OK   INSERT/DELETE 성공 (새 id=$newid)"
 echo "  --- BYOK 복호화 (키와 데이터가 맞는지) ---"
 enc=$(dst "select encrypted_key from llm_credentials order by id limit 1")
 if [ -z "$enc" ]; then
-  echo "  --   저장된 BYOK 자격증명이 없어 생략(검사할 암호문 자체가 없음)"
+  # **경고이지 정보가 아니다.** 2026-07-27 DR 게임데이가 "llm_credentials가 0행이라 BYOK
+  # 복호화는 증명 못 했다"를 미검증으로 남겼는데, 그 미검증이 2026-08-10까지 2주 넘게
+  # 살아남은 이유가 바로 이 줄이 `--`(정보)였기 때문이다. 훈련은 매번 초록으로 끝나면서
+  # 정작 '행 수로는 원리적으로 안 보이는 손실'을 한 번도 안 본 상태로 지나갔다.
+  # 조용한 생략은 통과처럼 읽힌다 — 검사를 안 한 것을 검사한 것처럼 보이게 하는 게 제일 나쁘다.
+  echo "  WARN 저장된 BYOK 자격증명이 0행이라 복호화를 **검사하지 못했다**(생략 아님, 미검증)."
+  echo "       이 상태로는 LLM_ENCRYPTION_KEY가 백업과 어긋나도 훈련이 절대 못 잡는다."
+  echo "       닫는 법 — 카나리아 한 줄을 등록하고 새 백업을 뜬 뒤 다시 돌린다:"
+  echo "         docker compose -f docker-compose.prod.yml exec -T -e PYTHONPATH=/app backend python -c \\"
+  echo "           \"import app.main; from app.core.database import SessionLocal; from app.services import llm_keys; \\"
+  echo "            llm_keys.set_key(SessionLocal(), <user_id>, 'anthropic', 'sk-ant-drill-CANARY-not-a-real-key')\""
+  echo "       (provider='anthropic'는 일반 초안 경로가 'claude'라 실사용에 안 쓰인다 — 무해하다)"
 # 판정 토큰은 서로의 부분문자열이 되면 안 된다. 예전엔 OK/NOKEY/MISMATCH를 썼는데
 # **"NOKEY"가 `*OK*`에 매치돼** 키가 아예 없는 경우를 "통과"로 찍었다(2026-07-22 코드검사에서
 # 발견). 하필 이 카나리아가 존재하는 유일한 이유가 그 경우다. 겹치지 않는 토큰을 쓴다.
