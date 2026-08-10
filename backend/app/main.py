@@ -332,6 +332,9 @@ def status(request: Request):
         "backend": "ok" if c["backend_ok"] else "down",
         "database": "ok" if c["database_ok"] else "down",
         "mail": "ok" if c["mail_ok"] else "down",
+        # get_latest()는 기동 직후 옛 모양(disk_ok 없음)을 줄 수 있다. KeyError로 여기가
+        # 500이 되면 감시가 'API 죽음'으로 오탐하므로 폴백을 둔다.
+        "disk": "ok" if c.get("disk_ok", True) else "down",
         "stats": {"posts": c["posts"], "subscribers": c["subscribers"]},
         # 이 점검이 **실제로 돈** 시각. 호출 시각을 찍으면 최대 60초 낡은 캐시가
         # 방금 잰 것처럼 보인다(2026-07-28 카오스 훈련). 사고 중 오판을 부르는 거짓이다.

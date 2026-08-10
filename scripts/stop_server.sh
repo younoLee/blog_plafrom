@@ -128,8 +128,16 @@ else
   say "2/6 백업 — pg_dump → 검증 → S3"
 
   # 직전 백업의 크기를 미리 알아둔다. '올라갔다'만 보면 잘리거나 빈 덤프를 놓친다.
-  prev=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "blog-" \
-    --query 'sort_by(Contents,&LastModified)[-1].Size' --output text 2>/dev/null || echo "None")
+  # `2>/dev/null || echo None`으로 받으면 **AccessDenied·자격증명 만료까지 "None"이 되어**
+  # 아래 급감 비교가 통째로 건너뛰어지고 "첫 백업 — 비교 대상 없음"이라는 정상 문구가 나간다.
+  # 백업이 수십 개 쌓인 버킷에서 그 문구가 뜨는 게 그 상태다(2026-08-10 심층검사).
+  # 호출 실패와 '정말 첫 백업'을 구분한다.
+  if ! prev=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "blog-" \
+      --query 'sort_by(Contents,&LastModified)[-1].Size' --output text 2>&1); then
+    echo "   ⚠️  직전 백업 크기를 못 읽었습니다(권한·자격증명 확인) — 급감 검사를 건너뜁니다:"
+    printf '%s\n' "$prev" | sed 's/^/       /'
+    prev="UNREADABLE"
+  fi
 
   # 저장소 판본을 매번 올려 덮어쓴다 — 서버에만 있던 시절엔 인스턴스를 새로
   # 만들면 백업 능력이 조용히 사라졌다(버전 관리도 안 됐다).
@@ -177,7 +185,11 @@ else
     fi
     echo "   크기 $size 바이트 (직전 $prev — 정상 범위)"
   else
-    echo "   크기 $size 바이트 (첫 백업 — 비교 대상 없음)"
+    if [ "$prev" = "UNREADABLE" ]; then
+      echo "   크기 $size 바이트 (직전과 비교하지 못했습니다 — 위 경고 참고)"
+    else
+      echo "   크기 $size 바이트 (첫 백업 — 비교 대상 없음)"
+    fi
   fi
 fi
 
@@ -224,6 +236,30 @@ echo "   이미지 사본 $mirrored 개 (s3://$BUCKET/uploads/)"
 # 여기서 정지를 막지는 않는다(사람이 손으로 해결해야 하는 일이라 막아도 못 고친다).
 "$SCRIPT_DIR/env_escrow.sh" check || true
 
+# ── 4-B. 디스크 회수 + 잔량 보고 ────────────────────────────────────────────
+# 왜 배포가 아니라 여기인가 — **배포는 가끔 하고 정지는 매번 한다.** '매일 03시 cron'이
+# 서버가 꺼져 있어 4개월간 0건이던 것과 같은 이유로, 청소를 배포 경로에만 두면 배포를
+# 안 한 달에는 한 번도 안 돈다. 게다가 로그는 배포와 무관하게 쌓인다. 그리고
+# deploy_backend.sh는 규칙7 때문에 `up -d --build` **앞에서** 끝나므로, 그 시점엔 이번에
+# 버려질 이미지가 아직 존재하지도 않는다 — 거기서 지우면 항상 한 배포 뒤처진다.
+#
+# 백업이 S3에 올라가 검증까지 끝난 뒤다. 청소가 백업을 방해할 수 있는 순서는 안 만든다.
+# 태그 없는(dangling) 이미지만 지운다 — `-a`는 안 쓴다(다음 재빌드가 t2.micro에서 느려진다).
+# 3·4단계와 같은 등급이다: **실패해도 정지는 계속한다.** 여기서 죽으면 인스턴스가 안 꺼지고
+# 계속 과금된다(2026-07-22에 실제로 그랬다).
+#
+# `df`를 같이 찍는 이유: pgdata가 이 볼륨 위에 살고 루트 볼륨 크기가 terraform에 없다.
+# 매번 사람 눈앞에 숫자를 남겨 추세를 볼 수 있게 한다. (2026-08-10 심층검사)
+say "4-B/6 디스크 회수 + 잔량"
+if out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+           -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+           -i "$SSH_KEY" "ec2-user@$DNS" \
+           'sudo docker image prune -f; df -h --output=pcent,avail / | tail -1' 2>&1); then
+  printf '%s\n' "$out" | sed 's/^/   /'
+else
+  echo "   ⚠️  정리 실패 — 정지는 계속합니다: $out"
+fi
+
 # ── 5. 정지 ─────────────────────────────────────────────────────────────────
 say "5/6 EC2 정지"
 aws ec2 stop-instances --instance-ids "$INSTANCE_ID" \
@@ -232,10 +268,45 @@ aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"
 
 # ── 6. 검증 ─────────────────────────────────────────────────────────────────
 say "6/6 검증"
+# 예전엔 세 값을 echo로 **출력만** 하고 비교가 없었다. 그래서 `/api/status (504 기대): 200`
+# 바로 다음 줄에 "완료 — …(정상)"이라는 고정 문구가 찍혔고, EIP가 1개 남아 과금돼도
+# 종료코드는 0이었다(2026-08-10 심층검사). 검사인 척하는 검사였다. 실제로 판정하게 한다.
+# 여기서 실패해도 인스턴스는 이미 멈췄으므로 **정지를 되돌리지 않는다** — 사람에게 알리는 게
+# 목적이라 종료코드로만 표시한다.
+verify_rc=0
 aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
   --query 'Reservations[0].Instances[0].{State:State.Name,PublicIp:PublicIpAddress}' --output json
-echo "EIP 개수 (0이어야 함):     $(aws ec2 describe-addresses --query 'length(Addresses)' --output text)"
-echo "프론트 홈 (200 기대):      $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$CF_URL/")"
-echo "/api/status (504 기대):    $(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$CF_URL/api/status")"
-say "완료 — 504는 주차가 fail closed로 동작한다는 뜻입니다(정상)."
+
+eips=$(aws ec2 describe-addresses --query 'length(Addresses)' --output text)
+if [ "$eips" = "0" ]; then
+  echo "   OK   EIP 0개 (정지 중 과금 없음)"
+else
+  echo "   ❌   EIP가 ${eips}개 남아 있습니다 — 인스턴스가 꺼져도 과금됩니다."
+  verify_rc=1
+fi
+
+front=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$CF_URL/" || echo 000)
+if [ "$front" = "200" ]; then
+  echo "   OK   프론트 홈 200 (정적 사이트는 서버와 무관하게 살아 있다)"
+else
+  echo "   ❌   프론트 홈이 $front 입니다 (200 기대). 000이면 curl 자체가 실패한 것입니다."
+  verify_rc=1
+fi
+
+api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$CF_URL/api/status" || echo 000)
+if [ "$api" = "504" ]; then
+  echo "   OK   /api/status 504 — 주차가 fail closed로 동작합니다(정상)"
+else
+  echo "   ❌   /api/status가 $api 입니다 (504 기대)."
+  echo "        200이면 주차가 안 걸렸거나 다른 오리진이 응답하는 것이고,"
+  echo "        403이면 오리진 시크릿 불일치입니다(RECOVERY.md 참고)."
+  verify_rc=1
+fi
+
+if [ "$verify_rc" -eq 0 ]; then
+  say "완료 — 정지·주차·과금 검증 전부 통과."
+else
+  say "⚠️  정지는 됐지만 위 ❌를 확인하세요."
+fi
 echo "다음에 복원까지 확인하려면: scripts/restore_drill.sh (EC2를 다시 켠 뒤)"
+exit "$verify_rc"

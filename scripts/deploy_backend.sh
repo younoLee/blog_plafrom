@@ -74,6 +74,17 @@ ssh -n -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" "ec2-user@$DNS" \
 say "3/4 .env 보존 확인"
 after=$(ssh -n -o StrictHostKeyChecking=accept-new -i "$SSH_KEY" "ec2-user@$DNS" \
   'sudo sha256sum /home/ec2-user/blog/.env | cut -c1-12')
+# 지문이 **비어 있으면** 비교가 성립하지 않는다. 로컬의 set -euo pipefail은 ssh 너머
+# 원격 셸에 적용되지 않아서, `.env`가 없거나 sudo가 막히면 파이프라인 종료코드는 cut의
+# 0이고 출력은 빈 문자열이다 → `"" != ""`이 거짓이라 **그대로 통과하고** 다음 줄에
+# `동일 () — 시크릿 보존됨`을 찍은 뒤 재빌드 명령을 안내했다. 이 검사가 존재하는 유일한
+# 이유가 정확히 그 경우다(2026-08-10 심층검사). 길이를 먼저 본다.
+if [ ${#before} -ne 12 ] || [ ${#after} -ne 12 ]; then
+  echo "❌ .env 지문을 읽지 못했습니다(before='$before' after='$after')." >&2
+  echo "   서버에 /home/ec2-user/blog/.env 가 없거나 sudo가 막힌 상태입니다." >&2
+  echo "   시크릿 보존을 확인할 수 없으므로 재빌드하지 마세요." >&2
+  exit 1
+fi
 if [ "$before" != "$after" ]; then
   echo "❌ .env가 바뀌었습니다($before → $after). 재빌드하지 마세요." >&2
   exit 1

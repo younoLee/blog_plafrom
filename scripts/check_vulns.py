@@ -160,9 +160,26 @@ def check_npm(allowed: dict[str, dict]) -> None:
 
     for gid, label in sorted(advisories.items()):
         judge({gid}, label, allowed)
-    if not advisories:
+
+    # npm 자신의 합계와 대조한다. 위 추출은 `via`가 dict이고 url이 있을 때만 세는데,
+    # 전이 의존성에서 `via`는 **문자열**로 온다. 그래서 추출이 한 건도 못 하면
+    # advisories가 비어 ✅ "취약점 없음"이 찍히고 **바로 다음 줄에 {'high': 3, ...}가
+    # 같이 인쇄되는** 상태가 된다 — 단서가 화면에 있는데 판정이 그걸 안 보는 것이다
+    # (2026-08-10 심층검사). 이 파일이 선언한 "검사했는데 깨끗함 ≠ 검사를 못 함"의
+    # 마지막 한 칸이 비어 있었다. 합계가 0이 아닌데 추출이 0이면 **검사 실패**로 본다.
+    meta = data.get("metadata", {}).get("vulnerabilities", {}) or {}
+    meta_total = sum(v for k, v in meta.items() if k != "total" and isinstance(v, int))
+    if not meta_total and isinstance(meta.get("total"), int):
+        meta_total = meta["total"]
+    if meta_total and not advisories:
+        bad(
+            f"npm은 취약점 {meta_total}건을 보고하는데 권고 id를 하나도 추출하지 못했습니다 "
+            f"— 파서와 npm 출력 형식이 어긋났습니다(집계: {meta}). "
+            "'취약점 없음'으로 넘기지 않습니다."
+        )
+    elif not advisories:
         ok("취약점 없음")
-    print(f"     (npm 집계: {data.get('metadata', {}).get('vulnerabilities', {})})")
+    print(f"     (npm 집계: {meta})")
 
 
 def load_allowlist(today: date) -> tuple[dict[str, dict], list[dict], dict[str, str]]:

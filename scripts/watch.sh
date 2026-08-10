@@ -114,7 +114,10 @@ else
     # status.py의 mail 점검을 STARTTLS+AUTH로 제대로 고쳐놨는데 바깥에서 그 결과를
     # 안 읽으면 두 장치가 이어지지 않는다.
     down=""
-    for svc in backend database mail; do
+    # disk 추가(2026-08-10): pgdata가 루트 볼륨에 사는데 남은 용량을 보는 장치가
+    # 저장소 전체에 없었다. 감시는 AWS 밖에서 도니 EC2에 닿을 수 없고, 이 응답이
+    # 서버 안을 보는 유일한 창이다. 앱은 퍼센트가 아니라 임계 초과 1비트만 낸다.
+    for svc in backend database mail disk; do
       case "$body" in
         *"\"$svc\":\"ok\""*) ;;
         *) down="$down $svc" ;;
@@ -124,7 +127,7 @@ else
       fail "공개 API는 200인데 내부 상태가 비정상:$down"
       echo "     응답: $body"
     else
-      ok "EC2 running ${up_h}시간 · 공개 /api/status 200 (backend·database·mail 전부 ok)"
+      ok "EC2 running ${up_h}시간 · 공개 /api/status 200 (backend·database·mail·disk 전부 ok)"
     fi
   elif [ "$up_s" -lt $(( GRACE_MIN * 60 )) ]; then
     ok "EC2 running (막 켬, ${GRACE_MIN}분 유예 중) · /api/status $code"

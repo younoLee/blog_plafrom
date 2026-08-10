@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 
+import psutil
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -56,11 +57,30 @@ def run_checks() -> dict:
 
     mail_ok = _check_mail()
 
+    # 디스크는 **퍼센트를 내보내지 않는다.** /api/status는 무인증 공개라 잔량 수치는
+    # '디스크를 채우는 공격'의 진척 계기판이 된다. 임계 초과 여부 1비트만 낸다.
+    #
+    # 왜 이게 여기 있어야 하나 — pgdata가 EC2 루트 볼륨 위에 살고, 감시(watch.sh)는
+    # AWS 바깥의 GitHub Actions에서 돌아 EC2에 닿을 수단이 없다(SSH 키도 SSM 권한도 없다).
+    # 이 응답이 **감시가 서버 안을 볼 수 있는 유일한 창**이다. 그런데 디스크가 차서
+    # Postgres가 쓰기를 거부하면 감시는 database가 down이 되는 순간에야 아는데, 그때는
+    # 이미 사이트가 죽었고 백업도 못 뜬다(2026-08-10 심층검사).
+    #
+    # 임계: 여유 15% 미만 **또는** 1.5GiB 미만. Postgres는 볼륨이 꽉 차기 전에 WAL·
+    # 체크포인트에서 먼저 죽으므로 여유를 둔다. 루트 볼륨 크기가 terraform에 없어서
+    # (ec2.tf의 root_block_device에 volume_size가 없다) 비율과 절대값을 둘 다 건다.
+    try:
+        du = psutil.disk_usage("/")
+        disk_ok = du.free >= max(1.5 * 1024**3, du.total * 0.15)
+    except Exception:
+        disk_ok = False  # 못 쟀으면 초록으로 넘기지 않는다
+
     return {
         "at": datetime.now(UTC).isoformat(),
         "backend_ok": True,  # 이 코드가 도는 것 자체가 백엔드 동작
         "database_ok": db_ok,
         "mail_ok": mail_ok,
+        "disk_ok": disk_ok,
         "posts": post_count,
         "subscribers": subscriber_count,
     }

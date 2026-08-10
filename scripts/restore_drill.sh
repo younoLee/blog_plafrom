@@ -413,11 +413,29 @@ else
 fi
 
 # ④-2 이미지 사본이 백업 버킷에도 있는가(원본 버킷 사고와 무관한 두 번째 사본).
-# `aws s3 ls`는 일치하는 객체가 없으면 **종료코드 1**이라, 그냥 파이프로 받으면
-# pipefail이 그걸 실패로 잡아 스크립트가 여기서 죽는다. 없는 것도 정상 결과다.
-srcn=$( { aws s3 ls "s3://$IMAGE_BUCKET/uploads/" --recursive || true; } | wc -l)
-dstn=$( { aws s3 ls "s3://$BUCKET/uploads/" --recursive || true; } | wc -l)
-if [ "$dstn" -ge "$srcn" ] && [ "$srcn" -gt 0 ]; then
+#
+# 예전엔 `aws s3 ls ... || true | wc -l`이었다. `s3 ls`가 0건일 때 종료코드 1이라 pipefail에
+# 걸려 죽는 걸 막으려던 것인데, `|| true`는 그것만 삼키는 게 아니라 **AccessDenied·
+# NoSuchBucket·자격증명 만료까지 전부 삼킨다.** 그러면 둘 다 0이 되어 아래가
+# "원본 버킷에 이미지가 없습니다"라는 **거짓 사실**을 찍고 훈련은 초록으로 끝난다.
+# scripts/watch.sh가 이 함정을 명시적으로 금지하고 count_objects()라는 정답까지 만들어뒀는데
+# 여기만 안 쓸려 있었다(2026-08-10 심층검사). 그 함수를 그대로 이식한다.
+count_objects() {  # $1=버킷 $2=접두사 → 개수를 출력, 호출 실패면 non-zero
+  aws s3api list-objects-v2 --bucket "$1" --prefix "$2" \
+    --query 'length(Contents || `[]`)' --output text
+}
+if ! srcn=$(count_objects "$IMAGE_BUCKET" "uploads/"); then
+  echo "  WARN 원본 이미지 버킷을 읽지 못했다(s3://$IMAGE_BUCKET/uploads/) — 권한·자격증명 확인."
+  echo "       '이미지가 없다'와 구분하기 위해 실패로 표시한다."
+  srcn=-1
+fi
+if ! dstn=$(count_objects "$BUCKET" "uploads/"); then
+  echo "  WARN 백업 버킷의 이미지 사본을 읽지 못했다(s3://$BUCKET/uploads/) — 권한·자격증명 확인."
+  dstn=-1
+fi
+if [ "$srcn" -lt 0 ] || [ "$dstn" -lt 0 ]; then
+  :   # 위에서 이미 WARN을 냈다. 아래 비교는 성립하지 않으므로 건너뛴다.
+elif [ "$dstn" -ge "$srcn" ] && [ "$srcn" -gt 0 ]; then
   echo "  OK   이미지 사본 $dstn개 (원본 $srcn개) — s3://$BUCKET/uploads/"
 elif [ "$srcn" -eq 0 ]; then
   echo "  --   원본 버킷에 이미지가 없습니다"

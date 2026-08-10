@@ -14,6 +14,21 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    # backend와 같은 이유로 회전을 건다(아래 backend의 logging 주석 참고).
+    # **이쪽이 더 급하다** — 아래 healthcheck가 5초마다 돌아 backend(30초)보다 6배 잦고,
+    # 복원 훈련은 한 번에 `docker compose exec -T db psql`을 90회 넘게 붙였다 뗀다.
+    # 그 로그 파일은 pgdata와 **같은 EBS 루트 볼륨**에 산다. backend에만 걸어둔 것은
+    # 그 주석이 서술한 위험을 절반만 막고 있었다(2026-08-10 심층검사).
+    #
+    # ⚠️ 이 설정은 **컨테이너 생성 시점에 굳는다.** 이미 도는 컨테이너에는 적용되지 않으므로
+    #    `docker compose up -d db`로 재생성해야 하고, 그때 옛 로그가 함께 사라진다.
+    #    pgdata는 named volume이라 재생성에도 안전하다. 확인:
+    #      sudo docker inspect -f '{{.HostConfig.LogConfig}}' blog-db-1
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # backend가 'DB 준비 완료' 후에 뜨도록 상태 체크
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
