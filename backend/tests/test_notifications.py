@@ -31,7 +31,10 @@ def test_new_post_notifies_notify_subscriber(client, make_user, auth_headers):
     body = client.get("/api/notifications", headers=auth_headers(reader)).json()
     assert body["unread"] == 1
     assert body["items"][0]["title"] == "새 글"
-    assert body["items"][0]["author"] == author.email.split("@")[0]
+    # 표시명은 display_name에서만 온다 — **이메일 유도가 아니다**(2026-08-10 보안검사).
+    # display_name을 안 정한 계정은 "회원"으로 뭉갠다. 이메일 로컬파트가 새지 않는 게 요점이다.
+    assert body["items"][0]["author"] == "회원"
+    assert author.email.split("@")[0] not in body["items"][0]["author"]
     assert body["items"][0]["read"] is False
 
 

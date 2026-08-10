@@ -144,9 +144,10 @@ def make_user(db):
     """유저를 DB에 직접 시드(가입·이메일인증 흐름 우회). role/is_pro 지정 가능."""
 
     def _make(role="writer", *, email=None, password="password123",
-              is_pro=False, verified=True):
+              is_pro=False, verified=True, display_name=None):
         u = User(
             email=email or f"{role}-{uuid.uuid4().hex[:8]}@test.com",
+            display_name=display_name,
             hashed_password=hash_password(password),
             role=role,
             email_verified=verified,

@@ -50,13 +50,17 @@ def my_subscriptions_detail(
 ):
     # 내가 구독(신청)한 글쓴이 (id + 이름 + 승인여부 + 알림여부) — 구독 관리 목록 표시용
     rows = db.execute(
-        select(User.id, User.email, AuthorSubscription.approved, AuthorSubscription.notify)
+        select(User.id, User.display_name, AuthorSubscription.approved, AuthorSubscription.notify)
         .join(AuthorSubscription, AuthorSubscription.author_id == User.id)
         .where(AuthorSubscription.subscriber_id == user.id)
         .order_by(User.id)
     ).all()
+    # 표시명은 display_name에서만 온다 — 이메일 유도(email.split("@")[0])는
+    # 2026-08-10 보안검사로 전부 걷어냈다. 여긴 인증 뒤라 위험도는 낮지만,
+    # 유도가 한 군데라도 남으면 "이름은 이메일에서 만든다"는 관습이 살아남고
+    # 그게 무인증 경로로 다시 새어나간 것이 이번 건이다. NULL이면 "회원".
     return [
-        {"id": r.id, "name": r.email.split("@")[0], "approved": r.approved, "notify": r.notify}
+        {"id": r.id, "name": r.display_name or "회원", "approved": r.approved, "notify": r.notify}
         for r in rows
     ]
 
@@ -84,7 +88,7 @@ def set_notify(
     author = db.get(User, author_id)
     return {
         "id": author_id,
-        "name": author.email.split("@")[0],
+        "name": author.display_name or "회원",
         "approved": sub.approved,
         "notify": sub.notify,
     }
@@ -96,11 +100,11 @@ def subscribable_authors(
 ):
     # 구독할 수 있는 글쓴이(writer/admin) 목록 — 자기 자신은 제외
     rows = db.execute(
-        select(User.id, User.email)
+        select(User.id, User.display_name)
         .where(User.role.in_(("writer", "admin")), User.id != user.id)
         .order_by(User.id)
     ).all()
-    return [{"id": r.id, "name": r.email.split("@")[0]} for r in rows]
+    return [{"id": r.id, "name": r.display_name or "회원"} for r in rows]
 
 
 @router.post("", status_code=201)
@@ -158,7 +162,7 @@ class RequestOut(BaseModel):
 def my_requests(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     # 나(글쓴이)에게 온 '승인 대기' 구독 신청 목록
     rows = db.execute(
-        select(User.id, User.email)
+        select(User.id, User.display_name)
         .join(AuthorSubscription, AuthorSubscription.subscriber_id == User.id)
         .where(
             AuthorSubscription.author_id == user.id,
@@ -166,7 +170,7 @@ def my_requests(db: Session = Depends(get_db), user: User = Depends(get_current_
         )
         .order_by(AuthorSubscription.created_at)
     ).all()
-    return [{"id": r.id, "name": r.email.split("@")[0]} for r in rows]
+    return [{"id": r.id, "name": r.display_name or "회원"} for r in rows]
 
 
 def _pending_request(db: Session, author_id: int, subscriber_id: int) -> AuthorSubscription | None:

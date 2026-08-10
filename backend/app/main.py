@@ -75,6 +75,24 @@ async def lifespan(app: FastAPI):
             "S3_BUCKET이 비어 있는데 PUBLIC_BASE_URL이 https다. 이 조합이면 업로드가 "
             "컨테이너 디스크에 저장되고 그 URL은 404가 된다. .env에 S3_BUCKET을 설정해줘."
         )
+    # 결제 안전장치를 **기동 때** 확인한다. 지금은 요청 시점에만 본다(payments의 _guard_live)
+    # — 그런데 그 검사는 payments_require_live가 True일 때만 돌고, 그 값의 코드 기본값은
+    # False이며 시크릿키의 코드 기본값은 **실제 토스 테스트 키**다. 즉 .env에서 그 한 줄이
+    # 빠지면 검사가 통째로 사라진 채 테스트 결제 승인이 그대로 Pro로 붙는다.
+    # = "한 줄이 빠지면 조용히 공짜 Pro". 위 SECRET_KEY·S3_BUCKET에 대해 이미 같은 모양을
+    # 막아뒀는데 결제만 빠져 있었다(2026-08-10 보안검사).
+    # 회귀 경로가 가설이 아니다 — env_escrow/DR로 .env를 재조립하는 절차가 실재한다.
+    #
+    # **키의 종류는 여기서 보지 않는다.** 현행 운영이 바로 '라이브 전환은 안 했고 결제를
+    # 꺼둔' 상태(require_live=true + 테스트 키 → 요청 시점 503)인데, 키까지 여기서 막으면
+    # 지금 잘 돌고 있는 서버가 기동을 거부한다. 여기서 요구하는 건 "가드가 켜져 있는가"
+    # 하나이고, 테스트/라이브 판정은 _guard_live()가 요청 시점에 정확히 한다.
+    if settings.public_base_url.startswith("https://") and not settings.payments_require_live:
+        raise RuntimeError(
+            "프로드인데 PAYMENTS_REQUIRE_LIVE가 꺼져 있다. 이 상태면 코드 기본값인 토스 "
+            "**테스트** 시크릿키로 승인이 붙어 공짜 Pro가 나간다. "
+            ".env에 PAYMENTS_REQUIRE_LIVE=true 를 설정해줘."
+        )
     # 앱 기동 시 1분 간격 자가 점검 기록 시작 (업타임 집계용)
     start_recorder()
     # 미인증 계정 1시간 간격 자동 정리 시작
@@ -319,10 +337,18 @@ def health_check():
 @app.get("/api/blog-owner")
 def blog_owner(db: Session = Depends(get_db)):
     # 이 블로그의 주인(관리자). 프론트의 '이 블로그 구독' 버튼이 이 id를 구독함.
+    #
+    # ⚠️ **이메일에서 이름을 유도하지 않는다.** 2026-08-10 보안검사: 예전엔
+    # `owner.email.split("@")[0]`을 무인증·무제한으로 반환했다. admin은 단 하나이고
+    # 발신 도메인이 공개 제공자임이 config에 적혀 있어, 로컬파트만 알면 **전체 주소가
+    # 완성된다** — register가 애써 막은 계정 열거를 가장 값나가는 계정에서 무효화하는
+    # 셈이었다. 게다가 그 값이 익명 댓글 사칭의 재료로도 쓰였다(같은 검사).
+    # display_name이 없으면 None을 준다. 프론트(Sidebar)에 이미 폴백 문자열이 있어
+    # 화면 손실이 없다 — 이메일로 되돌아가는 경로를 아예 두지 않는 게 요점이다.
     owner = db.scalar(select(User).where(User.role == "admin").order_by(User.id))
     if owner is None:
         return {"id": None, "name": None}
-    return {"id": owner.id, "name": owner.email.split("@")[0]}
+    return {"id": owner.id, "name": owner.display_name}
 
 
 @app.get("/api/status")

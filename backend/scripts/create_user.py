@@ -6,7 +6,14 @@
   2) 데모: 포트폴리오 방문자용 '체험 계정' (프론트의 '체험 계정으로 둘러보기' 버튼이 이 계정으로 로그인)
 
 가입 라우터(auth.py)를 안 거치므로 인증메일·SES가 필요 없다 — 그래서 샌드박스여도 동작한다.
-admin 승격은 여전히 DB에서만(이 스크립트는 pending/writer까지만; --role admin은 명시해야 함).
+⚠️ **이 스크립트는 admin도 만들고 admin의 비번도 덮어쓴다.** 예전 이 자리엔 "pending/writer
+까지만"이라고 적혀 있었는데 ALLOWED_ROLES에 admin이 있고 실제로 동작한다 — 거짓 서술이라
+2026-08-10에 고쳤다(--update-if-exists의 role 보존 가드는 role만 지키지 비번은 안 지킨다).
+셸 접근이 전제라 권한 경계를 넘진 않지만, 거짓 문서는 나중의 판단 근거가 된다.
+
+표시명:
+  docker compose exec backend python scripts/create_user.py you@x.com \\
+    --update-if-exists --display-name '유노'      # 사이드바·댓글에 이 이름이 보인다
 
 실행 (프로덕션은 사용자가 직접 — 규칙7):
   # 로컬 도커
@@ -50,6 +57,13 @@ def main() -> int:
         help="생략하면 안전한 랜덤 비번을 생성해 출력한다",
     )
     ap.add_argument(
+        "--display-name",
+        help="화면에 보일 이름(최대 50자). **이걸 안 정하면 화면은 '회원'/블로그 기본 제목으로 "
+        "뭉갠다 — 이메일로 되돌아가지 않는다.** 2026-08-10 보안검사에서 이메일 로컬파트가 "
+        "무인증 경로(/api/blog-owner·공개 댓글)로 새던 걸 끊으면서 생긴 필드다. "
+        "관리자 이름을 사이드바에 띄우려면 여기서 정해라.",
+    )
+    ap.add_argument(
         "--demo",
         action="store_true",
         help="데모 계정 프리셋: 비번 미지정 시 'demo1234!'를 쓴다(공개 데모라 알려진 비번이 목적)",
@@ -84,6 +98,8 @@ def main() -> int:
             existing.hashed_password = hash_password(password)
             if args.role is not None:  # 생략하면 기존 role 보존(admin 실수 강등 방지)
                 existing.role = args.role
+            if args.display_name is not None:  # 생략하면 기존 표시명 보존
+                existing.display_name = args.display_name
             existing.email_verified = True
             existing.token_version += 1  # 기존 세션/링크 무효화
             db.commit()
@@ -92,6 +108,7 @@ def main() -> int:
         else:
             user = User(
                 email=args.email,
+                display_name=args.display_name,
                 hashed_password=hash_password(password),
                 role=args.role or "writer",  # 생성 시 기본 writer
                 email_verified=True,  # 인증메일 없이 바로 로그인 가능하게

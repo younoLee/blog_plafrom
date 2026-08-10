@@ -228,6 +228,17 @@ function PostDetailPage() {
             <div key={c.id} className="rounded-xl bg-black/[0.03] p-3 dark:bg-white/[0.04]">
               <div className="flex items-baseline gap-2">
                 <strong className="text-gray-800 dark:text-gray-100">{c.author}</strong>
+                {/* 회원 표시는 **서버가 준 사실(is_member)에서만** 나온다. author는 표시값이라
+                    익명이 같은 문자열을 칠 수 있다(2026-08-10 사칭 재현).
+                    배지를 '회원' 쪽에 다는 방향인 게 중요하다 — 반대로 '익명'에만 표를 달면
+                    그 표가 빠지는 순간 사칭이 다시 통한다(fail-open). */}
+                {c.is_member ? (
+                  <span className="rounded-full bg-[#0071e3]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#0071e3] dark:text-[#0a84ff]">
+                    회원
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">익명</span>
+                )}
                 <time className="text-xs text-gray-500 dark:text-gray-400">{new Date(c.created_at).toLocaleString()}</time>
                 {canModerate && (
                   <button

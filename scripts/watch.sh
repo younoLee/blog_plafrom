@@ -260,10 +260,24 @@ fi
 
 # (b) 액세스키가 예상보다 많은가. 공격자가 지속성을 확보하는 전형적 수법이 키 추가다.
 #     사용자별 기대치는 각 1개. 늘어나면 내가 만든 것인지 즉시 따져야 한다.
-for u in IAM_cli "ses-smtp-user.20260625-184915"; do
+#     사용자 목록을 **열거해서** 돈다. 2026-08-10 보안검사 전까지는 두 명이 하드코딩돼
+#     있었는데, 라이브 계정에는 AdministratorAccess 사용자가 하나 더 있었고(`youno`)
+#     그 계정이 감시 밖이었다 — **키를 만들 가치가 가장 큰 계정**이 루프 밖이었다는 뜻이다.
+#     하드코딩은 새로 만든 사용자도 못 본다. 목록을 코드에 박지 않으면 목록이 낡지 않는다.
+if ! users=$(aws iam list-users --query 'Users[].UserName' --output text 2>/dev/null) \
+   || [ -z "$users" ]; then
+  fail "IAM 사용자 목록을 못 읽었다 — 감시가 눈이 먼 상태다(iam:ListUsers 권한 확인)."
+  users=""
+fi
+for u in $users; do
   n=$(aws iam list-access-keys --user-name "$u" --query 'length(AccessKeyMetadata)' --output text 2>/dev/null)
   if [ -z "$n" ]; then
     fail "액세스키 목록을 못 읽었다 ($u) — 감시가 눈이 먼 상태다."
+  elif [ "$n" -eq 0 ]; then
+    # 키가 0개인 건 **정상이고 오히려 좋다**(콘솔 전용 계정). 여기서 나이를 읽으려 들면
+    # AccessKeyMetadata[0]이 비어 "생성일을 못 읽었다"는 가짜 실패가 난다 — 열거로
+    # 바꾸면서 새로 생긴 경로라 명시적으로 처리한다.
+    ok "$u 액세스키 0개 (콘솔 전용 — 장기 키 없음)"
   elif [ "$n" -gt 1 ]; then
     # 로테이션 중에는 새 키와 옛 키가 잠깐 함께 산다(docs/incident-response.md 3장).
     # 그때 이게 빨간불이 되는 건 **의도한 동작**이다 — 로테이션이 끝나면 저절로 꺼진다.

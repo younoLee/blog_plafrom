@@ -30,6 +30,13 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # 화면에 보일 이름. **이메일에서 유도하지 않는다.**
+    # 2026-08-10 보안검사: 예전엔 이름이 필요할 때마다 email.split("@")[0]을 썼고,
+    # 그 값이 무인증 경로 둘로 나갔다(GET /api/blog-owner, 공개 글의 댓글 작성자명).
+    # admin이 단 하나이고 발신 도메인이 공개 제공자라, 로컬파트만 알면 주소가 완성된다.
+    # NULL = '안 정했다'. 그때 화면은 폴백을 쓴다 — **이메일로 되돌아가지 않는다.**
+    # 설정: scripts/create_user.py --display-name
+    display_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # 평문이 아니라 bcrypt 해시를 저장
     hashed_password: Mapped[str] = mapped_column(String(255))
     # 권한: pending(가입 직후·승인 대기) / writer(승인됨·글쓰기 가능) / admin(승인권자)

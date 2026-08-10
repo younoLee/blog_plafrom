@@ -72,10 +72,30 @@ def create_comment(
     user: User | None = Depends(get_current_user_optional),
 ):
     _viewable_post_or_404(post_id, db, user)
-    # 로그인 사용자는 작성자명을 계정(이메일 로컬파트)으로 고정 → 남의 이름 사칭 방지.
-    # 비로그인(익명)만 자유 입력 author를 그대로 사용.
-    author = user.email.split("@")[0] if user is not None else data.author
-    comment = Comment(post_id=post_id, author=author, content=data.content)
+    # 로그인 사용자는 작성자명을 서버가 고정한다(자유 입력을 안 받는다).
+    #
+    # ⚠️ **이 고정만으로는 사칭이 안 막힌다.** 예전 주석은 여기에 "남의 이름 사칭 방지"라고
+    # 적혀 있었지만 고정되는 건 로그인 쪽뿐이고, 익명은 같은 문자열을 그대로 칠 수 있다.
+    # 2026-08-10에 무인증으로 재현했다:
+    #   GET  /api/blog-owner          → 관리자 표시명 획득(무인증)
+    #   POST /api/posts/{id}/comments {"author": "<그 이름>"} → 201
+    #   GET  /api/posts/{id}/comments → 회원 댓글과 구분 불가
+    #
+    # **이름을 막는 쪽으로 고치지 말 것.** 동형문자(Cyrillic е)·제로폭 공백으로 우회되고,
+    # 무엇보다 "그 이름은 계정이다"를 400으로 알려주게 되어 무인증 계정 열거 오라클이 된다
+    # — 막으려던 것보다 나쁜 걸 만든다. 그래서 표시값은 그대로 두고 **계정을 따로 기록한다**
+    # (user_id). 화면은 그걸 보고 회원 배지를 붙이므로 같은 이름을 쳐도 회원으로는 안 보인다.
+    #
+    # 그리고 표시명을 **이메일에서 유도하지 않는다** — 예전엔 email.split("@")[0]이었고,
+    # 그 값이 공개 글의 댓글 목록으로 영구히 나갔다(같은 검사의 별건). display_name이
+    # 없으면 "회원"으로 뭉갠다. 이름을 보이고 싶으면 create_user.py --display-name.
+    author = (user.display_name or "회원") if user is not None else data.author
+    comment = Comment(
+        post_id=post_id,
+        user_id=user.id if user is not None else None,  # NULL = 익명
+        author=author,
+        content=data.content,
+    )
     db.add(comment)
     db.commit()
     db.refresh(comment)

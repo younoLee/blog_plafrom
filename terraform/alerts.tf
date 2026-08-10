@@ -29,6 +29,68 @@ resource "aws_sns_topic" "alerts" {
   # "인스턴스 상태검사가 실패했다"뿐이라 비밀이 아니다. 값을 정직하게 매긴다.
 }
 
+# ⚠️ **이 정책이 없으면 AWS가 기본 정책을 붙이는데, 그게 위험하다.**
+#
+# 2026-08-10 보안검사에서 라이브 값을 떠보니 기본 정책은 이랬다:
+#   Principal: {"AWS": "*"}  /  Condition: AWS:SourceOwner = 이 계정
+#   Action: Publish · DeleteTopic · Subscribe · AddPermission · RemovePermission · …
+# 같은 계정 안에서는 신원 정책 **또는** 리소스 정책 중 하나만 허용해도 통과한다.
+# 즉 계정 안의 **모든 주체**가 이 토픽을 지우거나 가짜 알림을 발행할 수 있었다 —
+# 공개 저장소의 Actions가 OIDC로 맡는 github-actions-blog-deploy 역할 포함.
+# `aws iam simulate-principal-policy`로 실증했다: Publish·DeleteTopic 둘 다
+# **allowed (Resource Policy)**.
+#
+# 이건 iam-github-oidc.tf가 정확히 반대로 추론한 자리다. 거기서 감시 역할의
+# `sns:ListSubscriptionsByTopic`을 토픽 하나로 좁힌 이유가 "오염된 액션이 계정의 모든
+# 토픽 구독 주소를 읽는 것"이었는데, **같은 오염된 액션이 그 토픽을 통째로 지워
+# 상태검사 알람의 전달 경로를 끊을 수 있었다.** 폭발 반경을 신원 정책 쪽에서만 쟀다.
+#
+# 토픽이 지워지면 아래 알람은 죽은 ARN을 가리킨 채 조용히 아무에게도 안 간다.
+# (watch.sh 6-B가 ListSubscriptionsByTopic 실패로 잡긴 하지만 그건 최대 한 시간 뒤다.)
+#
+# 그래서 Principal을 둘로 좁힌다:
+#   ① CloudWatch 서비스 주체 — 알람이 실제로 발행하는 주체다. SourceArn으로 이 계정의
+#      알람만 허용해 confused-deputy를 막는다.
+#   ② 계정 루트 — IAM 신원 정책으로 위임하는 표준 형태. 운영자(IAM_cli)가 콘솔·CLI로
+#      구독을 확인하거나 토픽을 관리하는 경로가 여기로 유지된다.
+# 배포 역할에는 신원 정책에 sns Publish/Delete가 없으므로 이제 둘 다 막힌다.
+resource "aws_sns_topic_policy" "alerts" {
+  arn = aws_sns_topic.alerts.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowCloudWatchAlarmsToPublish"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action    = "SNS:Publish"
+        Resource  = aws_sns_topic.alerts.arn
+        Condition = {
+          ArnLike = { "aws:SourceArn" = "arn:aws:cloudwatch:ap-northeast-2:${data.aws_caller_identity.current.account_id}:alarm:*" }
+        }
+      },
+      {
+        # 운영자 경로. 계정 루트에 위임하면 그 계정의 IAM 신원 정책이 최종 판정을 한다
+        # — 즉 "누가 할 수 있나"가 iam-*.tf 한 곳에서만 결정된다. 기본 정책처럼
+        # 리소스 정책이 신원 정책을 **우회**하던 구조를 없애는 게 이 문의 요점이다.
+        Sid       = "AllowAccountOwnerManage"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action = [
+          "SNS:GetTopicAttributes",
+          "SNS:SetTopicAttributes",
+          "SNS:ListSubscriptionsByTopic",
+          "SNS:Subscribe",
+          "SNS:Publish",
+          "SNS:DeleteTopic",
+        ]
+        Resource = aws_sns_topic.alerts.arn
+      },
+    ]
+  })
+}
+
 # 이메일 구독은 **받는 사람이 확인 메일의 링크를 눌러야** 활성화된다.
 # 누르기 전까지 상태는 PendingConfirmation이고, 그동안 알람은 울려도 아무에게도 안 간다.
 # 그 상태를 눈으로 기억하지 않으려고 watch.sh가 매시 확인한다(6-B 검사).

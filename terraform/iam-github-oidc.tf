@@ -108,17 +108,48 @@ output "github_deploy_role_arn" {
   value = aws_iam_role.github_deploy.arn
 }
 
-# 감시 워크플로(.github/workflows/watch.yml)가 쓰는 읽기 전용 권한.
+# 감시 워크플로(.github/workflows/watch.yml)가 쓰는 **전용 역할**.
 #
-# 왜 배포 정책(위 `github_deploy`)에 얹지 않고 따로 두는가 — 관심사가 다르다.
-# 저건 '사이트를 배포한다', 이건 '상태를 읽는다'이고, 배포 권한이 커지는 걸 막으려면
-# 읽기 전용은 분리해 두는 편이 낫다. (배포 정책 자체는 2026-07-22에 terraform으로
-# 회수했다 — 그전까지 콘솔 생성이라 내용이 저장소에 없었다.)
+# ⚠️ 2026-08-10 보안검사에서 잡힌 것: 바로 위 문단이 "관심사가 다르니 읽기 전용은 분리해
+# 두는 편이 낫다"고 적어놓고, 실제로 갈린 건 **정책 문서뿐이고 역할은 하나**였다
+# (`role = aws_iam_role.github_deploy.id`). 그래서 매시 도는 감시 잡이 사이트 버킷
+# Put/Delete + CloudFront 무효화 권한을 **함께 쥐고** 돌았다. 주석이 옳은 원칙을 적어놨는데
+# 코드가 안 따라간 자리다 — 바로 아래 ECR push 역할에는 같은 원칙을 제대로 적용해뒀으므로
+# 그 형태를 복사한다.
 #
+# 실제 위험 크기는 작았다(watch 잡은 checkout + bash watch.sh뿐이라 오염 표면이 좁고,
+# NeverTouchUploads Deny가 이미지는 지킨다). 다만 **사이트 전체는 지울 수 있었다.**
+#
+# 트러스트는 배포 역할과 같다(이 저장소 main 브랜치만). 권한만 읽기 전용으로 좁힌다.
+resource "aws_iam_role" "github_watch" {
+  name = "github-actions-blog-watch"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:younoLee/blog_plafrom:ref:refs/heads/main"
+        }
+      }
+    }]
+  })
+}
+
+output "github_watch_role_arn" {
+  value = aws_iam_role.github_watch.arn
+}
+
 # 전부 읽기다. 감시가 뭔가를 고치면 그건 더 이상 감시가 아니다.
 resource "aws_iam_role_policy" "github_watch" {
   name = "watch-readonly"
-  role = aws_iam_role.github_deploy.id
+  role = aws_iam_role.github_watch.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -211,10 +242,23 @@ resource "aws_iam_role_policy" "github_watch" {
         Sid    = "ReadAccessKeyInventory"
         Effect = "Allow"
         Action = ["iam:ListAccessKeys"]
-        Resource = [
-          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/IAM_cli",
-          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/ses-smtp-user.20260625-184915",
-        ]
+        # 2026-08-10 보안검사: 예전엔 사용자 두 명(IAM_cli · ses-smtp-user)만 하드코딩돼
+        # 있었다. 그런데 라이브 계정에는 **AdministratorAccess 사용자가 하나 더** 있었고
+        # (`youno`, 콘솔 로그인 있음), 그 계정은 감시 밖이었다. 이 검사가 선언한 위협모델이
+        # "공격자가 지속성 확보하려고 키를 추가한다"인데 **키를 만들 가치가 가장 큰 계정**이
+        # 루프 밖에 있던 것이다. 콘솔 세션을 잡은 공격자가 거기 키를 발급하면 영원히 초록이다.
+        # 게다가 하드코딩 목록이라 **새 IAM 사용자 생성 자체가 안 보였다.**
+        # 그래서 열거로 바꾼다 — 사용자 이름을 코드에 박지 않으면 목록이 낡지도 않는다.
+        # 여전히 읽기 전용이고, 비밀번호·정책 열람 권한은 주지 않는다.
+        Resource = "*"
+      },
+      {
+        # 위 검사가 '누구를' 볼지 정하려면 사용자 목록이 필요하다. 열거를 안 주면
+        # 하드코딩으로 돌아가고, 하드코딩은 새 사용자를 못 본다(위 주석 참고).
+        Sid      = "ListUsersForKeyInventory"
+        Effect   = "Allow"
+        Action   = ["iam:ListUsers"]
+        Resource = "*"
       },
       {
         # watch.sh 6번(2026-07-30 비용 가드레일 훈련) — 예산이 아직 존재하고, 그 알림이

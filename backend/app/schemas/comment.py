@@ -17,3 +17,7 @@ class CommentRead(BaseModel):
     author: str
     content: str
     created_at: datetime
+    # 이 댓글이 **로그인 계정**으로 작성됐는가. author로는 알 수 없다 — 익명이 회원과
+    # 같은 이름을 칠 수 있다(2026-08-10 재현). 화면은 이 값이 True일 때만 회원 표시를
+    # 붙여야 한다. user_id는 안 내보낸다(그건 신원이고, 화면에 필요한 건 1비트뿐이다).
+    is_member: bool

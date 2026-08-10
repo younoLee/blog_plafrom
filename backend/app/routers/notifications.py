@@ -41,7 +41,7 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             Notification.id,
             Notification.post_id,
             Post.title,
-            User.email,
+            User.display_name,
             Notification.read,
             Notification.created_at,
         )
@@ -58,7 +58,7 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             "id": r.id,
             "post_id": r.post_id,
             "title": r.title,
-            "author": r.email.split("@")[0],
+            "author": r.display_name or "회원",
             "read": r.read,
             "created_at": r.created_at,
         }
