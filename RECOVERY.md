@@ -141,20 +141,22 @@ TFVARS
 terraform -chdir=terraform apply -target=aws_instance.backend
 
 # ⚠️ 새 인스턴스는 ID가 다르다. 옛 ID로 조회하면 InvalidInstanceID.NotFound가 난다.
-#    태그로 찾아 쓰고, 그 다음에 **스크립트에 박힌 ID 5곳**을 새 값으로 바꿔야 한다 —
-#    안 바꾸면 정지 절차도, 훈련도, 감시도 존재하지 않는 인스턴스를 들여다본다.
-#      scripts/stop_server.sh   scripts/restore_drill.sh   scripts/env_escrow.sh
-#      scripts/watch.sh         scripts/deploy_backend.sh  (+ terraform/variables.tf 주석)
-#    한 번에:  sed -i "s/^INSTANCE_ID=.*/INSTANCE_ID=$IID/" scripts/*.sh
+#    **하지만 고칠 파일은 없다.** 2026-08-10부터 스크립트 5개(stop_server·restore_drill·
+#    env_escrow·watch·deploy_backend)가 ID를 박아두지 않고 Name 태그로 찾는다
+#    (scripts/lib/ec2.sh). 예전 이 자리에는 "박힌 ID 5곳을 손으로 바꿔라"가 적혀 있었고,
+#    그게 2026-07-27 게임데이의 결함 F5였다 — 재건마다 사람이 5번 정확해야 하는 절차.
+#    아래 IID는 **태그가 제대로 붙었는지 확인하고 DNS를 얻기 위한 것**이다.
 IID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=blog-backend" \
   "Name=instance-state-name,Values=running" \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 # ⚠️ 태그값에 공백이 섞이면 이 축약 필터는 조용히 아무것도 못 찾는다(CLI가 뒤 공백을
 #    잘라낸다). 2026-07-27에 실제로 여기서 20분을 잃었다. IID가 비면 태그부터 의심할 것.
+#    지금은 스크립트도 같은 방식으로 찾으므로, **여기서 못 찾으면 스크립트도 전부 못 찾는다.**
+#    태그를 고치는 것이 곧 복구다(스크립트를 고치는 게 아니라).
 [ -n "$IID" ] && [ "$IID" != "None" ] || { echo "인스턴스를 못 찾았다 — 태그 확인"; exit 1; }
 DNS=$(aws ec2 describe-instances --instance-ids "$IID" \
   --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
-echo "새 인스턴스 ID: $IID  ← 위 파일들의 INSTANCE_ID를 이 값으로 교체할 것"
+echo "새 인스턴스 ID: $IID  ← 스크립트는 이 값을 스스로 찾는다. 손댈 곳 없음."
 
 # 2) 부트스트랩 — user_data가 없어서 AMI는 맨바닥이다. 손으로 깔아야 한다.
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS

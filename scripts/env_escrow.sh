@@ -28,7 +28,10 @@
 
 set -euo pipefail
 
-INSTANCE_ID=i-0abdd1afc7041e167
+# 인스턴스 ID는 태그로 찾는다 — 재건할 때마다 손으로 고치던 자리다(DR 결함 F5, lib/ec2.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/ec2.sh"
+INSTANCE_ID=$(resolve_instance_id)
+
 SSH_KEY=~/.ssh/blog-key.pem
 ESCROW_DIR="$HOME/.blog-secrets"
 # 세 번째 사본. PC와 서버를 **동시에** 잃는 경우를 위한 자리다.

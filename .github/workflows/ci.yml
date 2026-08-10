@@ -109,6 +109,9 @@ jobs:
       # 바로 그 상태가 그대로 있었다 — 2026-07-28에 세어보니 스크립트 7개 중 6개만
       # 검사되고 ecs-oneshot.sh가 빠져 있었다. run 스텝으로 바꿔 러너 셸이 glob을
       # 확장하게 한다. 이제 새 스크립트는 추가되는 순간부터 검사된다.
+      # 2026-08-10: `scripts/*.sh`는 **하위 디렉터리를 안 본다**. scripts/lib/ec2.sh를
+      # 만들면서 같은 구멍이 다시 열렸다 — 검사 대상이 새로 생겼는데 조용히 빠지는,
+      # 위 문단이 고쳤다고 적은 바로 그 모양이다. glob 대신 find로 바꿔 깊이를 없앤다.
       # (넓히자마자 실제로 걸렸다: 이 커밋에서 추가한 check_runbook_drift.sh의 SC1087)
       # 이미지도 다이제스트로 고정한다. `:stable`은 언제 무엇으로 바뀌는지 알 수 없고,
       # 린터가 조용히 바뀌면 어제 초록이던 코드가 오늘 빨간불이 되거나 그 반대가 된다.
@@ -117,7 +120,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD":/mnt -w /mnt \
             koalaman/shellcheck@sha256:bb596a0d169b85ddd81d8b6d3a2ff6d5baf5fca10b97f575ebc647c3dff62b3d \
-            -S warning scripts/*.sh
+            -S warning $(find scripts -name '*.sh' | sort)
 
   runbook:
     runs-on: ubuntu-latest

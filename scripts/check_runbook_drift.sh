@@ -136,31 +136,38 @@ done < <(grep -oE '\-target=[a-z0-9_]+\.[a-z0-9_]+' "$RUNBOOK" | sed 's/-target=
 [ "$n" -gt 0 ] || bad "런북에 -target 주소가 0개입니다 — 복구 절차의 범위 좁히기가 사라졌거나 표기가 바뀌었습니다."
 echo "     (-target 주소 $n개 검사)"
 
-# ── D. 스크립트들의 INSTANCE_ID가 전부 같은가 ───────────────────────────────
-say "D. 스크립트들의 INSTANCE_ID가 전부 같은가"
-# 값 추출과 개수 세기를 **한 번의 추출에서** 뽑는다. 예전엔 둘이 다른 정규식이었고,
-# 값 쪽만 따옴표를 못 읽었다. 그래서 `INSTANCE_ID="i-다른값"` 한 줄이 비교에서 사라지는데
-# 개수에는 남아, "5개가 전부 같다"고 초록을 내면서 실제로는 4개만 본 상태가 됐다
-# (2026-07-28 심층검사에서 재현). 따옴표를 허용하고, 못 읽은 줄이 있으면 실패시킨다.
-raw_ids=$(grep -hE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh || true)
-if [ -z "$raw_ids" ]; then
-  bad "스크립트에서 INSTANCE_ID를 한 건도 못 찾았습니다 — 패턴이 코드와 어긋났거나 스크립트 구조가 바뀌었습니다."
+# ── D. 스크립트가 인스턴스 ID를 박아두지 않았는가 ───────────────────────────
+say "D. 스크립트가 인스턴스 ID를 박아두지 않았는가"
+# 2026-08-10 이전의 이 검사는 **"5개 파일의 INSTANCE_ID가 전부 같은가"**였다.
+# 그건 재건할 때마다 5곳을 손으로 고치는 절차를 **전제한** 검사다 — 즉 DR 결함 F5를
+# 없애는 게 아니라 F5를 반만 지키는지 감시하고 있었다. 태그 조회(scripts/lib/ec2.sh)로
+# 바꿔 절차 자체를 없앴으므로, 이제 볼 것은 '같은가'가 아니라 **'박혀 있는가'**다.
+hard=$(grep -nE '^[[:space:]]*INSTANCE_ID=[[:space:]]*["'"'"']?i-' \
+  "$ROOT"/scripts/*.sh "$ROOT"/scripts/lib/*.sh 2>/dev/null || true)
+if [ -n "$hard" ]; then
+  bad "스크립트에 인스턴스 ID가 박혀 있습니다 — 재건하면 이 줄들이 전부 거짓이 됩니다:"
+  printf '%s\n' "$hard" | sed 's/^/       /'
 else
-  id_lines=$(printf '%s\n' "$raw_ids" | grep -c . || true)
-  ids=$(printf '%s\n' "$raw_ids" \
-    | sed -E 's/^INSTANCE_ID=[[:space:]]*["'"'"']?([A-Za-z0-9-]+).*/\1/' | sort -u)
-  parsed_lines=$(printf '%s\n' "$raw_ids" \
-    | grep -cE '^INSTANCE_ID=[[:space:]]*["'"'"']?[A-Za-z0-9-]+' || true)
-  uniq_count=$(printf '%s\n' "$ids" | grep -c . || true)
+  ok "박힌 인스턴스 ID 없음 (태그로 찾는다)"
+fi
 
-  if [ "$parsed_lines" -ne "$id_lines" ]; then
-    bad "INSTANCE_ID 줄 ${id_lines}개 중 ${parsed_lines}개만 값을 읽었습니다 — 비교가 성립하지 않습니다:"
-    grep -nE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh | sed 's/^/       /'
-  elif [ "$uniq_count" -eq 1 ]; then
-    ok "스크립트 ${id_lines}개가 전부 같은 ID ($ids)"
+# 박힌 게 없다는 것만으로는 부족하다 — 조회를 **쓰는지**도 봐야 한다.
+# 그러지 않으면 누가 INSTANCE_ID 줄을 지우기만 해도 이 검사가 초록이 된다.
+if [ ! -f "$ROOT/scripts/lib/ec2.sh" ]; then
+  bad "scripts/lib/ec2.sh가 없습니다 — 태그 조회의 단일 출처가 사라졌습니다."
+else
+  miss=""
+  for s in stop_server restore_drill env_escrow watch deploy_backend; do
+    if [ ! -f "$ROOT/scripts/$s.sh" ]; then
+      miss="$miss $s.sh(파일없음)"
+    elif ! grep -q 'resolve_instance_id' "$ROOT/scripts/$s.sh"; then
+      miss="$miss $s.sh"
+    fi
+  done
+  if [ -n "$miss" ]; then
+    bad "인스턴스를 다루는데 태그 조회를 안 쓰는 스크립트:$miss"
   else
-    bad "INSTANCE_ID가 갈렸습니다 — 인스턴스를 재건하고 일부만 고친 상태로 보입니다:"
-    grep -nE '^INSTANCE_ID=' "$ROOT"/scripts/*.sh | sed 's/^/       /'
+    ok "스크립트 5개가 전부 resolve_instance_id로 찾는다"
   fi
 fi
 

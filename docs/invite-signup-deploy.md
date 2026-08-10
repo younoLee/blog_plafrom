@@ -6,7 +6,8 @@
 > 대상 커밋: `f898890` 초대제 · `3dbe132` Web Push
 > 명령은 **사용자가 실행한다(규칙7)**. 결과는 같이 읽는다.
 >
-> 공통 변수: EC2 `i-0abdd1afc7041e167` · 키 `~/.ssh/blog-key.pem` · 버킷 `blogplafromops`
+> 공통 변수: EC2 = Name 태그 `blog-backend` (ID는 안 적는다 — 재건하면 바뀐다.
+> 스크립트는 `scripts/lib/ec2.sh`로 스스로 찾는다) · 키 `~/.ssh/blog-key.pem` · 버킷 `blogplafromops`
 > · 배포 `E1438IL9CSVBS4` · 프론트 `https://d2j66m9udyg9yq.cloudfront.net`
 > · 새 마이그레이션 head `e5f6a7b8c9d0`
 
@@ -50,8 +51,14 @@ git push origin main
 ## 2. 서버 켜기
 
 ```bash
-aws ec2 start-instances --instance-ids i-0abdd1afc7041e167
-aws ec2 wait instance-running --instance-ids i-0abdd1afc7041e167
+# ID를 박지 않는다 — 재건하면 바뀐다(DR 결함 F5). 태그로 찾는다.
+IID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=blog-backend" \
+  "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)
+echo "$IID"   # 비었거나 None이면 태그부터 확인할 것
+
+aws ec2 start-instances --instance-ids "$IID"
+aws ec2 wait instance-running --instance-ids "$IID"
 ```
 
 ## 3. 백엔드 배포
@@ -101,7 +108,7 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> \
 #    (pgdata가 그 위에 있다). stop_server.sh가 같은 이유로 plan을 먼저 뽑는다.
 terraform -chdir=terraform plan -out=/tmp/unpark.tfplan \
   -var="backend_origin_dns=$(aws ec2 describe-instances \
-    --instance-ids i-0abdd1afc7041e167 \
+    --filters "Name=tag:Name,Values=blog-backend" "Name=instance-state-name,Values=running" \
     --query 'Reservations[0].Instances[0].PublicDnsName' --output text)"
 
 # 2) 'Plan: 0 to add, 1 to change, 0 to destroy' 이고 바뀌는 게

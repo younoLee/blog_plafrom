@@ -31,7 +31,13 @@
 # 문제를 모아서 한 번에 보여주는 게 이 스크립트의 목적이다.
 set -uo pipefail
 
-INSTANCE_ID=i-0abdd1afc7041e167
+# 인스턴스 ID는 태그로 찾는다 — 재건할 때마다 손으로 고치던 자리다(DR 결함 F5, lib/ec2.sh).
+# 여기서 죽지 않는다(`|| INSTANCE_ID=""`). 조회가 실패해도 나머지 점검(백업·이미지·SES·
+# 예산·알람)은 인스턴스와 무관하게 볼 수 있고, 이 스크립트의 목적은 문제를 모아 보여주는 것이다.
+# 빈 값은 아래 1번 점검이 실패로 잡는다.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/ec2.sh"
+INSTANCE_ID=$(resolve_instance_id) || INSTANCE_ID=""
+
 ACCOUNT_ID=181568979775
 BUCKET=blog-db-backups-181568979775
 IMAGE_BUCKET=blogplafromops
@@ -75,11 +81,14 @@ now=$(date -u +%s)
 # 이 조합이 핵심이다. '꺼져 있음'은 정상이고 '켜져 있는데 API가 죽음'이 이상이다.
 # 지금까지 이 상태(EC2 running + 오리진 주차)가 몇 시간씩 방치돼도 아무도 몰랐다.
 read -r state launch <<EOF
-$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region "$REGION" \
+$(aws ec2 describe-instances --instance-ids "${INSTANCE_ID:-none}" --region "$REGION" \
    --query 'Reservations[0].Instances[0].[State.Name,LaunchTime]' --output text 2>/dev/null)
 EOF
 
-if [ -z "${state:-}" ]; then
+if [ -z "$INSTANCE_ID" ]; then
+  # 태그 조회가 실패했다. 위 stderr에 이유가 이미 찍혔다(권한 / 0건 / 여러 건).
+  fail "Name=$INSTANCE_NAME_TAG 태그로 인스턴스를 못 찾았다 — 위 조회 실패 메시지 참고."
+elif [ -z "${state:-}" ]; then
   fail "EC2 상태를 못 읽었다 (권한이나 인스턴스 ID 확인: $INSTANCE_ID)"
 elif [ "$state" = "terminated" ] || [ "$state" = "shutting-down" ]; then
   # 이건 '꺼짐'이 아니라 '사라짐'이다. 루트 볼륨이 delete_on_termination이라 DB도 같이 간다.
