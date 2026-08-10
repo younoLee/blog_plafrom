@@ -47,7 +47,12 @@ CloudFront → ALB → ECS Fargate(2태스크) → RDS Postgres 16.14. 순서:
 - **alembic × configparser × RDS 비번:** RDS 자동생성 비번의 특수문자를 URL 인코딩하니 `%3E` 등이
   생겼고, `alembic/env.py`가 그 URL을 configparser로 넘겨 `%`를 보간문법으로 오해해 터졌다
   (`invalid interpolation syntax`). 서빙(SQLAlchemy 직접)은 멀쩡했다. → run-task 실행기가 alembic일
-  때만 `%`→`%%` 이중화로 우회. 정식 수정은 `env.py`에서 `.replace("%","%%")`(미적용, 잠재버그로 남김).
+  때만 `%`→`%%` 이중화로 우회. 정식 수정은 `env.py`에서 `.replace("%","%%")`.
+  > **(2026-08-10 정정) 위의 "미적용, 잠재버그로 남김"은 거짓이었다.** 실제로는 `backend/alembic/env.py:37`에
+  > 이미 적용돼 있고, 넣은 커밋이 **이 문서를 쓴 커밋과 같다**(`9ae515e`, 2026-07-24 — env.py와
+  > 이 파일을 한 번에 건드렸다). 즉 문서는 **태어날 때부터 틀렸다.** 고친 손과 기록한 손이 같은
+  > 커밋 안에 있었는데도 어긋난 것이라, "나중에 낡았다"로도 변명이 안 된다.
+  > 대가: 2026-08-09까지 2주 반 동안 **있지도 않은 잠재버그**가 백로그에 살아 있었다.
 - **RDS가 프라이빗이라 랩탑에서 직접 복원 불가** → 덤프 복원 대신 run-task로 스키마 생성 + 데모 시드
   (오케스트레이션 증명이 목적이라 실데이터 이관은 생략).
 - **레이트리밋이 실제 클라 IP 기준으로 동작** — 앞서 고친 `trusted_proxy_hops=2`(CloudFront→ALB→task

@@ -170,14 +170,28 @@ CRITICAL/HIGH 대부분을 apply 전에 고쳤다.
 5. RDS SG egress 제거, 배포 SSH `accept-new`(LOW).
 
 **남긴 것(문서화·판단 필요):**
-- **AI 캡 비원자성(MEDIUM, 미고침·권장).** `ai_usage`가 SELECT→`+=`→commit이라 동시요청에
+- ~~**AI 캡 비원자성(MEDIUM, 미고침·권장).**~~ `ai_usage`가 SELECT→`+=`→commit이라 동시요청에
   TOCTOU+lost-update → 데모 계정이 여러 IP로 몰리면 월 캡(Claude 200) 초과 가능 = 실제 돈.
   고치려면 원자적 upsert(`INSERT … ON CONFLICT DO UPDATE … RETURNING`)로 재구성 + 동시성 테스트.
+  > **(2026-08-10 정정) 이미 고쳐졌다 — 같은 날인 2026-07-24, 커밋 `37cb338`.** 권장한 그대로
+  > `on_conflict_do_update`로 재구성돼 있다(`ai_usage.py` 52·84·134). 그런데 이 목록은
+  > 2026-08-09까지 "미고침·권장"으로 남아 있었다.
+  > **덧붙임(2026-07-30 비용 가드레일 훈련):** 원자적으로 만든 뒤에도 캡은 새어나갔다 —
+  > 원자적인 건 *증가*였고 *판단*은 그 앞에서 따로 하고 있었으며, 그 사이에 LLM 호출이
+  > 들어 있어 창이 밀리초가 아니라 **3초**였다(19/20에서 동시 5발 → 전부 통과, 24/20).
+  > `docs/cost-guardrail-drill-20260730.md`. 즉 이 항목은 '고쳐짐'이 아니라 **'고치고 다시
+  > 새는 걸 훈련으로 잡음'**이 정확한 상태다.
 - **오리진 공유 시크릿 헤더(MEDIUM, 기존 TODO).** ALB SG가 'CloudFront 엣지 전체'라 공격자가 자기
   배포로 ALB를 직접 때려 WAF/함수 우회 가능(현 EC2도 동일). CloudFront가 비밀 헤더 주입 + 앱/WAF 검사.
-- **데모 writer가 public 글 발행 → 공개 훼손 가능(MEDIUM, 사용자가 07-24에 의도적 보류).** 블래스트는
+- ~~**데모 writer가 public 글 발행 → 공개 훼손 가능(MEDIUM, 사용자가 07-24에 의도적 보류).**~~ 블래스트는
   한정됨(남의 글 수정·삭제 불가, 업로드 매직바이트 검사). visibility=public 차단 가드는 배포 필요라 보류 중.
-- 서드파티 액션 SHA 핀·reqsize Content-Length 우회(LOW, 기존 TODO).
+  > **(2026-08-10 정정) 이 항목은 이제 성립하지 않는다 — 데모 계정 자체가 없다.**
+  > 2026-08-07 `8d3fd62`(공개 데모 계정 폐지)로 버튼·계정·관련 코드가 전부 지워졌고, 가입은
+  > 초대 링크로만 열린다. `grep -i demo backend/app` = 0건(2026-08-10 실측).
+  > **'보류 중인 가드'가 아니라 '지킬 대상이 사라진 가드'다.** 백로그에서 지운다.
+- ~~서드파티 액션 SHA 핀~~·reqsize Content-Length 우회(LOW, 기존 TODO).
+  > **(2026-08-10 정정) SHA 핀은 끝났다.** `.github/workflows/*.yml`의 `uses:`가 전부
+  > 40자 커밋 SHA로 고정돼 있다(실측: SHA 아닌 `uses:` 0건). reqsize 쪽만 남았다.
 
 **검증됨(오탐 아님):** DATABASE_URL 조립 셸/인코딩, 시크릿 KMS 불필요, 실행/태스크 역할 분리,
 target_type=ip·헬스체크, 오토스케일 resource_id, 컷오버 포트 스위치 — 전부 정상.
