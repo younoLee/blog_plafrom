@@ -151,7 +151,25 @@ export async function redeemInvite(token: string, password: string): Promise<voi
 export async function fetchMe(): Promise<User | null> {
   const t = getToken()
   if (!t) return null
-  const res = await fetch(`${BASE}/auth/me`, { headers: authHeaders() })
+  // 순수 읽기라 읽기 규칙(http.ts)대로 8초에 끊는다. 쓰기에 타임아웃을 안 거는 예외
+  // 사유("abort해도 서버 일은 안 되돌아간다")는 여기 해당하지 않는다.
+  //
+  // 안 끊으면 무슨 일이 나는가 (2026-08-10 심층검사): AuthProvider가 부팅 때 이걸 부르고
+  // 그동안 loading=true인데, AdminPage·SettingsPage·PaymentPage·WritePostPage가 전부
+  // `if (loading) return null`이다. 서버가 꺼져 있으면 CloudFront origin_read_timeout
+  // (60초)까지 네 화면이 **헤더 아래 통째로 백지**가 된다 — 스피너도 절전 안내도 없이.
+  // 서버를 필요할 때만 켜는 운영이라 그게 평상시 상태이고, 익명 방문자는 토큰이 없어
+  // 요청 자체를 안 하므로 **로그인한 사람(=블로그 주인)만 정확히 맞는 버그**였다.
+  let res: Response
+  try {
+    res = await fetchWithTimeout(`${BASE}/auth/me`, { headers: authHeaders() })
+  } catch {
+    // 절전이든 네트워크 오류든 '지금은 모른다' → 아래 5xx와 같은 처리로 간다:
+    // **토큰은 지우지 않고** 비로그인으로 그린다. 서버가 깨면 새로고침에 복구된다.
+    // 예외를 여기서 삼키는 게 중요하다 — 호출부(AuthProvider)는 .catch가 없어서
+    // 던지면 unhandled rejection이 되고 loading이 영영 안 풀린다.
+    return null
+  }
   // 401(만료/위조)일 때만 토큰 정리. 5xx 같은 일시적 서버 오류엔 토큰을 지우지 않음
   // (안 그러면 서버가 잠깐 흔들릴 때 사용자가 강제 로그아웃돼 재로그인해야 함)
   if (res.status === 401) {

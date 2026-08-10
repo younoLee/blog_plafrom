@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import rehypeHighlight from 'rehype-highlight'
 import rehypeSlug from 'rehype-slug'
 import type { Post, SeriesNav, Visibility } from '../types/post'
 import type { Comment } from '../types/comment'
@@ -115,8 +114,15 @@ function PostDetailPage() {
           // 만든 값이고 서버에서 HTML을 새니타이즈하지 않는다. react-markdown 기본값은 raw HTML을
           // 렌더 안 해(무해 텍스트) → 그게 유일한 저장형 XSS 방어선이다. 넣는 순간 공개 블로그에
           // <img onerror> 같은 게 실행된다(2026-07-24 인젝션 심층검사에서 확인).
+          // rehypeHighlight를 뺐다(2026-08-10 심층검사). 이 블로그의 코드펜스는
+          // content/devlog/*.md 260개가 **전부 언어 태그가 없고**(```만 쓴다), 렌더 결과에
+          // language-* 클래스가 0건이다. rehype-highlight는 언어 클래스가 없고 detect가
+          // 기본 false면 그냥 return하므로 **단 한 블록도 하이라이트하지 않고 있었다** —
+          // 번들에서 highlight.js 159.8 KB(gzip 50.6)를 지고 하는 일이 0이었다.
+          // 화면은 전혀 변하지 않는다. 앞으로 ```bash처럼 언어를 붙여 쓸 생각이면
+          // 그때 {languages: {...}} 서브셋으로 되살려라(공통 37언어 전체는 172 KB, 7개면 52.9 KB).
           // rehypeSlug: 소제목에 id를 붙인다 → 목차(Toc)의 #앵커가 여기로 점프
-          rehypePlugins={[rehypeHighlight, rehypeSlug]}
+          rehypePlugins={[rehypeSlug]}
           components={{ img: (props) => <img {...props} className="rounded-lg" /> }}
         >
           {content}

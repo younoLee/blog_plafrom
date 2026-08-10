@@ -107,7 +107,25 @@ jobs:
       - name: S3 업로드
         working-directory: frontend
         # uploads/* 는 사용자가 올린 이미지 → --delete가 지우지 않게 제외 (같은 버킷 공유)
-        run: aws s3 sync dist/ s3://blogplafromops --delete --exclude "uploads/*"
+        #
+        # 2026-08-10: `--cache-control`이 없어서 **라이브 응답에 Cache-Control 헤더가 아예
+        # 없었다**(curl 실측). CloudFront 엣지는 잘 캐시하지만(x-cache: Hit) 브라우저는 아무
+        # 지시도 못 받아 휴리스틱 캐싱에 맡겨진다. 지시를 준다.
+        #
+        # **일부러 전부 must-revalidate 하나로 간다.** 해시 파일명 자산만 1년 immutable로
+        # 빼는 2-pass가 이론상 낫지만, 이 dist에는 이름이 안 바뀌는 파일이 많다 —
+        # devlog.html + devlog/*.html 25개(글 발행 때마다 내용이 바뀐다) · sw.js ·
+        # manifest.json · favicon.svg · icons.svg · og-image.png · rss.xml · sitemap.xml.
+        # 이걸 immutable 쪽에 잘못 넣으면 **배포해도 1년간 옛것이 뜬다.** 특히 sw.js는
+        # 브라우저가 캐시하면 알림 로직이 영영 안 갱신된다(public/sw.js가 스스로 걱정하는 문제).
+        # 게다가 2-pass는 `--delete`의 대상 범위가 --include/--exclude에 따라 갈려서,
+        # 옛 해시 번들이 안 지워지거나 반대로 지우면 안 될 것이 지워지는 실수가 쉽다
+        # (이 저장소는 `--delete`가 업로드 이미지를 지운 적이 이미 있다).
+        # must-revalidate여도 엣지 캐시는 그대로 돌고 브라우저는 304 한 번이면 끝난다.
+        # 방문자가 사실상 없는 블로그에서 그 차이보다 '배포가 반영되지 않는 위험'이 크다.
+        run: |
+          aws s3 sync dist/ s3://blogplafromops --delete --exclude "uploads/*" \
+            --cache-control "public,max-age=0,must-revalidate"
 
       - name: CloudFront 캐시 무효화
         run: aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { PostMetaResult } from '../api/posts'
+import { fetchBlogOwner } from '../api/subscriptions'
 import { ui } from '../ui'
 
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
 // 블로그 홈 우측 사이드바: 프로필 카드 + 최근 글 + 태그. 화면이 '꽉 찬 블로그'처럼 보이게 채워준다.
 // 집계는 목록(현재 페이지)이 아니라 서버의 /posts/meta를 쓴다 — 목록이 페이지로 끊기므로
@@ -12,8 +12,10 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
   const [owner, setOwner] = useState<{ name: string | null }>({ name: null })
 
   useEffect(() => {
-    fetch(`${BASE}/blog-owner`)
-      .then((r) => r.json())
+    // 같은 엔드포인트를 부르는 fetchBlogOwner()가 이미 있고 그건 타임아웃이 붙어 있다.
+    // 여기서만 맨 fetch를 복제해 두는 바람에, 서버가 꺼진 동안 이 요청 하나가 60초를
+    // 무음으로 매달려 있었다(.catch로 화면엔 안 보인다). 2026-08-10 심층검사.
+    fetchBlogOwner()
       .then((d) => setOwner({ name: d?.name ?? null }))
       .catch(() => {})
   }, [])

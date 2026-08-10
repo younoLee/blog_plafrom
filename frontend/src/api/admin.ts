@@ -1,4 +1,5 @@
 import { authHeaders, type User } from './auth'
+import { fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -138,7 +139,12 @@ export interface InfraStatus {
 }
 
 export async function fetchInfra(): Promise<InfraStatus> {
-  const res = await fetch(`${BASE}/admin/infra`, { headers: authHeaders() })
+  // 이 함수만 타임아웃이 필요하다 — AdminPage가 10초마다 폴링한다.
+  // 타임아웃이 없으면 각 요청이 CloudFront 오리진 상한(60초)까지 버텨서, 서버가 꺼져
+  // 있는 동안 in-flight 요청이 **최대 6개까지 계속 쌓인다**(2026-08-10 심층검사에서
+  // 이 저장소 유일의 재시도 폭주로 지목됐다). 8초 < 10초라 붙이는 순간 겹치지 않는다
+  // — NotificationBell이 30초 간격에 같은 8초를 쓰는 것과 같은 불변식이다.
+  const res = await fetchWithTimeout(`${BASE}/admin/infra`, { headers: authHeaders() })
   if (!res.ok) throw new Error('인프라 상태를 불러오지 못했어')
   return res.json()
 }

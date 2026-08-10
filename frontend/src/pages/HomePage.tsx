@@ -48,19 +48,26 @@ function HomePage() {
   }, [q])
 
   useEffect(() => {
+    // deps가 `user`(객체)가 아니라 `user?.id`인 이유: 로그인 상태면 첫 렌더에 user=null로
+    // 한 번 돌고, fetchMe가 도착해 user가 객체로 바뀌면 같은 effect가 또 돈다 → 매 방문마다
+    // /posts를 2회 요청했다(2026-08-10 심층검사). 익명은 setUser(null)이 같은 값이라
+    // 재실행되지 않아 영향이 없었고, 그래서 **로그인한 사람에게만** 두 배로 나갔다.
+    // 목록 결과를 바꾸는 건 사용자의 신원(비공개 글 가시성)이므로 id만 보면 충분하다.
+    //
     // 필터/페이지 변화 시 목록 재조회. loadPosts는 액션 후에도 재사용해 effect 밖에 두므로
     // deps에서 제외(넣으면 매 렌더 재생성으로 무한루프). setState는 await 뒤라 실제론 비동기.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPosts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, tag, q, page])
+  }, [user?.id, tag, q, page])
 
   // 사이드바 집계는 목록과 별개 — 페이지·검색과 무관하게 블로그 전체를 보여준다
   useEffect(() => {
     fetchPostsMeta()
       .then(setMeta)
       .catch(() => {})
-  }, [user])
+    // 위 목록 effect와 같은 이유로 user 객체가 아니라 id를 본다(중복 요청 방지).
+  }, [user?.id])
 
   function updateParams(next: Record<string, string | undefined>) {
     const params = new URLSearchParams(searchParams)

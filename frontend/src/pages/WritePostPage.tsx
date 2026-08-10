@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import rehypeHighlight from 'rehype-highlight'
 import type { Visibility } from '../types/post'
 import { getPost, createPost, updatePost } from '../api/posts'
 import { uploadImage } from '../api/uploads'
@@ -457,7 +456,7 @@ function WritePostPage() {
                 HTML을 새니타이즈 안 한다. react-markdown이 raw HTML을 안 렌더하는 게 저장형 XSS
                 방어선. (PostDetailPage에 같은 주석) */}
             {content.trim() ? (
-              <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{content}</ReactMarkdown>
+              <ReactMarkdown>{content}</ReactMarkdown>
             ) : (
               <p className="text-gray-400 dark:text-gray-500">미리볼 내용이 없어. 먼저 내용을 써봐.</p>
             )}

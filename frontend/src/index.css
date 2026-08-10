@@ -16,8 +16,11 @@
 
 /* 애플풍 폰트 스택: 영문은 SF, 한글은 Pretendard(글리프 단위로 자동 폴백) */
 :root {
+  /* 'Pretendard Variable'이 먼저다 — index.html이 싣는 dynamic-subset CSS가 정의하는
+     이름이 그것이고, 그 CSS는 `Pretendard`를 정의하지 않는다. 뒤의 맨 `Pretendard`는
+     로컬에 설치해 둔 사람을 위한 공짜 폴백으로 남긴다(서브셋 CSS는 local()을 안 쓴다). */
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    Pretendard, system-ui, "Helvetica Neue", sans-serif;
+    "Pretendard Variable", Pretendard, system-ui, "Helvetica Neue", sans-serif;
 }
 
 html {
@@ -51,49 +54,8 @@ body {
   animation: gradient-pan 6s ease infinite;
 }
 
-/* 코드블록 문법 하이라이팅 (rehype-highlight의 hljs 클래스에 색 입힘).
-   prose의 코드블록 배경이 라이트/다크 모두 어두우므로 GitHub-dark 톤 하나로 통일한다. */
-.hljs-comment,
-.hljs-quote {
-  color: #8b949e;
-  font-style: italic;
-}
-.hljs-keyword,
-.hljs-selector-tag {
-  color: #ff7b72;
-}
-.hljs-string,
-.hljs-doctag,
-.hljs-regexp,
-.hljs-addition {
-  color: #a5d6ff;
-}
-.hljs-title,
-.hljs-section,
-.hljs-name {
-  color: #d2a8ff;
-}
-.hljs-variable,
-.hljs-template-variable,
-.hljs-attr,
-.hljs-attribute,
-.hljs-number,
-.hljs-literal,
-.hljs-symbol,
-.hljs-bullet {
-  color: #79c0ff;
-}
-.hljs-built_in,
-.hljs-type {
-  color: #ffa657;
-}
-.hljs-meta,
-.hljs-deletion {
-  color: #8b949e;
-}
-.hljs-emphasis {
-  font-style: italic;
-}
-.hljs-strong {
-  font-weight: 600;
-}
+/* 코드블록 하이라이팅용 .hljs-* 규칙 44줄을 2026-08-10에 지웠다.
+   rehype-highlight를 뺐기 때문이다 — 이 블로그의 코드펜스 260개가 전부 언어 태그가
+   없어서 hljs 클래스가 애초에 한 번도 붙지 않았다(렌더 결과 language-* 0건).
+   즉 이 색 규칙들은 처음부터 아무 글자에도 적용된 적이 없는 죽은 코드였다.
+   코드블록 배경/여백은 prose(@tailwindcss/typography)가 계속 담당한다. */
