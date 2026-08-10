@@ -41,7 +41,24 @@ def run_checks() -> dict:
     try:
         with engine.connect() as conn:
             conn.execute(text("select 1"))
-            post_count = conn.execute(text("select count(*) from posts")).scalar()
+            # **공개 글만 센다.** /api/status는 무인증이고 이 값은 상태 페이지의 카드로
+            # 나간다. 전체를 세면 `GET /api/posts`의 total(비로그인=public만,
+            # routers/posts.py의 visible_condition)과 어긋나고 **그 차이가 곧 숨긴 글의
+            # 개수**다. 2026-08-10 무인증으로 재현했다:
+            #   공개 17 / 비공개 1 / 구독자전용 1 일 때
+            #   GET /api/posts?limit=1 → total 17,  GET /api/status → stats.posts 19
+            # 내용은 안 새지만 "숨긴 글이 2편 있고 방금 하나 늘었다"가 나간다.
+            # 새 원칙이 아니라 **바로 아래 disk_ok가 이미 쓴 기준**이다("무인증 공개라
+            # 잔량 수치는 공격 진척 계기판이 된다 → 1비트만"). 그 기준이 이 줄에만
+            # 적용되지 않고 있었다. 덤으로 UI 거짓말도 닫힌다 — 상태 페이지가 19라고
+            # 하는데 목록은 17개만 보여주던 상태였다.
+            #
+            # 아래 subscribers는 같은 문제가 아니라 그대로 둔다. 기준은 '시행 중인 통제를
+            # 우회하는가'인데, author_subscriptions에는 행 단위 가시성이 없고(=비공개 구독이라는
+            # 개념이 없다) approved=true가 이미 대기 신청을 뺀다. 우회할 통제가 없다.
+            post_count = conn.execute(
+                text("select count(*) from posts where visibility = 'public'")
+            ).scalar()
             # '구독자' = 승인된 계정 구독을 가진 사람 수(중복 제거).
             # 2026-07-31 전까지는 폐지된 뉴스레터 테이블(subscribers)을 셌는데, 그 테이블은
             # 더 이상 늘지 않으므로 그대로 두면 **얼어붙은 숫자를 현재값처럼** 보여주게 된다.
@@ -129,6 +146,7 @@ def record_check() -> None:
                 backend_ok=c["backend_ok"],
                 database_ok=c["database_ok"],
                 mail_ok=c["mail_ok"],
+                disk_ok=c["disk_ok"],
             )
         )
         db.commit()
@@ -162,6 +180,7 @@ _SERVICES = [
     ("backend", "백엔드", "backend_ok"),
     ("database", "데이터베이스", "database_ok"),
     ("mail", "메일", "mail_ok"),
+    ("disk", "디스크", "disk_ok"),
 ]
 
 
@@ -177,7 +196,11 @@ def get_history(days: int = 30) -> dict:
                count(*) as total,
                sum(case when backend_ok then 1 else 0 end) as backend_up,
                sum(case when database_ok then 1 else 0 end) as database_up,
-               sum(case when mail_ok then 1 else 0 end) as mail_up
+               sum(case when mail_ok then 1 else 0 end) as mail_up,
+               -- disk_ok는 2026-08-10 이후 행에만 있다(그 전은 NULL). NULL을 '정상'으로
+               -- 세면 안 쟀던 과거가 초록으로 칠해진다 → 분모도 따로 센다.
+               sum(case when disk_ok then 1 else 0 end) as disk_up,
+               count(disk_ok) as disk_total
         from status_checks
         where checked_at >= :since
         group by day
@@ -195,6 +218,8 @@ def get_history(days: int = 30) -> dict:
                 "backend": r.backend_up,
                 "database": r.database_up,
                 "mail": r.mail_up,
+                "disk": r.disk_up,
+                "disk_total": r.disk_total,
             }
 
     # 최근 N일 날짜 목록 (오래된 → 오늘 순)
@@ -208,17 +233,23 @@ def get_history(days: int = 30) -> dict:
         total_all = 0
         for d in date_list:
             rec = by_date.get(d)
-            if rec and rec["total"] > 0:
+            # 분모를 서비스마다 따로 잡는다. disk_ok는 2026-08-10부터 기록되므로 그 전 행은
+            # NULL이고, 전체 점검 수를 분모로 쓰면 **안 쟀던 날이 '디스크 0% 정상'으로**
+            # 칠해진다. 그건 이 저장소가 반복해서 경계하는 '초록으로 썩는 검사'다.
+            denom = rec["disk_total"] if (rec and key == "disk") else (rec["total"] if rec else 0)
+            if rec and denom > 0:
                 day_rows.append(
                     {
                         "date": d,
-                        "uptime": round(rec[key] / rec["total"], 4),
-                        "checks": rec["total"],
+                        "uptime": round(rec[key] / denom, 4),
+                        "checks": denom,
                     }
                 )
                 up_all += rec[key]
-                total_all += rec["total"]
+                total_all += denom
             else:
+                # 기록이 없는 날은 uptime=None → 프론트가 회색으로 그린다.
+                # 디스크는 08-10 이전 구간이 통째로 여기 해당한다(안 잰 것이지 정상이 아니다).
                 day_rows.append({"date": d, "uptime": None, "checks": 0})
         overall = round(up_all / total_all, 4) if total_all else None
         services.append(

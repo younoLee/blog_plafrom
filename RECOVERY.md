@@ -119,11 +119,16 @@ DB만 띄우고 → 복원하고 → 백엔드를 띄운다.
 #    기본값("")으로 지나가, CloudFront가 X-Origin-Secret을 안 붙인다. 그런데 서버 .env엔
 #    ORIGIN_SECRET이 살아 있으므로 백엔드는 계속 검사한다 → /api/*가 전부 막힌다.
 #
-#    ⚠️⚠️ **증상을 403으로 찾으면 못 찾는다.** 오리진은 403을 주지만, 이 배포에는
-#    `custom_error_response`(403 → 200 /index.html)가 **distribution 전체**에 걸려 있어
-#    /api/* 에도 적용된다. 그래서 브라우저·curl이 보는 것은 **200 + HTML 덩어리**다.
-#    프론트는 그 HTML을 JSON으로 파싱하려다 깨진다. "화면은 뜨는데 글 목록이 안 나오고
-#    API 응답이 HTML"이면 이걸 의심할 것. 확인은 오리진에서 직접:
+#    ⚠️ **증상은 그냥 403이다.** 밖에서 curl 하면 403이 그대로 내려온다.
+#    (2026-08-10 정정) 예전에 이 자리에는 "403으로 찾으면 못 찾는다 — custom_error_response가
+#    403을 200 /index.html로 바꾸므로 200 + HTML 덩어리를 찾아라"라고 적혀 있었다.
+#    **그 블록은 2026-07-28에 제거됐다**(terraform/cloudfront.tf에 "다시 넣지 말 것"까지
+#    적혀 있고, 라이브 CustomErrorResponses.Quantity = 0으로 실측 확인). 즉 이 런북은
+#    재해 한복판의 운영자를 **영원히 나타나지 않는 증상**으로 보내고 있었다.
+#    같은 저장소의 scripts/watch.sh는 반대로 403을 곧바로 이 원인으로 안내한다 —
+#    두 문서가 정면으로 모순인 채였다. 07-27 게임데이가 "RTO 42분 중 20분이 문서가
+#    틀린 자리"라고 결론 낸 바로 그 부류라 지운다.
+#    확인은 오리진에서 직접 찔러 교차검증한다:
 #      ssh … 'curl -si localhost:8000/api/status | head -1'   # 403이면 이 문제가 맞다
 #    값은 에스크로 사본(~/.blog-secrets/prod.env 또는
 #    SSM /blog/prod/env)의 ORIGIN_SECRET과 같은 값이어야 한다.

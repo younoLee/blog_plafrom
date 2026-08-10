@@ -32,8 +32,9 @@ def test_get_latest_cold_start_runs_live(monkeypatch):
 def test_get_history_structure():
     days = 7
     h = status.get_history(days=days)
-    # 서비스 3개(backend/database/mail) 각각 일별 집계
-    assert {s["name"] for s in h["services"]} == {"backend", "database", "mail"}
+    # 서비스 4개(backend/database/mail/disk) 각각 일별 집계.
+    # disk는 2026-08-10 추가 — /api/status에 실으면서 기록·집계까지 같이 붙였다.
+    assert {s["name"] for s in h["services"]} == {"backend", "database", "mail", "disk"}
     for s in h["services"]:
         assert len(s["days"]) == days  # 요청한 일수만큼 날짜 채움(빈 날은 None)
         for d in s["days"]:
@@ -47,3 +48,66 @@ def test_get_history_clamped_days():
     # 하루짜리도 구조가 성립(경계)
     h = status.get_history(days=1)
     assert all(len(s["days"]) == 1 for s in h["services"])
+
+
+def test_run_checks_includes_disk():
+    """run_checks는 항상 disk_ok를 낸다.
+
+    main.py의 /api/status가 `c["disk_ok"]`를 폴백 없이 읽으므로 이게 계약이다.
+    처음엔 `.get("disk_ok", True)`로 뒀는데, 그 폴백은 도달 불가능한 죽은 코드였고
+    기본값 True가 '못 쟀으면 초록으로 넘기지 않는다'는 방침과 정반대였다(2026-08-10).
+    """
+    c = status.run_checks()
+    assert "disk_ok" in c
+    assert isinstance(c["disk_ok"], bool)
+
+
+def test_disk_history_does_not_count_unmeasured_days_as_up():
+    """disk_ok가 NULL인 행을 '정상'으로 세지 않는다.
+
+    이 컬럼은 2026-08-10에 nullable로 추가됐고 그 전 행이 수만 개다. 분모를 전체 점검
+    수로 잡으면 **안 쟀던 날이 '디스크 0% 정상'으로** 칠해진다 — 이 저장소가 반복해서
+    경계하는 '초록으로 썩는 검사'의 정확한 모양이라 회귀 테스트로 못박는다.
+
+    절대값이 아니라 **증분**을 본다. 같은 세션의 다른 테스트가 status_checks에 행을
+    남길 수 있어서 빈 테이블을 가정하면 안 된다(처음에 그렇게 썼다가 깨졌다).
+    db 픽스처(롤백 트랜잭션)도 못 쓴다 — get_history가 engine.connect()로 별도
+    커넥션을 열어 픽스처 안의 미커밋 행을 못 본다. 그래서 실제로 커밋하고 finally에서
+    넣은 id만 정확히 지운다.
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy import delete
+
+    from app.core.database import SessionLocal
+    from app.models.status_check import StatusCheck
+
+    def today_checks(name: str) -> int:
+        h = status.get_history(days=1)
+        return next(s for s in h["services"] if s["name"] == name)["days"][0]["checks"]
+
+    base_disk = today_checks("disk")
+    base_backend = today_checks("backend")
+
+    now = datetime.now(UTC)
+    rows = [
+        StatusCheck(checked_at=now, backend_ok=True, database_ok=True, mail_ok=True, disk_ok=None),
+        StatusCheck(checked_at=now, backend_ok=True, database_ok=True, mail_ok=True, disk_ok=None),
+        StatusCheck(checked_at=now, backend_ok=True, database_ok=True, mail_ok=True, disk_ok=True),
+    ]
+    session = SessionLocal()
+    ids = []
+    try:
+        session.add_all(rows)
+        session.commit()
+        ids = [r.id for r in rows]
+
+        # 세 행을 넣었는데 disk 분모는 **1만** 늘어야 한다(NULL 2개는 '안 쟀다').
+        assert today_checks("disk") - base_disk == 1
+        # 대조군: backend는 세 행 전부 값이 있으므로 분모가 3 늘어난다.
+        assert today_checks("backend") - base_backend == 3
+    finally:
+        if ids:
+            session.execute(delete(StatusCheck).where(StatusCheck.id.in_(ids)))
+            session.commit()
+        session.close()

@@ -104,6 +104,17 @@ def validate_base_url(url: str) -> str:
     도커 브리지가 홉을 하나 더 먹어서 1로 낮추면 업로드가 깨진다. 그래서 2다.
     """
     parsed = urlparse(url)
+    # ⚠️ `parsed.port` 접근이 **예외를 던질 수 있다.** 포트가 0~65535 밖이면
+    # (`https://example.com:99999/v1`) urlparse가 그때서야 평범한 `ValueError`를 낸다 —
+    # 파싱 시점이 아니라 **속성을 읽는 시점**이다. 아래 getaddrinfo 줄에서 처음 건드리는데,
+    # 라우터(routers/ai.py)는 InvalidBaseURLError만 잡으므로 그대로 새서 **500 text/plain**이
+    # 나갔다(2026-08-10 보안검사에서 실측 재현). 프론트는 JSON을 기대하므로 파싱조차 못 한다 —
+    # 07-28·07-31에 DB·S3·BYOK 복호화에 대해 반복해서 고쳤던 그 병이 이 입구에만 남아 있었다.
+    # 여기서 미리 읽어 우리 예외로 바꾼다.
+    try:
+        port = parsed.port
+    except ValueError:
+        raise InvalidBaseURLError("base URL의 포트 번호가 올바르지 않아 (1~65535)") from None
     if parsed.scheme != "https":
         raise InvalidBaseURLError("base URL은 https로 시작해야 해 (예: https://api.x.ai/v1)")
     host = parsed.hostname
@@ -111,7 +122,7 @@ def validate_base_url(url: str) -> str:
         raise InvalidBaseURLError("base URL 형식이 올바르지 않아")
     # 호스트네임을 실제 IP로 풀어서(별칭으로 내부 IP 가리키는 것까지) 전부 검사
     try:
-        infos = socket.getaddrinfo(host, parsed.port or 443, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
         raise InvalidBaseURLError("base URL의 주소를 확인할 수 없어 (호스트명 확인)")
     for info in infos:

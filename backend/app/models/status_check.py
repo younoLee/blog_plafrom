@@ -19,3 +19,8 @@ class StatusCheck(Base):
     backend_ok: Mapped[bool] = mapped_column(Boolean)
     database_ok: Mapped[bool] = mapped_column(Boolean)
     mail_ok: Mapped[bool] = mapped_column(Boolean)
+    # 2026-08-10 추가. 같은 날 /api/status에 disk를 실었는데 **기록은 안 하고 있었다** —
+    # 그래서 두 번의 감시 사이에 임계를 넘었다 돌아오면 흔적이 0이었다(보안검사 지적).
+    # nullable: 이 컬럼이 생기기 전 행이 이미 수만 개라 소급 값이 없다. NULL은
+    # '그때는 안 쟀다'는 뜻이고, 집계는 아래 get_history가 NULL을 정상으로 세지 않는다.
+    disk_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

@@ -271,9 +271,11 @@ async def require_origin_secret(request: Request, call_next):
     closed로 굴면 켜는 순서를 한 번만 틀려도(백엔드를 CloudFront보다 먼저) /api/*가
     통째로 막힌다. 켜고 끄는 순서는 terraform/variables.tf의 origin_secret에 적어뒀다.
 
-    ⚠️ 이 403은 밖에서 403으로 안 보인다 — CloudFront의 custom_error_response가
-    403을 200 /index.html로 바꾼다(distribution 전체 적용이라 /api/*도 걸린다).
-    사고 때 이걸 모르면 "200인데 JSON이 아니다"에서 헤맨다. RECOVERY.md 참고.
+    ⚠️ 이 403은 밖에서도 403으로 보인다. (2026-08-10 정정) 예전엔 여기에
+    "custom_error_response가 200 /index.html로 바꾸므로 403으로 안 보인다"고 적혀
+    있었는데, 그 블록은 2026-07-28에 제거됐다(terraform/cloudfront.tf, 라이브
+    CustomErrorResponses.Quantity = 0 실측). 같은 거짓이 RECOVERY.md·variables.tf에도
+    있어서 셋을 함께 고쳤다 — 재해 중에 없는 증상을 찾게 만드는 서술이었다.
     """
     expected = settings.origin_secret
     if expected and request.url.path not in ORIGIN_SECRET_EXEMPT:
@@ -332,9 +334,14 @@ def status(request: Request):
         "backend": "ok" if c["backend_ok"] else "down",
         "database": "ok" if c["database_ok"] else "down",
         "mail": "ok" if c["mail_ok"] else "down",
-        # get_latest()는 기동 직후 옛 모양(disk_ok 없음)을 줄 수 있다. KeyError로 여기가
-        # 500이 되면 감시가 'API 죽음'으로 오탐하므로 폴백을 둔다.
-        "disk": "ok" if c.get("disk_ok", True) else "down",
+        # 폴백을 두지 않는다. 처음엔 `c.get("disk_ok", True)`로 두고 "기동 직후 옛 모양을
+        # 줄 수 있다"고 적었는데 **그 주석이 거짓이었다**(2026-08-10, 같은 날 보안검사에서 지적).
+        # _latest는 프로세스 내 메모리 캐시라 이 프로세스의 run_checks()가 넣은 값뿐이고,
+        # 캐시가 없으면 get_latest()가 run_checks()를 직접 부른다 — run_checks는 항상
+        # disk_ok를 넣는다. 즉 그 폴백은 **도달 불가능한 죽은 코드**였고, 기본값 True는
+        # status.py가 "못 쟀으면 초록으로 넘기지 않는다"며 False로 잡은 방침과 정반대였다.
+        # 없는 키로 KeyError가 나는 게 맞다 — 그건 이 응답이 조립되는 계약이 깨졌다는 뜻이다.
+        "disk": "ok" if c["disk_ok"] else "down",
         "stats": {"posts": c["posts"], "subscribers": c["subscribers"]},
         # 이 점검이 **실제로 돈** 시각. 호출 시각을 찍으면 최대 60초 낡은 캐시가
         # 방금 잰 것처럼 보인다(2026-07-28 카오스 훈련). 사고 중 오판을 부르는 거짓이다.
