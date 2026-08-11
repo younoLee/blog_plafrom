@@ -2,7 +2,7 @@
 # (옛 주석은 0.115.x 시절 CVE-2024-47874 대응 근거였는데, 2026-07-22에 fastapi 0.139 /
 #  starlette 1.3 대로 올리면서 그 버전대 설명이 무의미해져 정리했다.)
 fastapi==0.141.1
-starlette==1.4.1
+starlette==1.5.0
 uvicorn[standard]==0.52.1
 sqlalchemy==2.0.51
 alembic==1.19.0
