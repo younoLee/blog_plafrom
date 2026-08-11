@@ -214,6 +214,25 @@ fi
 if [ "$src_n" -lt 0 ] || [ "$dst_n" -lt 0 ]; then
   : # 위에서 이미 fail 처리
 elif [ "$src_n" -eq 0 ] && [ "$dst_n" -gt 0 ]; then
+  # ⚠️ **판정 근거는 개수가 아니라 삭제 표식이다.** 개수 비교만 쓰면 오탐이 영구화된다:
+  #    사본을 만드는 stop_server.sh의 `aws s3 sync`에는 `--delete`가 없어서 **사본은
+  #    절대 줄지 않는다.** 그래서 사용자가 이미지를 정상적으로 전부 지우면
+  #    영구히 `원본 0 / 사본 N`이 되고, fail은 종료코드에 들어가므로 **매시 실패 메일**이
+  #    나간다. 해제 방법이 '사람이 백업 사본을 손으로 지우기'뿐인 알람은
+  #    이 파일이 스스로 경계하는 '영구 빨간불'이다. (2026-08-11 동료 리뷰)
+  #    삭제 표식이 있으면 진짜 삭제, 없으면 정상적으로 비운 것이다.
+  if dm=$(aws s3api list-object-versions --bucket "$IMAGE_BUCKET" --prefix uploads/ \
+      --query "length(DeleteMarkers[?IsLatest==\`true\`] || \`[]\`)" --output text 2>&1); then
+    if [ "$dm" = "0" ]; then
+      ok "업로드 이미지 없음(정상적으로 비움 — 삭제 표식 0건, 사본 $dst_n개는 과거분)"
+      dm=""
+    fi
+  else
+    warn "삭제 표식을 못 읽었다 — 권한 확인. 개수만으로 판정한다."
+    echo "     $dm"
+    dm="unknown"
+  fi
+  if [ -n "$dm" ]; then
   # **사본이 원본보다 많다는 것 자체가 원본 삭제의 신호다.** 예전엔 이 자리가
   # `src_n -eq 0 → ok "확인할 것 없음"`이었는데, 그건 RECOVERY.md의 시나리오 C
   # (업로드 이미지를 잃었다)와 **글자 그대로 같은 상태**를 초록으로 찍는 것이었다.
@@ -226,6 +245,7 @@ elif [ "$src_n" -eq 0 ] && [ "$dst_n" -gt 0 ]; then
   echo "       --query \"DeleteMarkers[?IsLatest==\\\`true\\\`].[Key,VersionId]\" --output text"
   echo "     aws s3api delete-object --bucket $IMAGE_BUCKET --key <KEY> --version-id <DELETE_MARKER_ID>"
   echo "     원인은 대개 --exclude \"uploads/*\" 없이 돌린 수동 aws s3 sync --delete 다."
+  fi
 elif [ "$src_n" -eq 0 ]; then
   ok "업로드 이미지 없음(원본·사본 모두 0)"
 elif [ "$dst_n" -ge "$src_n" ]; then

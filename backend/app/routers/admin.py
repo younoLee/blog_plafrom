@@ -235,6 +235,15 @@ def create_invite(
     # 토큰은 이 응답에만 실린다 — 500이 나가면 초대는 DB에 남는데 링크는 영영
     # 사라져서 취소하고 다시 발급하는 수밖에 없다. 부가 정보가 본 기능을 망치는
     # 전형적인 모양이라, 서비스가 이미 삼키더라도 호출부에서 한 번 더 막는다.
+    # **여기서 커넥션을 놓는다 — 위치가 전부다.** 아래 recipient_status는 SES 호출
+    # 2회(각 connect 2 + read 3초)라 최악 ≈10초인데, `:222`의 db.refresh가 연 트랜잭션이
+    # 그동안 풀 15칸 중 1칸을 `idle in transaction`으로 묶는다. ai.py:342·uploads.py:106과
+    # 같은 패턴의 세 번째 자리다.
+    # ⚠️ **`row` 조립(위 3줄) 뒤여야 한다.** 그 앞에서 커밋하면 expire_on_commit 때문에
+    #    `invite`·`admin`을 읽는 순간 refresh SELECT가 나가 방금 반납한 커넥션을 다시
+    #    빌린다. 여기서 그게 터지면 초대는 커밋됐는데 **원문 링크는 영영 사라진다.**
+    #    (2026-08-11 동료 리뷰 — 변론이 이 위치를 짚었다)
+    db.commit()
     try:
         verified = recipient_status(email)["verified"]
     except Exception:

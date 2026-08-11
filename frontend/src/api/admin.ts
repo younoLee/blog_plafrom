@@ -5,7 +5,7 @@ const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
 // 가입자 전원 목록 (관리자만 호출 가능 — 백엔드가 require_admin으로 검사)
 export async function listUsers(): Promise<User[]> {
-  const res = await fetch(`${BASE}/admin/users`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/admin/users`, { headers: authHeaders() })
   if (!res.ok) throw new Error('가입자 목록을 불러오지 못했어')
   return res.json()
 }
@@ -94,7 +94,7 @@ export interface InviteCreated extends Invite {
 }
 
 export async function listInvites(): Promise<Invite[]> {
-  const res = await fetch(`${BASE}/admin/invites`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/admin/invites`, { headers: authHeaders() })
   if (!res.ok) throw new Error('초대 목록을 불러오지 못했어')
   return res.json()
 }

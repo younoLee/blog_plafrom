@@ -283,8 +283,20 @@ def forgot_password(
     return {"message": "재설정 링크를 보냈어 (가입된 이메일이라면)"}
 
 
+# 이 파일의 리밋 축은 "**무인증으로 상태를 바꾸거나 메일을 쏘는 것**"이다 —
+# register 5/h · invite preview 30/h · redeem 10/h · login 10/min · forgot 5/h가 전부
+# 그 정의에 들어맞는다. **비밀번호를 무인증으로 바꾸는 유일한 입구인 여기만 빠져 있었다.**
+# (2026-08-11 동료 리뷰. `/auth/verify`는 allow_signup=False라 토큰 발급 자체가 없어 제외)
+#
+# 20/hour로 넉넉하게 둔다. slowapi는 프로세스 메모리 IP 카운터라 NAT 뒤 공용 IP면
+# 정상 사용자끼리 서로를 막는데, 재설정은 "지금 못 하면 계정이 잠긴 것과 같은" 화면이라
+# 목록 조회의 오탐과 비용이 다르다. 브루트포스는 이미 서명+1시간 만료+token_version
+# 1회용이 막고 있으므로, 이 리밋의 목적은 남용 속도 제한이지 방어의 본체가 아니다.
 @router.post("/reset-password", response_model=UserRead)
-def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("20/hour")
+def reset_password(
+    request: Request, data: ResetPasswordRequest, db: Session = Depends(get_db)
+):
     # reset 목적 토큰만 통과
     decoded = decode_email_token(data.token, purpose="reset")
     if decoded is None:

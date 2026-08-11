@@ -126,6 +126,14 @@ function StatusPage() {
           <ServiceRow name="백엔드 (API)" ok={status.backend === 'ok'} />
           <ServiceRow name="데이터베이스 (PostgreSQL)" ok={status.database === 'ok'} />
           <ServiceRow name="메일 (Mailpit / SMTP)" ok={status.mail === 'ok'} />
+          {/* 백엔드는 08-10부터 disk를 보내는데 이 카드에만 없었다 — 같은 페이지
+              아래 업타임 막대에는 "디스크" 줄이 뜨고 있어서, 한 화면이 스스로
+              어긋났다(위는 "다 정상", 아래는 디스크 장애). pgdata가 루트 볼륨에
+              살아서 이 1비트가 서버 안을 보는 유일한 창이다.
+              값이 없을 때는 줄을 안 그린다 — 옛 백엔드로 롤백해도 거짓 빨간불이 안 뜬다. */}
+          {status.disk !== undefined && (
+            <ServiceRow name="디스크 (여유 공간)" ok={status.disk === 'ok'} />
+          )}
         </div>
       )}
 

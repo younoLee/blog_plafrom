@@ -328,21 +328,23 @@ def create_draft(
     # (expire_on_commit으로 user가 만료돼 PK 조회 하나가 더 는다 — 1ms 미만).
     # rollback()도 반납되지만 commit을 쓴다. 이 지점에 밀린 쓰기가 없다는 보장이 코드에
     # 명시돼 있지 않고, rollback은 있으면 조용히 버린다.
+    #
+    # **커밋 전에 필요한 값을 로컬로 떠둔다.** `expire_on_commit=True`(기본)라
+    # 커밋 뒤 `user.id`를 읽는 순간 refresh SELECT가 나가 **위 commit이 방금 반납한
+    # 커넥션을 다시 빌린다** — 그것도 벤더 대기(최대 55초) 내내 `idle in transaction`으로.
+    # 즉 이 commit이 존재하는 이유를 그대로 되돌린다. 풀이 차 있으면 PoolTimeoutError가
+    # 503으로 나가 **이미 생성되고 이미 과금된 초안이 환불도 없이 사라진다**.
+    # ⚠️ 처음엔 이 두 줄을 commit **아래**에 두고 주석만 "커밋 전에 떠둔다"라고 적었다
+    #    — 주석과 코드가 반대였다(2026-08-11 동료 리뷰가 잡았다).
+    #    아래 경로에서 `user`를 다시 읽지 마라. 읽어야 하면 여기로 올려라.
+    uid = user.id
+    usage_day = ai_usage.today()  # 자정을 넘겨도 예약과 같은 날짜 버킷에 기록되게
     db.commit()
 
     # 실패한 서버키 호출은 세지 않는다(기존 의도) → 예약을 되돌린다. 무한 재시도가
     # 공짜가 되는 건 시간당 '시도' 캡이 막는다(그건 실패도 센다).
     # 되돌리기는 finally에 둔다 — 실패 경로가 셋(503/503/502)이라 각 except에 흩어놓으면
     # 하나만 빠뜨려도 사용자가 쓰지도 않은 한도를 잃는다.
-    # **커밋 뒤에는 ORM 객체를 건드리지 않는다.** `expire_on_commit=True`(기본)라
-    # `user.id`를 읽는 순간 refresh SELECT가 나가 커넥션을 다시 빌린다 — 위 commit이
-    # 반납한 그 커넥션을. 풀이 차 있으면 30초 뒤 PoolTimeoutError → main.py가 503으로
-    # 바꿔, **이미 생성되고 이미 과금된 초안이 환불도 없이 사라진다**(charged=True라
-    # finally의 환불도 안 돈다). 그래서 필요한 값을 커밋 전에 로컬로 떠둔다.
-    # (2026-08-11 교차검증 — `add_tokens`만 try로 감싸는 건 불완전한 수정이다)
-    uid = user.id
-    usage_day = ai_usage.today()  # 자정을 넘겨도 예약과 같은 날짜 버킷에 기록되게
-
     charged = False
     try:
         markdown, usage = generate_draft(body.memo, model, provider, user_key, base_url)
@@ -358,11 +360,11 @@ def create_draft(
         # 여기서 일일 슬롯을 돌려주면 인젝션 시도만 비용이 0이 되어, 캡이 걸린 계정으로
         # 가드를 무한히 두드려볼 수 있게 된다 — 정확히 반대로 가야 하는 방향이다.
         charged = True
-        violations = ai_usage.increment_guard_violation(db, user.id)
+        violations = ai_usage.increment_guard_violation(db, uid)
         logger.warning(
             "AI 가드 위반: reason=%s user=%s model=%s provider=%s memo=%s 누적=%d/%d",
             e.reason,
-            user.id,
+            uid,
             model,
             provider,
             ai_guard.memo_fingerprint(body.memo),  # 원문 대신 지문만
@@ -388,7 +390,7 @@ def create_draft(
         raise HTTPException(status_code=502, detail="AI 초안 생성에 실패했어 (키/모델명 확인 후 다시 시도)")
     finally:
         if provider == "claude" and not charged:
-            ai_usage.decrement_today(db, user.id)
+            ai_usage.decrement_today(db, uid)
 
     # 실제 토큰을 기록한다 — 서버키 경로만(BYOK는 사용자 본인 청구).
     # 여기가 이 저장소에서 **처음으로 토큰을 세는 자리**다(2026-08-11까지 0곳이었다).

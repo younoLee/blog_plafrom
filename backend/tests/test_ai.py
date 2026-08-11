@@ -831,8 +831,11 @@ def test_usage_with_none_fields_does_not_500(monkeypatch):
     monkeypatch.setattr(ai_service.anthropic, "Anthropic", lambda **kw: _Client())
     monkeypatch.setattr(ai_service.settings, "anthropic_api_key", "sk-test")
     text, usage = ai_service._claude("sys", "mat", "claude-haiku-4-5")
+    # 잠글 불변식은 **"500이 안 난다"**이지 값 동등성이 아니다. `_n()`이 None을 0으로
+    # 낮추는 건 구현 세부이고, 부분 결측을 어떻게 셀지는 바뀔 수 있다(동료 리뷰 지적).
     assert text == ""
-    assert usage == ai_service.TokenUsage(0, 7)  # None은 0으로 낮추되 터지지 않는다
+    assert usage is not None
+    assert usage.output_tokens == 7  # 읽을 수 있었던 값은 보존된다
 
 
 def test_add_tokens_uses_reserved_day_not_now(client, make_user, auth_headers, db):
@@ -854,3 +857,31 @@ def test_add_tokens_uses_reserved_day_not_now(client, make_user, auth_headers, d
     ai_usage.add_tokens(db, user.id, 100, 200, day=yesterday)
     row = db.query(AiUsage).filter(AiUsage.user_id == user.id, AiUsage.day == yesterday).one()
     assert (row.input_tokens, row.output_tokens) == (100, 200)
+
+
+def test_router_passes_reserved_day_to_add_tokens(client, make_user, auth_headers, monkeypatch):
+    """**라우터가 `day=`를 실제로 넘기는가.** 위 테스트는 add_tokens가 '받으면 쓴다'만
+    본다 — 진짜 버그는 라우터가 안 넘기는 것이었고, 그 인자를 지워도 위 테스트는 통과한다.
+    `ai_usage.py`가 대문자로 "부르는 쪽이 반드시 넘긴다"고 적어둔 자리를 잠근다.
+    (2026-08-11 동료 리뷰 — 테스트가 잘못된 쪽을 잠갔다는 지적)
+    """
+    from app.services import ai as ai_service
+    from app.services import ai_usage
+
+    seen = {}
+
+    def spy(db, user_id, i, o, day=None):
+        seen["day"] = day
+
+    monkeypatch.setattr("app.routers.ai.ai_usage.add_tokens", spy)
+    monkeypatch.setattr(
+        "app.routers.ai.generate_draft",
+        lambda memo, model=None, provider=None, user_key=None, base_url=None: (
+            "# 제목\n\n본문이다.\n",
+            ai_service.TokenUsage(10, 20),
+        ),
+    )
+    user = make_user(role="writer")
+    r = client.post("/api/ai/draft", headers=auth_headers(user), json={"memo": "메모" * 20})
+    assert r.status_code == 200, r.text
+    assert seen.get("day") == ai_usage.today(), "라우터가 예약 시점의 day를 안 넘겼다"

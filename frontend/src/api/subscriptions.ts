@@ -75,7 +75,7 @@ export async function fetchAuthors(): Promise<SubscribedAuthor[]> {
 
 // 내가 구독 중인 글쓴이 id 목록
 export async function fetchMySubscriptions(): Promise<number[]> {
-  const res = await fetch(`${BASE}/subscriptions`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/subscriptions`, { headers: authHeaders() })
   if (!res.ok) return []
   return res.json()
 }

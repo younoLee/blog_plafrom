@@ -32,6 +32,10 @@ from app.services.llm_keys import InvalidBaseURLError, validate_base_url
         ("https://172.16.0.1/v1", "사설 대역"),
         ("https://169.254.169.254/latest/meta-data/", "클라우드 메타데이터 — 이게 본질"),
         ("https://[::1]/v1", "IPv6 loopback"),
+        # 괄호가 안 닫힌 IPv6 — **urlparse() 자체가** ValueError를 던진다(포트 접근 전).
+        # 08-11에 그 자리를 try로 감쌌는데 회귀 테스트가 없어서, 세 줄을 지워도
+        # 전부 초록이었다. 위 `[::1]`은 문법이 멀쩡해 IP 검사에서 걸리는 다른 경로다.
+        ("https://[::1/v1", "깨진 IPv6 괄호 — urlparse가 파싱 시점에 던진다"),
         ("https://0.0.0.0/v1", "unspecified"),
     ],
 )

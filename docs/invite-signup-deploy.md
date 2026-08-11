@@ -47,7 +47,10 @@ git merge --ff-only feat/invite-signup
 git push origin main
 ```
 
-→ Actions에서 `Deploy Frontend`가 **빨간불**로 뜬다. 예상된 것이다(위 참조).
+→ ~~Actions에서 `Deploy Frontend`가 **빨간불**로 뜬다.~~
+**2026-08-11 정정** — 이제 push에서는 `Deploy Frontend`가 **아예 트리거되지 않는다**
+(자동 배포 폐지, `workflow_dispatch` 전용). 빨간불도 초록불도 없다 — 이 줄을 믿고
+빨간불을 기다리면 여기서 멈춘다. 위 22~25줄이 폐지를 정정하면서 이 줄만 안 쓸렸다.
 `CI`는 초록이어야 한다 — 빨갛다면 여기서 멈춘다.
 
 ## 2. 서버 켜기

@@ -110,8 +110,15 @@ resource "aws_s3_bucket_policy" "frontend" {
       Action    = "s3:GetObject"
       Resource  = "${aws_s3_bucket.frontend.arn}/*"
       Condition = {
+        # **리소스를 참조한다 — ID를 박지 않는다.** 여기 배포 ARN이 리터럴
+        # 문자열로 박혀 있었다(계정 ID까지). 배포를 재생성하면 새 ID가 이 Condition과
+        # 안 맞아 CloudFront가 S3를 **못 읽고 사이트 전체가 403**이 된다.
+        # 정적 프론트가 죽으면 "서버가 꺼져 있어도 devlog.html·rss.xml은 열린다"는
+        # 이 프로젝트 가용성의 마지막 보루까지 같이 죽는다.
+        # 참조로 바꾸면 terraform이 의존성을 잡아 재생성 시 자동으로 정합해진다. 비용 0.
+        # (2026-08-11 동료 리뷰)
         ArnLike = {
-          "AWS:SourceArn" = "arn:aws:cloudfront::181568979775:distribution/E1438IL9CSVBS4"
+          "AWS:SourceArn" = aws_cloudfront_distribution.main.arn
         }
       }
     }]

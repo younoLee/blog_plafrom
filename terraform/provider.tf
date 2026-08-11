@@ -20,6 +20,11 @@ terraform {
     bucket = "blog-tfstate-181568979775"
     key    = "blog/terraform.tfstate"
     region = "ap-northeast-2"
+    # S3 네이티브 잠금. DynamoDB 테이블 없이 되고 **추가 비용이 0**이다.
+    # 1인이라 동시 apply 확률은 낮지만, 잠금 없이 겹치면 state가 깨지고
+    # 그건 RECOVERY.md가 "시나리오 B의 1단계부터 못 밟는다"고 적은 그 자산이다.
+    # 비용 때문에 안 켠 게 아니라 그냥 빠져 있었다. (2026-08-11 동료 리뷰)
+    use_lockfile = true
   }
 }
 
