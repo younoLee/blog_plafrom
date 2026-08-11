@@ -137,6 +137,11 @@ DB만 띄우고 → 복원하고 → 백엔드를 띄운다.
 cat > terraform/terraform.tfvars <<'TFVARS'
 ssh_cidr      = "<지금 내 공인 IP>/32"   # curl -s https://checkip.amazonaws.com
 origin_secret = "<에스크로의 ORIGIN_SECRET과 같은 값>"
+# ⚠️ alert_email을 빼면 안 된다 — alerts.tf:98이 `count = alert_email != "" ? 1 : 0`이라
+#    값이 비면 SNS 이메일 구독이 **destroy** 되고, EC2 상태검사 알람이 아무에게도 안 간다.
+#    여기 빠져 있어도 check_runbook_drift.sh는 못 잡는다(그 검사는 기본값 없는 변수만 본다).
+#    2026-08-11 공백검사에서 발견 — 런북대로 재건한 뒤 첫 stop_server.sh에서 사라진다.
+alert_email   = "<알림 받을 주소>"
 TFVARS
 
 # 1) 인스턴스 재생성 — **-target으로 범위를 좁힌다.**

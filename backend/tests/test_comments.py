@@ -111,3 +111,66 @@ def test_comment_on_private_post_hidden(client, make_user, auth_headers):
     pid = r.json()["id"]
     # 볼 수 없는 글의 댓글 목록도 404 (글 존재 자체를 숨김)
     assert client.get(f"/api/posts/{pid}/comments").status_code == 404
+
+
+# ── 댓글 삭제(모더레이션) 인가 ─────────────────────────────────────────────
+# 2026-08-11 공백검사: 이 라우트에 테스트가 **0건**이었다. 권한 조건은
+# comments.py의 `if post.owner_id != user.id and user.role != "admin"` 한 줄뿐이라,
+# 그게 `or`로 바뀌거나 빠지면 **아무 로그인 사용자가 남의 글 댓글을 지운다.**
+def _post_with_comment(client, make_user, auth_headers, owner):
+    r = client.post(
+        "/api/posts", headers=auth_headers(owner), json={"title": "T", "content": "C"}
+    )
+    pid = r.json()["id"]
+    c = client.post(f"/api/posts/{pid}/comments", json={"author": "익명", "content": "안녕"})
+    assert c.status_code == 201, c.text
+    return pid, c.json()["id"]
+
+
+def test_delete_comment_by_post_owner(client, make_user, auth_headers):
+    owner = make_user(role="writer")
+    pid, cid = _post_with_comment(client, make_user, auth_headers, owner)
+    r = client.delete(f"/api/posts/{pid}/comments/{cid}", headers=auth_headers(owner))
+    assert r.status_code == 204
+    assert client.get(f"/api/posts/{pid}/comments").json() == []
+
+
+def test_delete_comment_by_admin(client, make_user, auth_headers):
+    owner = make_user(role="writer")
+    admin = make_user(role="admin")
+    pid, cid = _post_with_comment(client, make_user, auth_headers, owner)
+    assert (
+        client.delete(f"/api/posts/{pid}/comments/{cid}", headers=auth_headers(admin)).status_code
+        == 204
+    )
+
+
+def test_delete_comment_by_stranger_is_403_and_comment_survives(
+    client, make_user, auth_headers
+):
+    """403만 보고 끝내지 않는다 — **댓글이 실제로 남아 있는지**까지 본다."""
+    owner = make_user(role="writer")
+    stranger = make_user(role="writer")
+    pid, cid = _post_with_comment(client, make_user, auth_headers, owner)
+
+    r = client.delete(f"/api/posts/{pid}/comments/{cid}", headers=auth_headers(stranger))
+    assert r.status_code == 403
+    remaining = client.get(f"/api/posts/{pid}/comments").json()
+    assert [c["id"] for c in remaining] == [cid], "403인데 댓글이 지워졌다"
+
+
+def test_delete_comment_requires_auth(client, make_user, auth_headers):
+    owner = make_user(role="writer")
+    pid, cid = _post_with_comment(client, make_user, auth_headers, owner)
+    assert client.delete(f"/api/posts/{pid}/comments/{cid}").status_code == 401
+
+
+def test_delete_comment_wrong_post_is_404(client, make_user, auth_headers):
+    """다른 글의 댓글 id를 넘기면 404 — post_id/comment_id 짝을 검사하는가."""
+    owner = make_user(role="writer")
+    pid, cid = _post_with_comment(client, make_user, auth_headers, owner)
+    other = client.post(
+        "/api/posts", headers=auth_headers(owner), json={"title": "T2", "content": "C2"}
+    ).json()["id"]
+    r = client.delete(f"/api/posts/{other}/comments/{cid}", headers=auth_headers(owner))
+    assert r.status_code == 404

@@ -97,3 +97,19 @@ def test_extension_is_derived_not_from_filename(client, make_user, auth_headers)
     )
     assert r.status_code == 200
     assert r.json()["url"].endswith(".png")
+
+
+# ── 되돌리면 안 되는 불변식 ────────────────────────────────────────────────
+# uploads.py 상단이 대문자 경고로 "async def로 되돌리지 마라"고 적어둔 것을 잠근다.
+# 근거는 실측이다: async면 boto3 동기 호출이 이벤트 루프를 물어 **요청 1개로 API
+# 전체가 112.3초 정지**하고, 도커 헬스체크가 약 95초 뒤 unhealthy로 뒤집힌다.
+# 지금까지 이걸 지키는 건 주석뿐이었다(2026-08-11 공백검사).
+def test_upload_endpoint_is_not_async():
+    import inspect
+
+    from app.routers import uploads
+
+    assert not inspect.iscoroutinefunction(uploads.upload_image), (
+        "upload_image가 async def가 됐다. 그 안의 boto3 put_object는 동기라 "
+        "이벤트 루프를 물고, 워커가 1개라 요청 1개로 API 전체가 멈춘다(112.3초 실측)."
+    )

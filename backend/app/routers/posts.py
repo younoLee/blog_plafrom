@@ -239,7 +239,16 @@ def post_series(
 
     items = [SeriesItem(id=p.id, title=p.title, created_at=p.created_at) for p in rows]
     ids = [p.id for p in rows]
-    # 이 글이 목록에 없을 수는 없다(위에서 can_view 통과 = visible_condition도 통과).
+    # 여기 있던 주석은 "이 글이 목록에 없을 수는 없다(can_view 통과 = visible_condition 통과)"였다.
+    # **거짓이다** — 가시성만 보고 바로 위의 `.limit(SERIES_ITEMS_MAX)`를 안 봤다.
+    # 정렬이 created_at 오름차순이라 101편째부터는 ids에 없고, `.index()`가 ValueError를 던진다.
+    # main.py의 핸들러는 DB 계열만 잡으므로 그대로 **500 text/plain**이 나간다 —
+    # 07-28·07-31·08-10에 세 번 없앤 그 모양이다. (2026-08-11 공백검사)
+    #
+    # 네비를 못 그리는 것과 글이 안 열리는 것 중에는 전자가 낫다. 상한 밖이면 None을 준다
+    # (프론트는 fetchSeries가 null을 주는 경우를 이미 정상 처리한다 — SeriesBox를 안 그린다).
+    if post.id not in ids:
+        return None
     pos = ids.index(post.id)
     return SeriesNav(
         series=post.series,

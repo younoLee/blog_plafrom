@@ -95,13 +95,16 @@ jobs:
         #
         # **일부러 전부 must-revalidate 하나로 간다.** 해시 파일명 자산만 1년 immutable로
         # 빼는 2-pass가 이론상 낫지만, 이 dist에는 이름이 안 바뀌는 파일이 많다 —
-        # devlog.html + devlog/*.html 25개(글 발행 때마다 내용이 바뀐다) · sw.js ·
+        # devlog.html + devlog/*.html(편수는 content/devlog/의 파일 수를 따른다 —
+        #  숫자를 박아두면 낡는다. 2026-08-11 기준 28편) · sw.js ·
         # manifest.json · favicon.svg · icons.svg · og-image.png · rss.xml · sitemap.xml.
         # 이걸 immutable 쪽에 잘못 넣으면 **배포해도 1년간 옛것이 뜬다.** 특히 sw.js는
         # 브라우저가 캐시하면 알림 로직이 영영 안 갱신된다(public/sw.js가 스스로 걱정하는 문제).
         # 게다가 2-pass는 `--delete`의 대상 범위가 --include/--exclude에 따라 갈려서,
         # 옛 해시 번들이 안 지워지거나 반대로 지우면 안 될 것이 지워지는 실수가 쉽다
-        # (이 저장소는 `--delete`가 업로드 이미지를 지운 적이 이미 있다).
+        # (이 저장소는 `--delete`가 업로드 이미지를 지운 적이 이미 있다 —
+        #  2026-07-30 05:03 UTC에 실제로 2개가 지워졌고, watch.sh가 '원본 0개'를
+        #  '확인할 것 없음'으로 찍어 12일간 아무도 몰랐다. 08-11에 버저닝으로 복구).
         # must-revalidate여도 엣지 캐시는 그대로 돌고 브라우저는 304 한 번이면 끝난다.
         # 방문자가 사실상 없는 블로그에서 그 차이보다 '배포가 반영되지 않는 위험'이 크다.
         run: |

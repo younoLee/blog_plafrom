@@ -128,7 +128,7 @@ def test_confirm_success_activates_pro(client, make_user, auth_headers, toss):
     assert len(toss.calls) == 1  # 토스 승인 1회 호출
 
 
-def test_confirm_toss_rejection_marks_failed(client, make_user, auth_headers, toss):
+def test_confirm_toss_rejection_marks_failed(client, make_user, auth_headers, toss, db):
     user = make_user(role="writer")
     order = _checkout(client, auth_headers(user))
     toss.configure(status_code=400, body={"message": "카드 한도 초과"})
@@ -140,6 +140,15 @@ def test_confirm_toss_rejection_marks_failed(client, make_user, auth_headers, to
     )
     assert r.status_code == 400
     assert r.json()["detail"] == "카드 한도 초과"  # 토스 메시지 전달
+    # 이름이 marks_failed인데 여기까지가 전부였다 — DB를 한 번도 안 읽어서
+    # payments.py의 `p.status = "failed"`를 지워도 초록이었다(2026-08-11 공백검사).
+    # "유저는 Pro인데 기록은 실패"라는 회계 불일치가 정확히 이 자리에서 샌다.
+    from app.models.payment import Payment
+    from app.models.user import User
+
+    p = db.query(Payment).filter(Payment.order_id == order["order_id"]).one()
+    assert p.status == "failed"
+    assert db.get(User, user.id).is_pro is False, "결제가 거절됐는데 Pro가 켜졌다"
 
 
 def test_confirm_network_error_502(client, make_user, auth_headers, toss):

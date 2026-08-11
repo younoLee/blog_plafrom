@@ -14,7 +14,7 @@
 > **글 내용은 서버 없이도 읽을 수 있습니다** — 웹에서도 그렇습니다:
 > [개발일지 아카이브](https://d2j66m9udyg9yq.cloudfront.net/devlog.html) ·
 > [RSS](https://d2j66m9udyg9yq.cloudfront.net/rss.xml) ·
-> 저장소에서는 [`content/devlog/`](./content/devlog) (개발일지 24편).
+> 저장소에서는 [`content/devlog/`](./content/devlog) (개발일지 28편).
 > 이 셋은 S3에서 정적으로 나가므로 EC2가 꺼져 있어도 열립니다.
 
 > 이 프로젝트는 기능뿐 아니라 **왜 그렇게 만들었는지**를 개발일지로 남긴다 —
@@ -42,7 +42,7 @@
 | **백엔드** | FastAPI, PostgreSQL, SQLAlchemy 2.0, Alembic, JWT(PyJWT), slowapi(레이트리밋), boto3(S3), Anthropic/OpenAI/Gemini SDK |
 | **프론트엔드** | React 19, TypeScript, Vite, React Router, Tailwind CSS v4, react-markdown |
 | **인프라** | AWS EC2(Docker), CloudFront + S3, SES, Terraform(IaC), GitHub Actions(CI/CD) |
-| **테스트** | pytest(244) + 커버리지 70% 게이트, vitest(18), ruff 보안 규칙(SQLi 등) |
+| **테스트** | pytest + 커버리지 70% 게이트, vitest, ruff 보안 규칙(SQLi 등) |  <!-- 개수는 박지 않는다: 2026-08-11에 244로 낡아 있었고 실제는 290+였다 -->
 
 ## 아키텍처
 
@@ -58,7 +58,9 @@ flowchart LR
 
 - 프론트엔드는 S3 정적 호스팅, `/api/*`는 CloudFront가 EC2로 라우팅 → **전부 같은 HTTPS 도메인**(CORS·혼합콘텐츠 없음)
 - DB는 RDS가 아니라 **EC2 안 Postgres 컨테이너**(비용 최적화). 백업은 `pg_dump` → S3인데 **일일 cron이 아니라 '서버를 끌 때'** 돈다 — 이 서버는 필요할 때만 켜므로 cron 시각엔 늘 꺼져 있었고 2026-07-20까지 한 번도 실행되지 않았다. RPO는 '하루'가 아니라 **'마지막 정지 시점'**이다. 복구 절차는 [`RECOVERY.md`](./RECOVERY.md), 상세 배경은 [`PROGRESS.md`](./PROGRESS.md)
-- 모든 AWS 리소스는 `terraform/`에 코드화(import 방식으로 라이브 인프라 1:1 반영)
+- AWS 리소스 대부분을 `terraform/`에 코드화(import 방식으로 라이브 인프라 1:1 반영).
+  **밖에 남은 것 셋**: tfstate 버킷(자기 자신을 담는 곳) · SSM 파라미터 · IAM 유저 3명.
+  즉 `terraform plan`이 조용해도 그 셋의 콘솔 변경은 안 잡힌다(`RECOVERY.md:63` 참고).
 
 ## 로컬에서 실행하기
 
@@ -74,11 +76,24 @@ docker compose up -d --build
 | 백엔드 API 문서 | http://localhost:8000/docs |
 | Mailpit(메일 확인) | http://localhost:8025 |
 
-**첫 사용:** 회원가입 → **Mailpit(:8025)에서 인증 메일 확인** → 링크로 이메일 인증 → 로그인.
-(로컬은 실제 메일을 안 보내고 Mailpit이 전부 잡아준다.)
+**첫 사용:** 회원가입 화면은 **닫혀 있다.** `allow_signup`의 기본값이 `False`라
+(`backend/app/core/config.py:91`) `POST /api/auth/register`가 403을 준다 — 이 블로그는
+2026-08-07부터 초대제이고, 그 기본값은 로컬에도 그대로 적용된다.
 
-글쓰기 권한(writer)은 관리자 승인이 필요하다. 로컬에서 첫 계정을 admin으로 만들려면
-DB에서 `role`을 `admin`으로 바꾸면 된다.
+첫 계정은 스크립트로 만든다:
+
+```bash
+docker compose exec backend python scripts/create_user.py you@example.com --role admin
+# 비밀번호를 생략하면 안전한 랜덤 값을 만들어 출력한다. --password 로 직접 줄 수도 있다.
+```
+
+이 경로가 유일하게 열려 있다 — 화면의 회원가입을 따라가면 403에서 막힌다.
+스크립트는 가입 라우터를 안 거치므로 `email_verified=True`로 바로 로그인된다(인증메일 불필요).
+
+만든 뒤 로그인하면 된다. 메일이 필요한 흐름(비밀번호 재설정·구독 확인)은 로컬에서
+실제로 발송되지 않고 **Mailpit(:8025)**이 전부 잡아준다.
+
+글쓰기 권한(writer)은 관리자 승인이 필요하다 — 위처럼 `--role admin`으로 만든 계정이면 바로 쓸 수 있다.
 
 ## 테스트
 

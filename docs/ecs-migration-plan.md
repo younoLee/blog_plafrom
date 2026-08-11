@@ -227,6 +227,14 @@ task-role S3 스코프 정확, DB SSL(libpq prefer로 RDS force_ssl 충족), ori
 ### 🚨 apply·이관 런북 (3차 심층검사 반영 — 이 순서를 안 지키면 조용히 데이터 손실)
 3차 검사가 찾은 핵심: 아래 셋은 전부 **`/api/health`가 얕아(DB 미점검) healthy로 뜨는 탓에 조용히** 실패한다.
 
+> 🔴 **2026-08-11 정정 — 이 런북은 `enable_ecs`를 모른다.** 이 문서에 그 단어가 한 번도
+> 안 나오는데, ECS·ALB·RDS 리소스는 전부 `count = var.enable_ecs ? 1 : 0`으로 잠겨 있다
+> (`rds.tf:12,23` · `alb.tf:11,30,56` · `ecs.tf:77,133,220,272,282`, 기본값 **false**).
+> **그래서 아래 1)단계를 그대로 치면 `-target=aws_db_instance.main`이 count=0인 리소스를
+> 가리켜 RDS를 안 만들고 exit 0으로 끝난다** — SG 3개(`network.tf:34,61,88`, 게이트 없음)만
+> 생긴 채 "1단계 성공"으로 읽힌다. 모든 apply에 **`-var="enable_ecs=true"`를 같이 줘야 한다.**
+> (이 스위치의 존재는 `docs/dr-gameday-20260727.md:74`에만 적혀 있었고 이 런북으로 역전파되지 않았다.)
+
 **A. 단일 `terraform apply`는 실패한다 → 반드시 단계별(`-target`).**
 한 config라 그냥 apply하면 ECS 서비스(`wait_for_steady_state`)가 **아직 값이 없는** `blog-app-secrets`를
 참조해 태스크가 안 뜨고, 첫 배포라 서킷브레이커도 롤백할 곳이 없어 ~10분 뒤 apply가 에러난다. 순서:
@@ -272,10 +280,17 @@ Pro 부여가 되돌려지던 것, 동시 중복삽입 500 4곳(구독·구독me
 - **스위치 방식**으로 만들었다: `var.api_backend`(`ec2`|`ecs`, 기본 `ec2`)가 `/api/*` 오리진을 고른다.
   오리진 하나에 domain/port를 local로 골라(미참조 오리진 안 생김) 통째로 EC2(:8000)↔ALB(:80) 스위치.
   - **기본이 `ec2`라 이 코드를 apply해도 라우팅은 안 바뀐다** — 실제 컷오버는 `-var`로 명시할 때만.
-  - **컷오버**: `terraform apply -var="api_backend=ecs"` → /api/*가 ALB로. (+ CloudFront 무효화)
+  - **컷오버**: `terraform apply -var="api_backend=ecs" -var="alb_origin_dns=<ALB DNS>"` → /api/*가 ALB로. (+ CloudFront 무효화)
+    <ins>(**2026-08-11 정정** — 여기 `-var="api_backend=ecs"`만 적혀 있었다. `variables.tf:128`이
+    `api_use_ecs = var.api_backend == "ecs" && var.alb_origin_dns != ""`이고 `alb_origin_dns`의
+    기본값이 `""`라, **dns 없이 ecs만 주면 컷오버가 조용히 안 되고 오리진이 주차로 폴백한다**(라이브 다운).)</ins>
   - **롤백**: `terraform apply -var="api_backend=ec2"` → 즉시 EC2로 원복.
-- 커플링 주의: 스위치가 `aws_lb.backend`를 참조하므로 이 config는 ALB가 있어야 apply된다
-  (Stage 4가 같은 config에 있으니 한 apply에서 함께 생성 → 문제 없음).
+- ~~커플링 주의: 스위치가 `aws_lb.backend`를 참조하므로 이 config는 ALB가 있어야 apply된다.~~
+  <ins>(**2026-08-11 정정 — 사실관계가 반대다.** 스위치는 `aws_lb`를 **일부러 직접 참조하지 않고**
+  `var.alb_origin_dns` 문자열을 받는다. 이유가 `variables.tf:69-71,126-127`에 있다 — 직접 참조하면
+  CloudFront가 ALB에 그래프 의존이 생겨 **ALB만 destroy해도 CloudFront가 딸려가고, 정리 때 사이트
+  전체가 지워질 뻔했다.** 즉 여기 '주의하라'고 적힌 커플링은 실제 사고를 겪고 제거된 것이라,
+  이 문장을 믿고 "고치면" 그 사고를 되살린다.)</ins>
 - 검증: `terraform fmt/validate` 통과.
 - **권장 컷오버 절차**: ecs로 스위치 전, ALB DNS로 직접 `/api/health`·주요 경로가 200인지 확인
   → ecs 스위치 → CloudFront로 스모크 → 이상 시 즉시 ec2 롤백. 며칠 병행 후 EC2 정리(Stage 7).

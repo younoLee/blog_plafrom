@@ -76,7 +76,7 @@ regexes = [
   '''^AKIASURS2YM7WKLL4SV3$''',
 
   # 토스페이먼츠 테스트 키 — **이 저장소에 실제로 있는 두 값만** 지목한다.
-  #   backend/app/core/config.py:46    (서버 기본값)
+  #   backend/app/core/config.py:71    (서버 기본값 — 2026-08-11 정정, 46은 aws_region 줄이다)
   #   frontend/src/pages/PaymentPage.tsx:13 (클라이언트 폴백)
   # 전에는 `test_sk_[A-Za-z0-9]+` 였는데, 앵커가 없어 **값 안에 그 문자열이 들어가기만
   # 해도** 통과했다(고엔트로피 키 중간에 test_sk_ 를 넣은 실측으로 확인). 게다가 그

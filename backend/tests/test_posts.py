@@ -164,3 +164,43 @@ def test_cover_image_scheme(client, make_user, auth_headers, cover, expect):
         json={"title": "T", "content": "C", "cover_image": cover},
     )
     assert r.status_code == expect, r.text
+
+
+# ── 연재 네비 ──────────────────────────────────────────────────────────────
+# SERIES_ITEMS_MAX(=100)를 넘어가는 연재. 여기 있던 주석은 "이 글이 목록에 없을 수는
+# 없다"였는데, 가시성만 보고 바로 위의 `.limit()`을 안 본 서술이라 거짓이었다.
+# 상한 밖 글의 상세를 열면 `ids.index()`가 ValueError를 던져 500 text/plain이 났다.
+# 100편을 실제로 만들면 느리므로 상한을 3으로 낮춰 같은 경계를 만든다.
+def test_series_nav_beyond_limit_returns_null_not_500(
+    client, make_user, auth_headers, monkeypatch
+):
+    from app.routers import posts as posts_router
+
+    monkeypatch.setattr(posts_router, "SERIES_ITEMS_MAX", 3)
+    user = make_user(role="writer")
+    headers = auth_headers(user)
+    # series는 생성 시점에 넣는다 — `PATCH /api/posts/{id}`는 존재하지 않는다
+    # (PUT 전체수정과 PATCH /{id}/visibility 둘뿐). 처음엔 그걸 몰라 405가 조용히
+    # 무시되면서 series가 안 붙어, 상한 안쪽 글까지 null이 나왔다.
+    ids = []
+    for i in range(4):
+        r = client.post(
+            "/api/posts",
+            headers=headers,
+            json={"title": f"S{i}", "content": "C", "series": "연재"},
+        )
+        assert r.status_code == 201, r.text
+        ids.append(r.json()["id"])
+
+    # 상한 안(1편)은 네비가 나온다
+    r_in = client.get(f"/api/posts/{ids[0]}/series")
+    assert r_in.status_code == 200, r_in.text
+    assert r_in.json()["index"] == 1
+
+    # 상한 밖(4편째)은 500이 아니라 null — 네비를 못 그리는 게 글이 안 열리는 것보다 낫다
+    r_out = client.get(f"/api/posts/{ids[3]}/series")
+    assert r_out.status_code == 200, r_out.text
+    assert r_out.json() is None
+
+    # 글 자체는 정상적으로 열려야 한다(이게 500의 실제 피해였다)
+    assert client.get(f"/api/posts/{ids[3]}").status_code == 200

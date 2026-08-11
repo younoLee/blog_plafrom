@@ -76,7 +76,12 @@ Object Lock으로 못 막는다 — 근본 대책은 다른 계정의 사본이�
 - `scripts/watch.sh` 5번 항목(2026-07-27 추가): CloudTrail 로깅 생존 · 액세스키 개수 · 키 나이.
 
 **없는 것 (알고 있는 사각지대)**
-- **GuardDuty 없음, CloudWatch 알람 0개.** 기록은 남지만 실시간으로 보는 눈이 없다.
+- **GuardDuty 없음.** ~~CloudWatch 알람 0개.~~ <ins>(**2026-08-11 정정** — 알람은
+  2026-08-09에 생겼다: `terraform/alerts.tf:122` `ec2_status_check`(StatusCheckFailed,
+  1분×2회, `notBreaching`) → SNS `blog-alerts` → 이메일 구독. 전달 가능 여부는
+  `scripts/watch.sh:383`의 6-B가 매시 확인한다. **사고 때 알람 이력과 SNS 구독을
+  먼저 뒤질 것** — 이 줄을 믿고 건너뛰면 이미 울린 신호를 놓친다.)</ins>
+  GuardDuty가 없다는 것과 애플리케이션 계층 이상(로그인 폭주 등)에 알람이 없다는 것은 그대로다.
 - **SES SMTP 발송은 CloudTrail에 안 남는다.** 관리이벤트가 아니라서다. 그 키가 털려
   스팸을 뿌려도 CloudTrail로는 못 잡는다 → SES 평판·바운스 지표로 봐야 한다.
 - IP 화이트리스트 경보는 **일부러 안 넣었다.** 집 IP가 바뀌면 영구 빨간불이 되고,

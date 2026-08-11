@@ -154,9 +154,14 @@ else
 fi
 
 # ── 2. 백업이 실제로 쌓이고 있는가 ──────────────────────────────────────────
-latest=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "blog-" --region "$REGION" \
-  --query 'sort_by(Contents,&LastModified)[-1].[Key,LastModified]' --output text 2>/dev/null)
-if [ -z "$latest" ] || [ "$latest" = "None" ]; then
+# `2>/dev/null` + 빈 문자열 검사로 받으면 안 된다 — AccessDenied·자격증명 만료가
+# **"백업이 하나도 없다"는 사실 주장**으로 나간다. 아래 3·4·5·6절이 이미 호출 실패와
+# 0건을 가르는데 이 절만 안 쓸려 있었다(2026-08-11 공백검사).
+if ! latest=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "blog-" --region "$REGION" \
+  --query 'sort_by(Contents,&LastModified)[-1].[Key,LastModified]' --output text 2>&1); then
+  fail "백업 목록을 읽지 못했다(s3://$BUCKET/) — 권한이나 자격증명 확인. '백업 없음'과 다르다."
+  echo "     $latest"
+elif [ -z "$latest" ] || [ "$latest" = "None" ]; then
   fail "백업이 하나도 없다: s3://$BUCKET/"
 else
   key=${latest%%$'\t'*}
@@ -175,10 +180,16 @@ fi
 
 # 만료되지 않는 마지막 보루. 날짜별 덤프는 180일에 지워지므로 이게 없으면
 # 오래 손을 놓았을 때 백업이 0개가 되는 구간이 생긴다.
-if aws s3api head-object --bucket "$BUCKET" --key "keep/latest.sql.gz" --region "$REGION" >/dev/null 2>&1; then
+# 여기도 `>/dev/null 2>&1`로 뭉치면 404(없다)와 403(못 봤다)이 같은 메시지가 된다.
+# head-object는 없으면 254, 권한이 없으면 254지만 stderr 문구가 다르다 — 그걸 본다.
+if head_err=$(aws s3api head-object --bucket "$BUCKET" --key "keep/latest.sql.gz" \
+  --region "$REGION" 2>&1 >/dev/null); then
   ok "만료 안 되는 사본 있음 — keep/latest.sql.gz"
-else
+elif printf '%s' "$head_err" | grep -qi '404\|Not Found'; then
   fail "keep/latest.sql.gz 가 없다. 정지 절차가 만들지만, 없으면 장기 방치 시 백업이 전멸할 수 있다."
+else
+  fail "keep/latest.sql.gz 를 확인하지 못했다 — 권한이나 자격증명 확인. '없다'와 다르다."
+  echo "     $head_err"
 fi
 
 # ── 3. 이미지 사본 ──────────────────────────────────────────────────────────
@@ -202,8 +213,21 @@ if ! dst_n=$(count_objects "$BUCKET" "uploads/"); then
 fi
 if [ "$src_n" -lt 0 ] || [ "$dst_n" -lt 0 ]; then
   : # 위에서 이미 fail 처리
+elif [ "$src_n" -eq 0 ] && [ "$dst_n" -gt 0 ]; then
+  # **사본이 원본보다 많다는 것 자체가 원본 삭제의 신호다.** 예전엔 이 자리가
+  # `src_n -eq 0 → ok "확인할 것 없음"`이었는데, 그건 RECOVERY.md의 시나리오 C
+  # (업로드 이미지를 잃었다)와 **글자 그대로 같은 상태**를 초록으로 찍는 것이었다.
+  # 실제로 2026-07-30에 이미지 2개가 지워졌고 08-11까지 12일, 약 280회 실행이
+  # 전부 초록이었다(복구는 버저닝으로 했다). 위 20줄이 '못 봤음'과 '없음'을
+  # 가르라고 적어둔 교훈이, 정작 바로 아래 이 분기에는 안 쓸려 있었다.
+  fail "원본 이미지가 사라졌다(원본 0 / 사본 $dst_n). 사본이 더 많다 = 원본이 지워졌다는 뜻이다."
+  echo "     버저닝으로 복구한다 — 삭제 표식을 지운다:"
+  echo "     aws s3api list-object-versions --bucket $IMAGE_BUCKET --prefix uploads/ \\"
+  echo "       --query \"DeleteMarkers[?IsLatest==\\\`true\\\`].[Key,VersionId]\" --output text"
+  echo "     aws s3api delete-object --bucket $IMAGE_BUCKET --key <KEY> --version-id <DELETE_MARKER_ID>"
+  echo "     원인은 대개 --exclude \"uploads/*\" 없이 돌린 수동 aws s3 sync --delete 다."
 elif [ "$src_n" -eq 0 ]; then
-  ok "업로드 이미지 없음(확인할 것 없음)"
+  ok "업로드 이미지 없음(원본·사본 모두 0)"
 elif [ "$dst_n" -ge "$src_n" ]; then
   ok "이미지 사본 $dst_n개 (원본 $src_n개)"
 else

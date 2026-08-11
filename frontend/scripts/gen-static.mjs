@@ -86,6 +86,7 @@ function readPost(file) {
     title: h1 ? h1[1].trim() : date,
     summary: summarize(body),
     html: md.parse(body),
+    body, // GFM 가드가 원문을 본다(아래 gfmOnly 참고)
   }
 }
 
@@ -164,6 +165,45 @@ function main() {
     .sort()
     .map(readPost)
     .reverse() // 최신순
+
+  // ── 두 렌더러가 같은 원문을 다르게 읽는 것을 막는 가드 ──────────────────
+  // 이 파일은 marked(GFM 지원)로 정적 아카이브를 만들고, **같은 마크다운**이
+  // build_devlog_payload.py를 거쳐 DB 글이 되어 앱의 react-markdown으로 렌더된다.
+  // react-markdown은 v6부터 GFM을 기본 제공하지 않고 이 앱은 remark-gfm을 안 쓴다
+  // (넣으면 gzip +11.2 KB 실측 — 2026-08-11에 재보고 안 넣기로 했다. 지금 GFM을
+  //  쓰는 발행 글이 0건이라 값을 못 한다).
+  //
+  // 그래서 개발일지에 표·취소선·체크박스를 쓰면 **아카이브에선 멀쩡하고 앱에서만
+  // 원문이 그대로 보인다.** 그건 아무 데도 안 뜨는 조용한 어긋남이라 여기서 막는다.
+  // 되살리려면 remark-gfm을 넣고 이 가드를 지우면 된다 — 둘 중 하나는 반드시 참이어야 한다.
+  // ⚠️ **코드블록과 인라인 코드를 먼저 걷어낸다.** 이 일지들은 주제가 개발이라
+  //    마크다운 문법 자체를 코드펜스 안에 인용한다 — 실제로 첫 구현이 2026-08-09.md의
+  //    ```로 감싼 로드맵 인용(`- [ ] ECS`)을 물어서 오탐을 냈다. 렌더링되지 않는 자리를
+  //    문제로 보고하면 이 검사는 곧 무시당한다(check_runbook_drift.sh D번이 주석에
+  //    매치하던 것과 같은 병이다).
+  const stripCode = (s) =>
+    s
+      .replace(/^```[\s\S]*?^```/gm, '') // 펜스 블록
+      .replace(/^(?: {4}|\t).*$/gm, '') // 들여쓰기 코드블록
+      .replace(/`[^`\n]*`/g, '') // 인라인 코드
+  const gfmOnly = [
+    [/^\|[ :|-]+\|\s*$/m, '표(| --- |)'],
+    [/~~[^~\n]+~~/, '취소선(~~)'],
+    [/^\s*[-*] \[[ xX]\] /m, '체크박스(- [ ])'],
+  ]
+  const offenders = []
+  for (const p of posts) {
+    const prose = stripCode(p.body)
+    for (const [re, label] of gfmOnly) {
+      if (re.test(prose)) offenders.push(`${p.date}: ${label}`)
+    }
+  }
+  if (offenders.length) {
+    console.error('\n❌ 앱이 렌더 못 하는 GFM 문법이 개발일지에 있다 (정적 아카이브에서만 보인다):')
+    for (const o of offenders) console.error(`     ${o}`)
+    console.error('   → 그 문법을 안 쓰게 고치거나, frontend에 remark-gfm을 넣고 이 가드를 지워라.\n')
+    process.exit(1)
+  }
 
   mkdirSync(join(OUT, 'devlog'), { recursive: true })
 

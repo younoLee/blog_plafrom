@@ -236,7 +236,7 @@ Bounce and complaint handling: the account level suppression list is enabled for
 
 | 주장 | 근거 | 확인 |
 |---|---|---|
-| 공개 가입이 403 | `app/core/config.py` `allow_signup: bool = False` · `app/routers/auth.py:40` | 코드 |
+| 공개 가입이 403 | `app/core/config.py` `allow_signup: bool = False` · `app/routers/auth.py:45-49` | 코드 |  <!-- 2026-08-11 정정: :40은 라우트 데코레이터, 403 게이트는 :45-49 -->
 | 프로덕션에도 꺼져 있음 | 배포 설정 어디에도 `ALLOW_SIGNUP` 없음(기본값 적용) | grep |
 | 계정은 스크립트로만 생성 | `backend/scripts/create_user.py` | 코드 |
 | 뉴스레터 엔드포인트 제거 | `app/routers/subscribers.py` (공개 라우트 4종 삭제, 관리자용만 잔존) | 코드 · 회귀 테스트 |

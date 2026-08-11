@@ -85,6 +85,36 @@ def test_toggle_pro(client, make_user, auth_headers):
     assert off.json()["is_pro"] is False
 
 
+def test_toggle_pro_clears_stale_expiry(client, make_user, auth_headers, db):
+    """관리자가 켠 Pro가 다음 요청에 조용히 꺼지던 버그를 잠근다.
+
+    admin.py가 `if user.is_pro: user.pro_until = None`을 하는 이유가 그 사고인데,
+    위 test_toggle_pro는 is_pro=False로 시작해 pro_until이 처음부터 NULL이라
+    **그 두 줄을 지워도 통과했다**(2026-08-11 공백검사). 과거 결제의 만료가 남은
+    상태에서 켜야 실제 경로를 탄다 — 안 그러면 deps.py의 _expire_pro_if_due가
+    다음 요청에서 즉시 되돌린다.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.user import User
+
+    admin = make_user(role="admin")
+    u = make_user(role="writer", is_pro=False)
+    # 과거 결제가 남긴 만료: 이미 지난 시각
+    db.query(User).filter(User.id == u.id).update(
+        {"pro_until": datetime.now(UTC) - timedelta(days=1)}
+    )
+    db.commit()
+
+    r = client.post(f"/api/admin/users/{u.id}/toggle-pro", headers=auth_headers(admin))
+    assert r.json()["is_pro"] is True
+    assert db.get(User, u.id).pro_until is None, "낡은 pro_until이 안 지워졌다"
+
+    # 다음 요청에서도 살아 있어야 한다(여기가 조용히 꺼지던 자리)
+    still = client.get("/api/auth/me", headers=auth_headers(u))
+    assert still.json()["is_pro"] is True, "관리자가 켠 Pro가 다음 요청에 꺼졌다"
+
+
 def test_delete_user_removes_their_posts(client, make_user, auth_headers):
     admin = make_user(role="admin")
     u = make_user(role="writer")

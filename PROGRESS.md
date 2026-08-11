@@ -9,19 +9,26 @@
 - [x] 계정/로그인 + 글 공개범위(전체/일부)
 - [x] 서비스 상태 페이지 (/status + 업타임 기록)
 - [x] 인프라 AWS: EC2(backend+Postgres 컨테이너)/S3+CloudFront/Terraform/GitHub Actions CI·CD
-- [~] AI 글 구조 생성 — 코드 완료, `ANTHROPIC_API_KEY` 넣고 e2e만 남음(건당 소액 사용량 과금)
+- [x] AI 글 구조 생성 <ins>(**2026-08-11 정정** — 여기 "e2e만 남음"으로 남아 있었는데
+  같은 파일 `:704-708`이 2026-06-28 라이브 e2e 검증을 기록하고 있다. 그 뒤로 BYOK·가드 v2까지 붙었다.)</ins>
 
 ### 보류 — 기술 과제가 아니라 사업/비용 결정 (2026-07-18 확정, 근거는 맨 아래 '로드맵 정리')
 - 🚫 실결제 전환 — 토스 실결제는 **사업자등록이 필수**. 개인 포트폴리오 범위 밖이라 안 함. 샌드박스 결제 연동(승인검증→Pro 해금)은 이미 완성품 = 목적 달성.
-- ⏸️ 커스텀 도메인 — 연 ~$18(도메인+Route53). CloudFront 도메인이 이미 HTTPS로 정상 동작 → 지금 쓸 돈 아님. 갖고 싶어지면 그때 결정.
+- 🚫 커스텀 도메인 — 연 ~$18(도메인+Route53). CloudFront 도메인이 이미 HTTPS로 정상 동작.
+  <ins>(**2026-08-11 정정** — 여기 "갖고 싶어지면 그때 결정"으로 열려 있었으나
+  `ROADMAP.md:155-158`이 **"안 산다(2026-08-07 결정) · 다시 꺼내지 말 것"**으로 닫았다.)</ins>
 
 ## 재개 방법 (다음 세션)
 ```
-sg docker -c "docker compose up -d db mailpit"          # 컨테이너(이미 떠있을 수 있음)
-backend/.venv/bin/uvicorn app.main:app --app-dir backend --port 8000
-cd frontend && npm run dev                               # :5173
+docker compose up -d          # db·mailpit·backend·frontend
 ```
-데모 계정: kim@test.com / secret123 (공개+비공개글 소유), lee@test.com / pw12345
+<ins>(**2026-08-11 정정** — 여기 `backend/.venv/bin/uvicorn …`이 적혀 있었는데
+그 가상환경은 **존재하지 않는다**(이 PC는 pip·venv가 죽어 있어 도커가 유일 경로다).
+그대로 치면 실행이 안 된다.)</ins>
+
+<ins>(**2026-08-11 정정** — 여기 있던 데모 계정 2개(`kim@test.com`·`lee@test.com`)는
+지웠다. 공개 데모 계정은 2026-08-07 `8d3fd62`로 **폐지**됐고 가입은 초대제다.
+로컬 첫 계정은 `docker compose exec backend python scripts/create_user.py you@x.com --role admin`.)</ins>
 
 ---
 
