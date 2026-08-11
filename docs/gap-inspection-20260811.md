@@ -304,6 +304,34 @@ Anthropic 청구는 AWS 밖이라 Budgets 2개가 원리적으로 못 본다 →
 
 ---
 
+## ✅ 같은 날 손댄 것 (커밋 `eb4e354`)
+
+우선순위 1~9번을 처리했다. 실측: ruff 통과 · pytest **292 passed**(268→292) ·
+커버리지 **84.63% → 86.36%** · eslint 0 · vitest 18 · 번들 469.73 kB(변화 없음) ·
+런북 드리프트 초록.
+
+| 항목 | 결과 |
+|---|---|
+| 삭제된 이미지 2개 | **복구 완료** — 삭제 표식 제거, CloudFront 200 실측 |
+| `watch.sh:205` | `src==0 && dst>0` → **fail** + 복구 명령 안내 |
+| `watch.sh:157,178` | 호출 실패와 0건을 가름(같은 파일 4곳과 통일) |
+| `posts.py` 연재 500 | None 폴백 + 회귀 테스트. **폴백을 빼면 `ValueError: 56 is not in list`로 재현됨을 증명** |
+| 테스트 0건 3곳 | `test_llm_keys.py`(SSRF 15개)·`test_cleanup.py`(2개)·댓글 삭제 인가(5개) 신설 |
+| 주석뿐이던 불변식 | `upload_image`가 `def`인지 · toggle-pro의 낡은 `pro_until` |
+| 이름값 못 하던 테스트 | 결제 실패가 `Payment.status`를 실제로 읽게 |
+| `ci.yml:106` | glob → find (9개 → **10개**, `scripts/lib/ec2.sh` 포함) |
+| README·RECOVERY·IR·ECS 런북·PROGRESS 상단 | 원문 자리에서 `<ins>` 정정 |
+
+**remark-gfm은 안 넣었다.** 실측하니 GFM을 쓰는 발행 글이 **0건**이고(`~~`로 걸린
+2건은 본문에 적힌 코드펜스 기호였다 — 최초 보고가 틀렸다) 넣으면 gzip **+11.2 KB**다.
+대신 `gen-static.mjs`에 빌드 가드를 뒀다. 첫 판이 코드펜스 안의 인용을 물어 오탐을
+냈고(이 저장소가 반복 지적한 그 병) 코드블록을 걷어내 다시 증명했다.
+
+**안 한 것** — 프론트 사용자 공백 10건(로딩 상태·OG 태그·접근성·모바일),
+`blog-app-secrets` 정리, AI 토큰 캡, 감시 하트비트, `cleanup.py` 로깅.
+
+---
+
 ## 우선순위
 
 | 순위 | 항목 | 비용 | 근거 |
