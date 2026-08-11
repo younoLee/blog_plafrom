@@ -256,7 +256,8 @@ Action: Publish · DeleteTopic · Subscribe · AddPermission · …
 ## 남긴 것 (의도된 트레이드오프)
 
 오리진 구간 평문 HTTP:8000(도메인 미구매) · 뷰어 TLS 최소 1.0(기본 CloudFront 인증서라
-변경 불가) · SES 샌드박스 · 단일 인스턴스/단일 AZ · WAF 콘솔 생성(Free 요금제 제약) ·
+변경 불가) · SES 샌드박스 · 단일 인스턴스/단일 AZ · WAF는 콘솔 생성(Free 요금제 제약)이지만
+**08-11에 terraform import로 회수**해 룰 드리프트는 이제 plan에 뜬다 ·
 타 계정 백업 사본 보류(Object Lock COMPLIANCE로 대체) · 토큰 12h + 서버측 로그아웃 없음
 (다기기 강제 로그아웃과의 맞바꿈) · `origin_secret` fail-open(인증이 아니라 우회 차단이고,
 fail-closed면 켜는 순서 한 번에 사이트가 죽는다).

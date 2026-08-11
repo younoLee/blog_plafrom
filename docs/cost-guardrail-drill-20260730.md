@@ -201,7 +201,8 @@ AWS 리소스 변경은 예산 쪽 0건이다(읽기만 했다. Cost Explorer AP
 ## 남은 것 (안 고친 것)
 
 - **예산이 terraform 밖에 있다.** 콘솔에서 만든 두 개가 IaC 밖이라, 지금까지의 다른 드리프트와
-  같은 성질의 위험이다(WAF도 같은 상태). 다만 `aws_budgets_budget`으로 import하는 건
+  같은 성질의 위험이다(WAF도 같은 상태였는데 **2026-08-11에 import로 해소**했다 — `terraform/waf.tf`).
+  다만 `aws_budgets_budget`으로 import하는 건
   "알림 수신 주소를 코드에 박는다"는 뜻이라 별개 판단이 필요하다.
 - **Zero-Spend 예산의 크레딧 눈가림.** `IncludeCredit: false`로 바꾸면 의미가 생기지만,
   그러면 $10 예산과 사실상 같은 걸 두 번 보는 셈이다. 어느 쪽이 맞는지는 "무엇을 알고 싶은가"에

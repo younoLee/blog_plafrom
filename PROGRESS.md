@@ -276,7 +276,7 @@ cd frontend && npm run dev                               # :5173
 - 원인: **CloudFront 생성 때 고른 "무료" 보안 = WAF(`CreatedByCloudFront-920ca6f5`) 활성화**. (내가 "무료=보안 끄기"로 잘못 안내했었음 — 실제론 무료 등급 WAF 켜기) CommonRuleSet의 **SizeRestrictions_BODY**(본문 8KB 초과 차단)에 이미지가 걸림.
 - 해결: 플랜 구독 중이라 `update-distribution`으로 WebACL 분리 불가(`WebACLId=""` 거부). 대신 `aws wafv2 update-web-acl`로 CommonRuleSet에 **RuleActionOverride**(SizeRestrictions_BODY, CrossSiteScripting_BODY → **Count**) 적용. WAF 유지하며 큰 업로드만 허용.
 - 검증: CloudFront 경유 13KB·1MB 업로드 200, 올린 이미지 GET 200(image/png). 
-- 메모: 콘솔에서 끄려면 배포 보안탭 "Manage protections"인데 새 UI에서 못 찾음. 나중 Terraform 땐 WAF를 안 켜거나 업로드 경로 예외로 코드화.
+- 메모: 콘솔에서 끄려면 배포 보안탭 "Manage protections"인데 새 UI에서 못 찾음. 나중 Terraform 땐 WAF를 안 켜거나 업로드 경로 예외로 코드화. <ins>(**2026-08-11 완료** — 끄는 건 불가로 판명(Free 요금제가 WebACL을 필수로 요구), 대신 `terraform/waf.tf`로 **override를 코드화**했다.)</ins>
 
 ## 2026-06-25
 
@@ -1402,7 +1402,7 @@ ROADMAP을 기준으로 남은 것 중 2시간 안에 끝나는 걸 골라 처�
 
 헬스체크·드리프트 회수·env 템플릿 세 작업물을 "이게 최선인가"로 다시 검사했다. 버그보다 **더 나은 설계**와 **내 서술의 오류**가 많이 나왔다.
 
-- **정정 — "콘솔 생성 마지막 리소스"는 사실이 아니다**: `github-brench`를 회수하며 그렇게 적었는데, 실측하니 **WAF WebACL(`CreatedByCloudFront-920ca6f5`)**·tfstate 버킷·SSM 파라미터·IAM 유저 3명이 아직 terraform 밖이다. 특히 WAF는 `cloudfront.tf:41`이 ARN을 **하드코딩 문자열로 참조만** 해서, 콘솔에서 규칙을 COUNT로 바꿔도 plan이 조용하다 — `github-brench`와 **정확히 같은 클래스**다. 정확한 문장은 "IAM 역할·고객관리형 정책 중 마지막"이었다. 심각한 이유는 틀린 사실 자체가 아니라, **"마지막"이라고 적어두면 WAF를 다시 안 본다**는 것이다.
+- **정정 — "콘솔 생성 마지막 리소스"는 사실이 아니다**: `github-brench`를 회수하며 그렇게 적었는데, 실측하니 **WAF WebACL(`CreatedByCloudFront-920ca6f5`)**·tfstate 버킷·SSM 파라미터·IAM 유저 3명이 아직 terraform 밖이다. 특히 WAF는 `cloudfront.tf:41`이 ARN을 **하드코딩 문자열로 참조만** 해서, 콘솔에서 규칙을 COUNT로 바꿔도 plan이 조용하다 — `github-brench`와 **정확히 같은 클래스**다. <ins>(**2026-08-11 해소**: `terraform import` → `waf.tf`. 룰이 코드가 됐고, override를 지우면 plan이 `1 to change`로 잡는 것까지 실측했다. 남은 콘솔 밖 리소스는 tfstate 버킷·SSM·IAM 유저 3명.)</ins> 정확한 문장은 "IAM 역할·고객관리형 정책 중 마지막"이었다. 심각한 이유는 틀린 사실 자체가 아니라, **"마지막"이라고 적어두면 WAF를 다시 안 본다**는 것이다.
 - **배포 정책을 최선으로**: 회수만 하고 내용은 그대로 뒀는데, 검사에서 두 가지가 나왔다. (1) `s3:GetObject`는 `aws s3 sync dist/ s3://...`에 **필요 없다**(올리기만 한다) → 제거하고 액션을 대상별로 쪼갰다. (2) 훨씬 중요한 것 — **업로드 이미지를 정책으로 못 박았다**:
   ```
   Sid: NeverTouchUploads / Effect: Deny / s3:PutObject·s3:DeleteObject on blogplafromops/uploads/*

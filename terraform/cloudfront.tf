@@ -49,8 +49,9 @@ resource "aws_cloudfront_distribution" "main" {
   # CloudFront Free(flat-rate) 요금제에 '번들로 포함된' 무료 WAF (CreatedByCloudFront).
   # 이 요금제는 WAF를 필수로 요구해서 뗄 수 없다 — 떼려면 pay-as-you-go 전환이 필요하고
   # 그럼 오히려 CloudFront가 과금된다. 즉 이 WAF는 사실상 무료라 그대로 둔다.
-  # (SizeRestrictions는 이미지 업로드 위해 Count로 override 해둔 그 WebACL)
-  web_acl_id = "arn:aws:wafv2:us-east-1:181568979775:global/webacl/CreatedByCloudFront-920ca6f5/53f85e35-3f61-4210-bfc6-e626cfc90cc6"
+  # 2026-08-11에 ARN 하드코딩을 걷어내고 import했다 → 룰 내용(업로드를 살리는 Count
+  # override 포함)이 waf.tf에 코드로 있고, 콘솔에서 바뀌면 plan에 뜬다.
+  web_acl_id = aws_wafv2_web_acl.cloudfront.arn
 
   tags = {
     Name = "bplgplafrom"

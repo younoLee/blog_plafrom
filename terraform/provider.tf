@@ -27,3 +27,10 @@ terraform {
 provider "aws" {
   region = "ap-northeast-2"
 }
+
+# CloudFront 스코프의 WAFv2는 리전이 us-east-1 **하나뿐**이다(글로벌 리소스라 그렇다).
+# 서울 프로바이더로 부르면 WebACL을 아예 못 찾는다. waf.tf가 이 별칭을 쓴다.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
