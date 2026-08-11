@@ -26,7 +26,6 @@ from app.services.ai import (
     AIKeyMissingError,
     allowed_models_for,
     generate_draft,
-    model_provider,
 )
 from app.services.llm_keys import (
     BYOK_PROVIDERS,
@@ -151,7 +150,14 @@ def _resolve_provider(body: DraftRequest, user: User, pk: set[str]) -> tuple[str
     if model in MODELS:
         if model not in allowed_models_for(user, pk):
             raise HTTPException(status_code=403, detail="이 모델을 쓸 권한이 없어 (결제 또는 키 등록 필요)")
-        return model, model_provider(model)
+        # `model_provider(model)`이 아니라 카탈로그를 직접 읽는다. 그 함수는
+        # `str | None`을 주는데 이 함수의 반환 타입은 `tuple[str, str]`이라
+        # **시그니처가 거짓말**이었다(mypy가 잡았다 — 2026-08-11 정적 분석).
+        # 지금은 바로 위 `model in MODELS` 덕에 None이 안 나오지만, 그건 타입이 아니라
+        # 사람이 지켜야 하는 불변식이다. MODELS와 provider 표가 갈라지는 날
+        # provider=None이 흘러가 generate_draft에서 "알 수 없는 provider"로 502가 된다.
+        # 여기서 읽으면 그 가능성 자체가 사라진다(더 짧기도 하다).
+        return model, MODELS[model][1]
     # 커스텀 모델(BYOK 전용): provider 명시 + 그 키 등록돼 있어야 함
     provider = (body.provider or "").strip()
     if provider not in BYOK_PROVIDERS:

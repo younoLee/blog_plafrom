@@ -11,7 +11,7 @@
 import logging
 import re
 import secrets
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import anthropic
 
@@ -283,7 +283,11 @@ def _openai(system: str, material: str, model: str, api_key: str, base_url: str 
 
     # base_url 지정 시 OpenAI 호환 엔드포인트(Grok/DeepSeek/OpenRouter/로컬 등).
     # 그 경로만 호스트를 사용자가 정하므로 타임아웃을 짧게 준다(스레드 점유 최소화).
-    kwargs = {
+    # `dict[str, Any]`로 명시한다. 안 적으면 추론이 `dict[str, object]`이 되어
+    # `OpenAI(**kwargs)`에서 오버로드가 하나도 안 맞아 **mypy 오류 12개**가 한꺼번에
+    # 뜬다(2026-08-11 정적 분석). 이 dict는 성격이 다른 값을 담는 kwargs 가방이라
+    # Any가 사실에 맞는 표기이기도 하다 — 억지 우회가 아니다.
+    kwargs: dict[str, Any] = {
         "api_key": api_key,
         "timeout": REQUEST_TIMEOUT,
         "max_retries": VENDOR_MAX_RETRIES,

@@ -88,7 +88,11 @@ def set_notify(
     author = db.get(User, author_id)
     return {
         "id": author_id,
-        "name": author.display_name or "회원",
+        # `author`가 None일 수 있다(mypy가 잡았다 — 2026-08-11 정적 분석).
+        # FK가 ondelete=CASCADE라 글쓴이가 지워지면 이 구독 행도 같이 사라지지만,
+        # **위에서 sub을 읽고 commit한 뒤**라 그 사이 삭제가 끼면 여기서 None이 되고
+        # `.display_name`이 AttributeError → 500이다. 창은 좁아도 방어는 한 글자다.
+        "name": (author.display_name if author else None) or "회원",
         "approved": sub.approved,
         "notify": sub.notify,
     }
