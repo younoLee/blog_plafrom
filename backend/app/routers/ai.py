@@ -226,6 +226,39 @@ def _reserve_server_slot(db: Session, user_id: int) -> None:
             status_code=429,
             detail=f"이번 달 AI 초안 한도({settings.ai_monthly_cap}회)를 다 썼어. 다음 달에 다시 하거나 본인 키(BYOK)를 등록해줘",
         )
+    # **서비스 전체 상한.** 위 둘은 전부 user_id 단위라, 계정이 늘면 서비스 비용에는
+    # 상한이 없었다(2026-08-11 공백검사). Anthropic 청구는 AWS 밖이라 watch.sh가 보는
+    # Budgets가 원리적으로 못 보고, 알아채는 건 다음 명세서다 — 그 창을 닫는다.
+    # 위 +1이 이 합계도 같이 올렸으므로 여기서도 reserve-then-check가 성립한다.
+    # 토큰 상한 — 실제 청구에 비례하는 쪽. 직전까지 쓴 양으로 판단한다(토큰은 호출
+    # 뒤에야 알 수 있어서). 한 호출만큼 넘칠 수 있지만 다음 호출은 확실히 막힌다.
+    tokens = ai_usage.tokens_today_all_users(db)
+    if tokens > settings.ai_daily_token_cap_global:
+        ai_usage.decrement_today(db, user_id)
+        logger.warning(
+            "서비스 전체 일일 AI 토큰 한도 초과: %d > %d (user=%s)",
+            tokens,
+            settings.ai_daily_token_cap_global,
+            user_id,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="오늘 이 블로그 전체의 AI 초안 한도를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
+        )
+    total = ai_usage.count_today_all_users(db)
+    if total > settings.ai_daily_cap_global:
+        ai_usage.decrement_today(db, user_id)
+        # 이건 사용자 잘못이 아니라 운영자가 정한 한도다 — 로그로 남겨 사람이 알게 한다.
+        logger.warning(
+            "서비스 전체 일일 AI 한도 초과: %d > %d (user=%s)",
+            total,
+            settings.ai_daily_cap_global,
+            user_id,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="오늘 이 블로그 전체의 AI 초안 한도를 다 썼어. 내일 다시 하거나 본인 키(BYOK)를 등록해줘",
+        )
 
 
 def _load_byok_credential(db: Session, user_id: int, provider: str) -> tuple[str, str | None]:
@@ -303,7 +336,7 @@ def create_draft(
     # 하나만 빠뜨려도 사용자가 쓰지도 않은 한도를 잃는다.
     charged = False
     try:
-        markdown = generate_draft(body.memo, model, provider, user_key, base_url)
+        markdown, usage = generate_draft(body.memo, model, provider, user_key, base_url)
         charged = True
     except AIKeyMissingError:
         raise HTTPException(status_code=503, detail="AI 기능이 아직 설정되지 않았어 (서버 키 필요)")
@@ -347,5 +380,19 @@ def create_draft(
     finally:
         if provider == "claude" and not charged:
             ai_usage.decrement_today(db, user.id)
+
+    # 실제 토큰을 기록한다 — 서버키 경로만(BYOK는 사용자 본인 청구).
+    # 여기가 이 저장소에서 **처음으로 토큰을 세는 자리**다(2026-08-11까지 0곳이었다).
+    # usage가 None인 건 '0'이 아니라 '모름'이다 — 0으로 세면 토큰 상한이 조용히
+    # 무력화되므로 기록도 안 하고, 그 경우엔 횟수 상한이 받쳐준다.
+    if provider == "claude" and usage is not None:
+        ai_usage.add_tokens(db, user.id, usage.input_tokens, usage.output_tokens)
+        logger.info(
+            "AI 초안 완료: user=%s model=%s 입력=%d 출력=%d",
+            user.id,
+            model,
+            usage.input_tokens,
+            usage.output_tokens,
+        )
 
     return DraftResponse(markdown=markdown, model=model)

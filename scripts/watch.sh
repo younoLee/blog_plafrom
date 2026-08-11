@@ -491,6 +491,27 @@ else
   fi
 fi
 
+# ── 하트비트 ────────────────────────────────────────────────────────────────
+# "감시가 돌았다"는 사실을 AWS에 남긴다. 3시간 안 오면 알람이 운다
+# (terraform/alerts.tf의 blog-watch-heartbeat-missing, treat_missing_data="breaching").
+#
+# **검사 결과와 무관하게 보낸다.** FAIL이 나도 감시 자체는 살아 있는 것이고,
+# 그 실패는 Actions 실패 메일이 따로 알린다. 여기서 조건을 걸면 "고장났는데 조용한"
+# 상태와 "감시가 죽어서 조용한" 상태가 다시 뒤섞인다.
+#
+# 실패해도 전체를 죽이지 않는다 — 하트비트를 못 보내는 것은 그 자체로 알람이 울릴
+# 일이지(3시간 뒤), 이번 실행의 검사 결과를 뒤집을 이유가 아니다. 다만 **조용히
+# 넘기지는 않는다**: 못 보냈으면 그 사실을 출력한다(이 저장소가 반복해 배운 것).
+if aws cloudwatch put-metric-data --namespace "blog/watch" \
+  --metric-name HeartBeat --value 1 --unit Count --region "$REGION" 2>/tmp/hb.err; then
+  echo
+  echo "  --   하트비트 발행됨 (blog/watch HeartBeat=1)"
+else
+  echo
+  echo "  ⚠️  하트비트를 못 보냈다 — 3시간 뒤 blog-watch-heartbeat-missing 알람이 운다."
+  sed 's/^/       /' /tmp/hb.err
+fi
+
 # ── 요약 ────────────────────────────────────────────────────────────────────
 echo
 if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then

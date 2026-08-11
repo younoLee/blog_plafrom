@@ -47,7 +47,20 @@ resource "aws_cloudwatch_log_group" "backend" {
 #          (+ SES 쓰면 SMTP_USER, SMTP_PASSWORD). 프로드 .env와 대조해 확정할 것.
 # 채우기: aws secretsmanager put-secret-value --secret-id blog-app-secrets --secret-string '{...}'
 # ⚠️ 이 버전이 없으면 아래 secrets 참조가 태스크 시작 때 실패한다(설정 ≠ 동작).
+#
+# **`enable_ecs` 게이트를 2026-08-11에 붙였다.** 이 파일의 다른 ECS 리소스는 전부
+# 게이트 안인데 이것만 밖이라, 07-24 tear down 뒤에도 **값을 가진 채** 남아 있었다.
+# 그게 왜 문제인가 — `RECOVERY.md`와 `scripts/env_escrow.sh`는 시크릿 사본이
+# **셋**(서버·PC·SSM)이라고 못박는다. 넷째는 어느 문서에도, 어느 점검에도 없었다.
+# 게다가 07-27 IR 훈련이 `SECRET_KEY`를 교체했으므로 이 사본은 '죽은 줄 알았는데
+# 일부는 아직 유효한' 상태일 가능성이 크다 — IR 회고가 `.env.preIR`에 대해 남긴
+# 교훈과 글자 그대로 같은 모양이다. (2026-08-11 공백검사)
+# 곁들여 비용: 무료체험 30일이 끝나는 08-23쯤부터 월 $0.40이 조용히 붙는다.
+#
+# ECS를 되살릴 땐 `-var="enable_ecs=true"`로 다시 만들어지고, 위 절차대로 값을 채운다.
 resource "aws_secretsmanager_secret" "app" {
+  count = var.enable_ecs ? 1 : 0
+
   name        = "blog-app-secrets"
   description = "블로그 앱 런타임 비밀값(EC2 .env에서 이관). 값은 콘솔/CLI로 채운다."
 }
@@ -85,7 +98,7 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
       Effect = "Allow"
       Action = ["secretsmanager:GetSecretValue"]
       Resource = [
-        aws_secretsmanager_secret.app.arn,
+        aws_secretsmanager_secret.app[0].arn,
         aws_db_instance.main[0].master_user_secret[0].secret_arn,
       ]
     }]
@@ -196,10 +209,10 @@ resource "aws_ecs_task_definition" "backend" {
     # 비밀값 주입. DB_PASSWORD는 RDS 관리 시크릿의 password 키에서, 나머지는 blog-app-secrets에서.
     secrets = [
       { name = "DB_PASSWORD", valueFrom = "${aws_db_instance.main[0].master_user_secret[0].secret_arn}:password::" },
-      { name = "SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:SECRET_KEY::" },
-      { name = "ANTHROPIC_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:ANTHROPIC_API_KEY::" },
-      { name = "LLM_ENCRYPTION_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:LLM_ENCRYPTION_KEY::" },
-      { name = "TOSS_SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOSS_SECRET_KEY::" },
+      { name = "SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.app[0].arn}:SECRET_KEY::" },
+      { name = "ANTHROPIC_API_KEY", valueFrom = "${aws_secretsmanager_secret.app[0].arn}:ANTHROPIC_API_KEY::" },
+      { name = "LLM_ENCRYPTION_KEY", valueFrom = "${aws_secretsmanager_secret.app[0].arn}:LLM_ENCRYPTION_KEY::" },
+      { name = "TOSS_SECRET_KEY", valueFrom = "${aws_secretsmanager_secret.app[0].arn}:TOSS_SECRET_KEY::" },
     ]
 
     logConfiguration = {

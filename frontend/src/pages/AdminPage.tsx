@@ -320,7 +320,10 @@ function AdminPage() {
         {users.map((u) => {
           const meta = ROLE_META[u.role]
           return (
-            <li key={u.id} className={`${ui.card} flex items-center justify-between gap-3`}>
+            // 좁은 화면(360~390px)에서 writer 행은 버튼이 4개가 되는데 버튼 묶음이
+            // `shrink-0`이라 줄지도 줄바꿈하지도 않아 **가로 스크롤이 생겼다**.
+            // 같은 파일의 초대 폼에는 flex-wrap이 있어 대비됐다(2026-08-11 공백검사).
+            <li key={u.id} className={`${ui.card} flex flex-wrap items-center justify-between gap-3`}>
               <div className="min-w-0">
                 <p className="truncate font-medium">{u.email}</p>
                 <span className={`mt-1 mr-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${meta.badge}`}>
@@ -333,7 +336,7 @@ function AdminPage() {
                 )}
               </div>
               {/* admin은 변경 불가. pending=승인+차단, writer=해제+차단, banned=해제 */}
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
                 {u.role === 'pending' && (
                   <button type="button" onClick={() => handle(u.id, 'approve')} className={ui.btnPrimary}>
                     승인

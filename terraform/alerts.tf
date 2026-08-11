@@ -172,3 +172,42 @@ output "alerts_topic_arn" {
   description = "운영 알림 SNS 토픽. 전달 경로를 재볼 때 이 ARN으로 publish 한다."
   value       = aws_sns_topic.alerts.arn
 }
+
+# ── 감시를 감시하는 자리 ────────────────────────────────────────────────────
+# watch.sh는 매시 돌면서 백업·이미지·SES·CloudTrail·예산·알람 전달까지 본다.
+# 그런데 **자기 자신이 멈춘 것은 아무도 못 본다.** 알림 경로가 'Actions 실패 메일'
+# 하나뿐이라(watch.sh 상단 주석), 워크플로가 안 돌면 실패 메일도 안 온다 —
+# 침묵이 정상과 글자 그대로 구분되지 않는다. 멈추는 경로는 여럿이다:
+#   · GitHub이 60일간 커밋 없는 저장소의 스케줄을 자동 정지(watch.yml:14가 스스로 적는다)
+#   · Actions 비활성화 · OIDC 역할(github-actions-blog-watch) 삭제 · 워크플로 파일 삭제
+# 이 저장소가 세 번 당한 병(백업 4개월, IAM 드리프트, SES 4주)을 잡으려고 만든
+# 장치가 그 병에 걸리면 아무도 모르는 상태였다. (2026-08-11 공백검사)
+#
+# **`treat_missing_data = "breaching"`가 이 알람의 전부다.** 위 EC2 알람이 정확히
+# 반대(`notBreaching`)인 것과 짝을 이룬다 — 저기선 '데이터 없음 = 꺼둠'이지만
+# 여기선 '데이터 없음 = 감시가 죽었다'가 신호다. 같은 설정을 반대로 쓰는 자리라
+# 헷갈리기 쉬워 여기 적어둔다.
+#
+# 비용: 커스텀 지표 1 + 알람 1. CloudWatch 상시 무료 한도가 10+10이고 이 계정은
+# 알람 1개·커스텀 지표 0개였다(2026-08-11 실측) → **추가 비용 0.**
+resource "aws_cloudwatch_metric_alarm" "watch_heartbeat" {
+  alarm_name        = "blog-watch-heartbeat-missing"
+  alarm_description = "매시 도는 감시(GitHub Actions)가 3시간 넘게 하트비트를 안 보냈다. 워크플로가 멈췄는지 확인할 것."
+
+  namespace   = "blog/watch"
+  metric_name = "HeartBeat"
+
+  # 감시는 매시 17분에 돈다. 3시간을 못 받으면 신호로 본다 — GitHub 스케줄러는
+  # 붐빌 때 수십 분씩 밀리므로(watch.yml:20이 정각을 피한 이유) 1~2시간은 너무 빡빡하다.
+  period              = 3600
+  evaluation_periods  = 3
+  statistic           = "Sum"
+  comparison_operator = "LessThanThreshold"
+  threshold           = 1
+  treat_missing_data  = "breaching" # 위 주석 — 여기선 침묵이 곧 고장이다
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+
+  # ok_actions를 안 붙이는 이유는 위 EC2 알람과 같다(복구 전이가 거짓말을 할 수 있다).
+  # 다만 여기선 성격이 다르다 — 감시가 되살아나면 그 실행 결과 자체가 메일로 온다.
+}

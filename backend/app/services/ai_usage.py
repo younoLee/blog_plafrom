@@ -60,6 +60,61 @@ def increment_today(db: Session, user_id: int) -> int:
     return new_count
 
 
+def add_tokens(db: Session, user_id: int, input_tokens: int, output_tokens: int) -> None:
+    """성공한 서버키 호출의 실제 토큰을 그날 행에 누적한다.
+
+    호출 **후에** 부른다 — 토큰은 벤더 응답을 봐야 알 수 있어서, 예약(increment_today)
+    시점에는 존재하지 않는다. 그래서 아래 토큰 상한은 '직전까지 쓴 양'으로 판단한다:
+    한 호출만큼 넘칠 수 있지만, 비용 가드레일에서 그 오차는 허용 범위다(넘겨서 통과시키는
+    것과 달리 다음 호출은 확실히 막힌다).
+
+    행은 increment_today가 이미 만들었다. 없으면(이론상 불가) 조용히 넘긴다 —
+    토큰 기록 실패로 초안 생성을 죽일 이유는 없다.
+    """
+    if input_tokens <= 0 and output_tokens <= 0:
+        return
+    db.execute(
+        update(AiUsage)
+        .where(AiUsage.user_id == user_id, AiUsage.day == _today())
+        .values(
+            input_tokens=AiUsage.input_tokens + input_tokens,
+            output_tokens=AiUsage.output_tokens + output_tokens,
+        )
+    )
+    db.commit()
+
+
+def tokens_today_all_users(db: Session) -> int:
+    """오늘 서버키 호출의 **서비스 전체** 토큰 합(입력+출력).
+
+    횟수가 아니라 이 숫자가 실제 청구에 비례한다. `coalesce`가 중요하다 —
+    행이 없으면 SUM이 NULL이고, NULL을 상한과 비교하면 조용히 통과한다(fail-open).
+    """
+    total = db.scalar(
+        select(
+            func.coalesce(func.sum(AiUsage.input_tokens + AiUsage.output_tokens), 0)
+        ).where(AiUsage.day == _today())
+    )
+    return int(total or 0)
+
+
+def count_today_all_users(db: Session) -> int:
+    """오늘 서버키 호출의 **서비스 전체 합계**.
+
+    지금까지 캡은 전부 `user_id` 단위였고 전체 합계를 세는 코드가 **한 곳도 없었다**
+    (2026-08-11 공백검사). 사용자가 늘거나 한 명이 여러 계정을 갖게 되면 서비스 전체
+    비용에는 상한이 없었던 셈이다. 게다가 Anthropic 청구는 AWS 밖이라
+    watch.sh가 보는 AWS Budgets가 **원리적으로 못 본다** → 다음 명세서까지 최대 한 달
+    아무도 모른다. 그 창을 닫는 마지막 방어선이다.
+
+    per-user 캡과 달리 이건 '남용'이 아니라 '내가 감당할 수 있는 하루'의 상한이다.
+    """
+    total = db.scalar(
+        select(func.coalesce(func.sum(AiUsage.count), 0)).where(AiUsage.day == _today())
+    )
+    return int(total or 0)
+
+
 def count_guard_violations(db: Session, user_id: int) -> int:
     """이번 시간 창에 이 사용자가 가드에 걸린 횟수. 정상 사용자는 0이다."""
     row = db.scalar(

@@ -11,6 +11,7 @@
 import logging
 import re
 import secrets
+from typing import NamedTuple
 
 import anthropic
 
@@ -200,7 +201,26 @@ class AIKeyMissingError(RuntimeError):
     """필요한 API 키(서버 Claude 키 또는 사용자 BYOK 키)가 없을 때."""
 
 
-def _claude(system: str, material: str, model: str, api_key: str | None = None) -> str:
+class TokenUsage(NamedTuple):
+    """벤더가 알려준 실제 토큰 사용량.
+
+    2026-08-11 공백검사까지 이 저장소에는 **토큰을 세는 코드가 한 줄도 없었다.**
+    캡이 전부 '호출 횟수'라 Haiku 20회와 Fable 20회가 같게 취급됐는데, max_tokens가
+    2500 대 8000이고 단가도 달라 실제 청구는 수십 배까지 벌어진다. 게다가 Anthropic
+    청구는 AWS 밖이라 watch.sh가 보는 Budgets가 원리적으로 못 본다 — 다음 명세서까지
+    아무도 모르는 창이었다.
+
+    **서버키(claude) 경로에서만 의미가 있다.** BYOK는 사용자 본인 청구라 우리가
+    셀 이유가 없고, 다른 벤더 SDK의 usage 구조를 넷 다 좇는 유지비도 값을 못 한다.
+    """
+
+    input_tokens: int
+    output_tokens: int
+
+
+def _claude(
+    system: str, material: str, model: str, api_key: str | None = None
+) -> tuple[str, TokenUsage | None]:
     # api_key 주면 사용자 BYOK 키, 아니면 서버 키
     key = api_key or settings.anthropic_api_key
     if not key:
@@ -233,7 +253,17 @@ def _claude(system: str, material: str, model: str, api_key: str | None = None) 
     # Fable 5는 안전분류기가 요청을 거부하면 stop_reason='refusal' + 빈 content가 올 수 있음
     if getattr(resp, "stop_reason", None) == "refusal":
         raise RuntimeError("모델이 이 요청을 거부했어 (다른 메모로 다시 시도)")
-    return "".join(b.text for b in resp.content if b.type == "text")
+    text = "".join(b.text for b in resp.content if b.type == "text")
+    # usage가 없을 수 있는 경로(SDK 버전·프록시)를 대비해 방어적으로 읽는다.
+    # 못 읽으면 None이고, 호출부는 '0으로 세지 않고 모름으로 둔다' — 0으로 세면
+    # 토큰 상한이 조용히 무력화된다(이 저장소가 반복해 배운 fail-open의 모양).
+    u = getattr(resp, "usage", None)
+    usage = (
+        TokenUsage(int(getattr(u, "input_tokens", 0)), int(getattr(u, "output_tokens", 0)))
+        if u is not None
+        else None
+    )
+    return text, usage
 
 
 def _openai(system: str, material: str, model: str, api_key: str, base_url: str | None = None) -> str:
@@ -321,7 +351,7 @@ def generate_draft(
     provider: str | None = None,
     user_key: str | None = None,
     base_url: str | None = None,
-) -> str:
+) -> tuple[str, TokenUsage | None]:
     """provider에 따라 분기. claude=서버키, 나머지=user_key(BYOK).
     provider 미지정 시 카탈로그에서 추론(커스텀 모델은 호출부가 명시).
     - claude(서버키) / anthropic(자기 Claude 키) → Anthropic
@@ -336,7 +366,7 @@ def generate_draft(
     system = build_system(canary)
     material = _as_material(memo, canary)
 
-    def _dispatch() -> str:
+    def _dispatch() -> tuple[str, TokenUsage | None]:
         # 서버 Claude(claude) 또는 자기 Claude 키(anthropic)
         if provider == "claude":
             return _claude(system, material, model)
@@ -347,15 +377,16 @@ def generate_draft(
         if provider in ("openai", "gemini", "compatible", "cohere"):
             if not user_key:
                 raise AIKeyMissingError(f"{provider} 키 미등록")
+            # BYOK는 사용자 본인 청구라 토큰을 세지 않는다(위 TokenUsage 주석).
             if provider == "gemini":
-                return _gemini(system, material, model, user_key)
+                return _gemini(system, material, model, user_key), None
             if provider == "cohere":
-                return _cohere(system, material, model, user_key)
+                return _cohere(system, material, model, user_key), None
             # openai / compatible 모두 OpenAI SDK 사용 (compatible은 base_url 지정)
-            return _openai(system, material, model, user_key, base_url)
+            return _openai(system, material, model, user_key, base_url), None
         raise ValueError(f"알 수 없는 모델/provider: {model} / {provider}")
 
-    raw = _dispatch()
+    raw, usage = _dispatch()
 
     # 기계 판정 먼저 — 캐너리 유출/빈 출력/마크다운 아님이면 GuardViolation.
     # **반드시 원본(raw)에 대고 본다.** 아래 _neutralize_code_fences를 먼저 돌리면
@@ -376,4 +407,4 @@ def generate_draft(
         logger.info("AI 초안에 코드 펜스 발생 (model=%s provider=%s)", model, provider)
 
     # 출력단 방어 — 프롬프트가 확률적으로 뚫려도 코드블록은 렌더 전에 무력화(모든 provider·BYOK 공통).
-    return _neutralize_code_fences(raw)
+    return _neutralize_code_fences(raw), usage

@@ -5,6 +5,7 @@
 (author_subscriptions는 users FK ondelete CASCADE라 혹시 있어도 자동 정리됨)
 """
 
+import logging
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,13 @@ UNVERIFIED_TTL_HOURS = 24  # 가입 후 24시간 지나도 미인증이면 삭�
 AI_HOURLY_TTL_HOURS = 48  # count_hour는 '현재 시간' 창만 본다 → 이틀이면 넉넉
 STATUS_CHECK_TTL_DAYS = 180  # 업타임 페이지가 보는 범위 밖은 정리(1행/분이라 작지만 무한↑)
 
+# 이 모듈은 백그라운드 스레드에서 돌아 **호출자가 없다** — 예외를 삼키면 그대로 사라진다.
+# 예전엔 `except Exception: return 0`이 전부라 잘못 지워도 조용하고 안 지워져도 조용했다.
+# email.py:31-56이 "조용한 실패를 읽을 수 있는 실패로 바꾼다"고 해놓은 것과 정면으로
+# 어긋나던 자리다(2026-08-11 공백검사). 성공도 남긴다 — 대량 DELETE는 '몇 건 지웠나'가
+# 사후에 유일한 단서다(계정 생성 경로가 초대뿐이라 복구가 관리자 수작업이다).
+logger = logging.getLogger(__name__)
+
 
 def cleanup_unverified(ttl_hours: int = UNVERIFIED_TTL_HOURS) -> int:
     """미인증 + 가입 후 ttl_hours 경과한 계정 삭제. 삭제 건수 반환."""
@@ -34,9 +42,13 @@ def cleanup_unverified(ttl_hours: int = UNVERIFIED_TTL_HOURS) -> int:
             )
         )
         db.commit()
-        return result.rowcount or 0
+        n = result.rowcount or 0
+        if n:
+            logger.info("미인증 계정 %d건 삭제 (기준 %dh, cutoff=%s)", n, ttl_hours, cutoff)
+        return n
     except Exception:
         db.rollback()
+        logger.exception("미인증 계정 정리 실패 — 이번 주기는 아무것도 안 지웠다")
         return 0
     finally:
         db.close()
@@ -70,6 +82,7 @@ def cleanup_old_usage_rows() -> None:
         db.commit()
     except Exception:
         db.rollback()
+        logger.exception("오래된 사용량·상태점검 행 정리 실패 — 테이블이 계속 커진다")
     finally:
         db.close()
 

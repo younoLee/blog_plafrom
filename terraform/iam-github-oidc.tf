@@ -227,6 +227,21 @@ resource "aws_iam_role_policy" "github_watch" {
         Resource = "*"
       },
       {
+        # 하트비트 발행 — "감시가 돌았다"는 사실 자체를 AWS 쪽에 남긴다.
+        # 이게 없으면 워크플로가 멈췄을 때(60일 자동정지·Actions 비활성·이 역할 삭제)
+        # **완전한 침묵이 정상과 구분되지 않는다** — 알림 경로가 'Actions 실패 메일'
+        # 하나뿐이라 워크플로가 안 돌면 실패 메일도 안 온다(2026-08-11 공백검사).
+        # `PutMetricData`는 리소스 단위 제한을 지원하지 않는다(네임스페이스는 조건키로
+        # 좁힌다 — 이 역할이 다른 지표를 덮어쓰지 못하게).
+        Sid      = "PutWatchHeartbeat"
+        Effect   = "Allow"
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "cloudwatch:namespace" = "blog/watch" }
+        }
+      },
+      {
         # watch.sh 5번(2026-07-27 IR 훈련) — 감사기록이 살아 있는지. 침해자의 첫 수가
         # 보통 로깅 정지라 이게 꺼진 걸 늦게 알면 '누가 뭘 했나'에 영영 답할 수 없다.
         Sid      = "ReadTrailStatus"

@@ -54,6 +54,25 @@ body {
   animation: gradient-pan 6s ease infinite;
 }
 
+/* 움직임을 줄여달라는 OS 설정을 존중한다.
+   여기 대응이 **0건**이었다(2026-08-11 공백검사). 특히 위 .animate-gradient는
+   제목마다 6초 주기로 **영원히** 움직이는데, 전정기관이 민감한 사용자에게는
+   끌 방법이 없었다. Reveal의 등장 애니메이션·부드러운 스크롤도 같이 끊는다.
+   `!important`를 쓰는 건 Tailwind 유틸리티가 인라인 수준으로 붙기 때문이다. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* 코드블록 하이라이팅용 .hljs-* 규칙 44줄을 2026-08-10에 지웠다.
    rehype-highlight를 뺐기 때문이다 — 이 블로그의 코드펜스 260개가 전부 언어 태그가
    없어서 hljs 클래스가 애초에 한 번도 붙지 않았다(렌더 결과 language-* 0건).

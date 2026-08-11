@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,6 +22,13 @@ class AiUsage(Base):
     )
     day: Mapped[date] = mapped_column(Date, index=True)  # UTC 기준 날짜
     count: Mapped[int] = mapped_column(Integer, default=0)
+    # 실제 토큰 사용량(서버키 경로만). 2026-08-11까지 **토큰을 세는 코드가 0곳**이라
+    # Haiku 20회와 Fable 20회가 캡에서 같게 취급됐다 — max_tokens가 2500 대 8000이고
+    # 단가도 달라 실제 청구는 수십 배까지 벌어진다. 횟수 캡은 남용 방어로 그대로 두고,
+    # 비용은 이 숫자로 본다. BigInteger인 이유: 하루 수만 토큰이 몇 년 쌓이면 int 범위가
+    # 위태롭고, 나중에 '한 달 합계' 같은 걸 더할 때 오버플로가 조용히 난다.
+    input_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
 
 
 class AiHourlyUsage(Base):

@@ -59,10 +59,17 @@ function summarize(body) {
   for (const source of [afterFirstHeading, body]) {
     for (const block of source.split(/\n{2,}/).map((s) => s.trim())) {
       if (!block || /^[#>|]|^```/.test(block)) continue
+      // 불릿은 **구분자로 바꾼다.** 예전엔 `^[-*]\s+`를 빈 문자열로 지우고 곧바로
+      // `\s+ → ' '`로 줄바꿈까지 없앴는데, 불릿 목록은 항목 사이에 빈 줄이 없어
+      // 한 덩어리(block)다 → 항목 여러 개가 **구분자 없이 이어붙었다.**
+      // 실측(2026-08-11): 28편 중 9편이 그 상태였고, 예컨대 2026-08-07 편의 설명이
+      // "…배포·스모크까지 끝 공개 데모 계정을 폐지했다…"로 나갔다. 검색결과 스니펫이
+      // 중간에 잘린 비문이 되는데, 이 기능은 애초에 검색 유입을 만들려고 넣은 것이다.
       const text = block
-        .replace(/^[-*]\s+/gm, '')
+        .replace(/^[-*]\s+/gm, '· ')
         .replace(/[#*`>_[\]]/g, '')
         .replace(/\s+/g, ' ')
+        .replace(/^·\s*/, '') // 첫 항목의 구분자는 군더더기다
         .trim()
       // '이번 편의 형식:'도 편마다 거의 같은 메타 문장이라 건너뛴다.
       if (text.length >= 40 && !/^이번 편의 형식/.test(text)) return text.slice(0, 200)
