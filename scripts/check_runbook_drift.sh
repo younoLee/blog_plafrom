@@ -16,11 +16,12 @@
 # 나간다"는 뜻이라, 잡으려는 문제보다 비싼 거래다. 그래서 같은 부류를 정적으로 잡는다.
 # (`terraform validate`는 이걸 못 잡는다 — 변수 '값'을 평가하지 않기 때문이다.)
 #
-# 검사 넷:
+# 검사 다섯:
 #   A. 기본값 없는 변수가 런북의 tfvars 블록에 있는가   ← F1 그 자체
 #   B. 런북이 부르는 스크립트가 실제로 있는가
 #   C. 런북의 `-target=` 주소가 실제 리소스인가
 #   D. 스크립트에 INSTANCE_ID가 **박혀 있지 않은가**   ← 태그 조회 강제
+#   E. 로컬 .env 템플릿이 compose 치환 변수를 전부 담는가  ← 조용히 꺼지는 기능 방지
 #
 # ⚠️ 여기 있던 D 설명은 2026-08-11까지 **폐기된 절차를 현재 규칙으로** 서술하고 있었다:
 #   "스크립트들의 INSTANCE_ID가 전부 같은가 / 재건하면 5곳을 손으로 고쳐야 한다".
@@ -179,6 +180,23 @@ else
   else
     ok "스크립트 5개가 전부 resolve_instance_id로 찾는다"
   fi
+fi
+
+# ── E. 로컬 .env 템플릿이 compose가 치환하는 변수를 전부 담고 있는가 ────────
+# 왜 — 2026-08-10 복원훈련이 **운영** 템플릿의 VAPID 누락을 잡아 고쳤는데,
+# **로컬 템플릿(.env.example)은 안 쓸렸다.** 거기엔 "여기 넣을 건 딱 두 개다"라고
+# 적혀 있었고 실제 치환 변수는 다섯이었다 — 누락이 아니라 **오정보**라, 읽은 사람은
+# 더 찾지 않고 푸시가 조용히 꺼진 채로 개발한다. (2026-08-11 동료 리뷰)
+# 운영 쪽은 env_escrow.sh가 감시하지만 로컬 쪽은 보는 장치가 0개였다.
+say "E. 로컬 .env 템플릿이 compose 치환 변수를 전부 담는가"
+compose_vars=$(grep -oP '\$\{\K[A-Z_]+' "$ROOT/docker-compose.yml" | sort -u)
+tmpl_vars=$(grep -oP '^\K[A-Z_]+(?==)' "$ROOT/.env.example" | sort -u)
+missing=$(comm -23 <(printf '%s\n' "$compose_vars") <(printf '%s\n' "$tmpl_vars"))
+if [ -n "$missing" ]; then
+  bad "compose가 치환하는데 .env.example에 없는 변수: $(printf '%s' "$missing" | tr '\n' ' ')"
+  echo "     안 적으면 그 기능이 로컬에서 조용히 꺼진 채로 개발하게 됩니다."
+else
+  ok "치환 변수 $(printf '%s\n' "$compose_vars" | wc -l)개가 전부 템플릿에 있음"
 fi
 
 say "결과"
