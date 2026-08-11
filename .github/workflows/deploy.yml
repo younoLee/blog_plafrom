@@ -1,15 +1,21 @@
 name: Deploy Frontend
 
+# **푸시 자동 배포를 폐지했다(2026-08-11).** 수동 실행만 남긴다.
+#
+# 왜 — 아래 게이트가 fail-open이었다. 게이트는 `github.event.before → github.sha`,
+# 즉 **그 push의 diff만** 본다. 그래서 백엔드가 섞인 push는 막지만, **그 다음 push는
+# 백엔드가 여전히 미배포인데도 통과한다.** 2026-08-10에 막힌 프론트가 다음 날 문서·의존성
+# push에 얹혀 그대로 나갔다(run #60 실패 → #61 성공). 한 번 막고 나면 그 뒤로는 안 지킨다.
+#
+# 제대로 고치려면 "지금 서버에 떠 있는 백엔드가 어느 커밋인가"를 알아야 하는데,
+# 그 기록이 저장소·서버·AWS 어디에도 없다. 기준이 없으니 게이트가 비교할 대상이 없다.
+# 마커 파일을 만드는 길도 있었지만(배포 후 커밋을 사람이 잊으면 또 샌다),
+# **백엔드 배포가 이미 100% 수동**이라 프론트만 자동일 이유가 애초에 없었다.
+# 순서를 지키는 주체를 사람 하나로 모은다 — 장치가 늘지 않고 상태 불일치가 불가능해진다.
+#
+# 대가: 프론트를 바꾸면 Actions 탭에서 'Run workflow'를 눌러야 한다. 개발일지를 올릴
+# 때도 마찬가지다(정적 아카이브·RSS·sitemap이 그때 갱신된다 — 안 누르면 피드가 옛 상태).
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'frontend/**'
-      # 개발일지 마크다운도 프론트 산출물이다 — scripts/gen-static.mjs가 이걸 읽어
-      # 정적 아카이브·RSS·sitemap을 만든다. 이게 빠져 있으면 **새 글을 올려도
-      # 배포가 안 돌아** 피드와 sitemap이 옛 상태로 남는다(2026-08-07 검사에서 발견).
-      - 'content/devlog/**'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 jobs:
@@ -21,42 +27,17 @@ jobs:
     steps:
       - name: 코드 체크아웃
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0   # 아래 게이트가 push 범위를 diff 하려면 이력이 필요하다
+        # 전체 이력은 없앤 게이트가 push 범위를 diff 하려고 요구하던 것이다.
+        # 빌드(gen-static.mjs 포함)는 git을 전혀 쓰지 않으므로 얕은 체크아웃으로 충분하다.
 
-      # 프론트는 자동 배포인데 백엔드는 사람이 손으로 한다. 그래서 같은 push에 둘 다
-      # 들어 있으면 **프론트가 먼저 나가** 아직 없는 API를 호출한다 — 2026-07-11에
-      # 실제로 겪었고(PROGRESS.md:1147) 그때 결론이 "규칙을 적는 것과 작업 흐름에
-      # 끼워넣는 것은 다르다"였는데, 정작 끼워넣지는 않았다. 이게 그 장치다.
+      # 여기 있던 '백엔드 동시 변경 게이트'는 2026-08-11에 **지웠다**(위 on: 주석 참고).
+      # 남겨두면 `if: github.event_name == 'push'`라 수동 실행에서는 한 번도 안 도는,
+      # 초록불만 하나 더 그리는 죽은 검사가 된다. 이 저장소가 07-28·08-10에 두 번
+      # 잡아낸 '검사인 척하던 검사'와 같은 모양이라 흔적을 남기지 않는다.
       #
-      # 막히면: scripts/deploy_backend.sh 로 백엔드를 먼저 올린 뒤,
-      # Actions 탭에서 이 워크플로를 'Run workflow'(workflow_dispatch)로 돌리면 통과한다.
-      - name: 백엔드 동시 변경 게이트
-        if: github.event_name == 'push'
-        run: |
-          before='${{ github.event.before }}'
-          # 새 브랜치의 첫 push면 before가 0으로 채워져 diff 대상이 없다 → 건너뛴다
-          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-            echo "비교 대상 커밋이 없어 게이트를 건너뜁니다."
-            exit 0
-          fi
-          # `|| true`로 받으면 안 된다 — diff가 실패해도(force push로 before가
-          # 사라졌거나 fetch가 얕은 경우) changed가 비어 **게이트가 조용히 통과**한다.
-          # 안전장치가 fail-open이면 없느니만 못하다. 확인 못 하면 막는다.
-          if ! changed=$(git diff --name-only "$before" '${{ github.sha }}' -- backend/app backend/alembic backend/requirements.txt backend/Dockerfile docker-compose.prod.yml 2>&1); then
-            echo "::error::백엔드 변경 여부를 확인하지 못했습니다(git diff 실패). 안전하게 중단합니다."
-            echo "$changed"
-            echo "→ 백엔드 상태를 확인한 뒤 이 워크플로를 수동 실행(workflow_dispatch)하세요."
-            exit 1
-          fi
-          if [ -n "$changed" ]; then
-            echo "::error::이 push에 백엔드 코드 변경이 함께 있습니다. 프론트를 먼저 배포하면 아직 없는 API를 호출하게 됩니다."
-            echo "변경된 백엔드 파일:"
-            echo "$changed"
-            echo "→ scripts/deploy_backend.sh 로 백엔드를 먼저 배포한 뒤, 이 워크플로를 수동 실행(workflow_dispatch)하세요."
-            exit 1
-          fi
-          echo "백엔드 변경 없음 — 진행합니다."
+      # 순서 규칙 자체는 그대로다: **scripts/deploy_backend.sh 로 백엔드를 먼저 올리고,
+      # 그다음 이 워크플로를 Run workflow로 돌린다.** 2026-07-11에 이 순서를 어겨
+      # 아직 없는 API를 프론트가 호출했다(PROGRESS.md:1147).
 
       - name: Node 설치
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

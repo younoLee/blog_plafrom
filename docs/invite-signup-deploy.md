@@ -19,9 +19,11 @@
 API(`POST /api/auth/invite`)를 호출한다 — 2026-07-11에 실제로 겪은 사고고,
 `.github/workflows/deploy.yml`의 '백엔드 동시 변경 게이트'가 그때 넣은 장치다.
 
-그래서 `main`에 머지하면 **`Deploy Frontend`가 자동으로 돌다가 일부러 실패한다.**
-그건 고장이 아니라 이 문서를 읽으라는 신호다. 백엔드를 먼저 올린 뒤,
-프론트는 `workflow_dispatch`로 **직접** 돌린다.
+~~그래서 `main`에 머지하면 **`Deploy Frontend`가 자동으로 돌다가 일부러 실패한다.**~~
+**2026-08-11 정정** — 그 게이트는 그 push의 diff만 봐서, **다음 push는 백엔드가 여전히
+미배포인데도 통과했다**(실제로 08-11에 그렇게 나갔다). 게이트를 고치는 대신
+**푸시 자동 배포 자체를 없앴다.** 이제 `main`에 머지해도 프론트는 **안 나간다** —
+백엔드를 먼저 올린 뒤 `workflow_dispatch`로 사람이 직접 돌린다(아래 6번).
 
 ---
 
@@ -82,6 +84,12 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> \
 
 **마이그레이션은 따로 실행하지 않는다** — 프로드 compose의 command가
 `alembic upgrade head && uvicorn …`이라 컨테이너 기동 시 자동 적용된다.
+
+> ⚠️ **2026-08-10 정정 — '기동하면 붙는다'가 아니다.** `b8c9d0e1f2a3`이 몇 번을 켜도
+> 안 붙었는데, 원인은 **그 마이그레이션 파일이 없는 이미지**였다(서버의 alembic은
+> 그 리비전의 존재조차 몰랐다). 정확히는 **그 파일이 들어간 재빌드 뒤의 기동**에서
+> 붙는다: `deploy_backend.sh`(코드 전송) → `up -d --build` → 그때 적용.
+
 확인만 한다:
 
 ```bash
@@ -152,10 +160,11 @@ curl -s -X POST https://d2j66m9udyg9yq.cloudfront.net/api/auth/register \
 저장소 → Actions → `Deploy Frontend` → **`Run workflow`** (브랜치 `main`).
 
 - 이 환경엔 GitHub 자격증명이 없어 **대신 눌러줄 수 없다.** 사람이 눌러야 한다.
-- **옛 실패 실행의 `Re-run`은 안 된다** — 이벤트가 그대로 `push`라 게이트에 또 걸린다.
-  반드시 `Run workflow`로 새로 띄운다.
-- 게이트는 `if: github.event_name == 'push'`라 `workflow_dispatch`에선 **건너뛴다.**
-  그게 이 경로가 존재하는 이유다.
+- **2026-08-11부터 이 경로가 유일한 경로다.** 푸시 자동 배포를 없애서 `Run workflow`를
+  안 누르면 프론트는 영원히 안 나간다 — 개발일지를 올릴 때도 마찬가지다
+  (정적 아카이브·RSS·sitemap이 이때 갱신된다).
+- ~~옛 실패 실행의 `Re-run`은 안 된다 / 게이트는 workflow_dispatch에선 건너뛴다~~ —
+  게이트가 사라졌으니 둘 다 무의미하다.
 
 A로 가면 S3 업로드·무효화를 워크플로가 한다 — `--exclude "uploads/*"`가 워크플로에
 박혀 있으므로 손으로 `aws s3 sync`를 칠 일이 없고, `--delete`가 업로드 이미지를
