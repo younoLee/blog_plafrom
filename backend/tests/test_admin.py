@@ -135,3 +135,32 @@ def test_action_on_unknown_user_404(client, make_user, auth_headers):
         client.post("/api/admin/users/999999/approve", headers=auth_headers(admin)).status_code
         == 404
     )
+
+
+def test_admin_list_survives_a_malformed_email_row(client, make_user, auth_headers, db):
+    """DB에 형식이 어긋난 이메일이 있어도 **목록 전체가 죽지 않는다.**
+
+    `UserRead.email`이 EmailStr이던 시절엔 그런 행 하나로 `GET /admin/users`가
+    응답 검증에서 터져 500이 났다. 그리고 그 계정을 지울 유일한 화면이 바로 그
+    목록이라 **복구 경로가 psql뿐**이었다 — 2026-08-11 동적 분석에서 실제로 재현했다
+    (500 → psql 삭제 → 200). 형식 강제는 입구(create_user.py·UserCreate)의 일이고,
+    출구에서 다시 검증해봐야 지키는 건 없이 '한 행이 전체를 죽이는' 실패만 만든다.
+    """
+    from app.models.user import User
+
+    admin = make_user(role="admin")
+    # 앱 경로로는 못 만드는 값을 DB에 직접 심는다(과거 데이터·psql·마이그레이션 경로)
+    db.add(
+        User(
+            email="broken@test.local",  # 예약 TLD — EmailStr이 거부한다
+            hashed_password="x",
+            role="pending",
+            email_verified=True,
+        )
+    )
+    db.commit()
+
+    r = client.get("/api/admin/users", headers=auth_headers(admin))
+    assert r.status_code == 200, r.text
+    emails = [u["email"] for u in r.json()]
+    assert "broken@test.local" in emails, "지울 수 있으려면 목록에 보여야 한다"

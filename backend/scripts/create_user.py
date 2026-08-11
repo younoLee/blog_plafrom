@@ -37,6 +37,7 @@ import sys
 # (cwd가 어디든 동작하게 — 컨테이너에선 /app, 로컬에선 backend/).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import func, select  # noqa: E402
 
 from app.core.database import SessionLocal  # noqa: E402
@@ -80,6 +81,20 @@ def main() -> int:
     args = ap.parse_args()
 
     password = args.password or ("demo1234!" if args.demo else secrets.token_urlsafe(12))
+
+    # **앱과 같은 검증기로 이메일을 확인한다.** 이게 없어서 `not-an-email`이나
+    # `a@test.local`(예약 TLD) 같은 주소로도 계정이 만들어졌는데, 그 계정은
+    #   ① `/auth/login`이 422로 거부해 **영영 로그인할 수 없고**
+    #   ② 더 나쁘게는 `UserRead.email`이 EmailStr이라 `GET /admin/users`가
+    #      **응답 검증에서 터져 500**이 된다 — 즉 잘못된 주소 하나로 **관리자 목록
+    #      전체가 죽고**, 그 계정을 지울 유일한 화면이 바로 그 목록이라 복구 경로가
+    #      psql뿐이다. 초대제라 이 스크립트가 계정 생성의 주 경로인데도 그랬다.
+    # (2026-08-11 동적 분석에서 실제로 재현 — 500 → psql 삭제 → 200)
+    try:
+        args.email = validate_email(args.email, check_deliverability=False).normalized
+    except EmailNotValidError as e:
+        print(f"! 이메일 형식이 올바르지 않습니다: {args.email}\n  {e}", file=sys.stderr)
+        return 2
 
     db = SessionLocal()
     try:

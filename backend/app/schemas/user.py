@@ -28,7 +28,16 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: EmailStr
+    # **입력은 EmailStr, 출력은 str.** 여기가 EmailStr이면 DB에 형식이 어긋난 행이
+    # 하나만 있어도 `GET /admin/users`가 **응답 검증에서 터져 목록 전체가 500**이 된다.
+    # 그리고 그 계정을 지울 유일한 화면이 바로 그 목록이라 복구 경로가 psql뿐이다.
+    # 2026-08-11 동적 분석에서 실제로 재현했다 — `a@test.local`(예약 TLD) 한 행 때문에
+    # 500이 났고, psql로 지운 뒤에야 200이 됐다.
+    #
+    # 출구에서 EmailStr이 지키는 건 없다. 이미 저장된 값을 다시 검증하는 것이고,
+    # 형식 강제는 **입구**(UserCreate·RegisterRequest·create_user.py)의 일이다.
+    # 얻는 것 없이 "한 행이 전체를 죽이는" 실패 모드만 만든다.
+    email: str
     role: str  # pending / writer / admin / banned
     email_verified: bool
     is_pro: bool  # 유료(고급 AI 모델 해금) 여부

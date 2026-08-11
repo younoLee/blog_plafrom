@@ -93,6 +93,24 @@ async def lifespan(app: FastAPI):
             "**테스트** 시크릿키로 승인이 붙어 공짜 Pro가 나간다. "
             ".env에 PAYMENTS_REQUIRE_LIVE=true 를 설정해줘."
         )
+    # **앱 로거를 실제로 켠다.** 저장소 어디에도 basicConfig/dictConfig가 없어서
+    # root 레벨이 WARNING이고 핸들러가 0개였다 — 즉 `logger.info(...)`가 **한 줄도
+    # 안 나갔다.** 2026-08-11 동적 분석에서 실측으로 잡았다: 토큰 계량을 넣고
+    # "AI 초안 완료: 입력=N 출력=M"을 찍게 했는데 도커 로그에 0건이었고,
+    # 같은 이유로 cleanup의 "미인증 계정 N건 삭제"와 email의 "새 글 알림 N명 발송"도
+    # 전부 무음이었다. **실패(warning/exception)는 보이고 성공·정황만 안 보이는**
+    # 상태라, "조용한 실패를 읽을 수 있게 만든다"고 넣은 관측 장치가 정작 조용했다.
+    #
+    # uvicorn이 자기 로거만 설정하고 root는 안 건드리기 때문이다. force=True를 주는 건
+    # uvicorn이 이미 붙여둔 핸들러와 겹쳐 같은 줄이 두 번 나오는 걸 막기 위해서다.
+    # 컨테이너 로그는 max-size 10m × 3으로 회전하므로(compose) 양은 묶여 있다.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        force=True,
+    )
+    logging.getLogger("app").setLevel(logging.INFO)
+
     # 앱 기동 시 1분 간격 자가 점검 기록 시작 (업타임 집계용)
     start_recorder()
     # 미인증 계정 1시간 간격 자동 정리 시작
