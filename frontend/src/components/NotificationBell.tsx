@@ -8,6 +8,8 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null) // Escape로 닫을 때 포커스를 되돌릴 자리
+  // 방금 '전부 읽음'을 눌렀는가 — 그보다 먼저 나간 요청의 늦은 응답을 무시하는 데 쓴다
+  const readAtRef = useRef(false)
 
   // 안 읽음 수를 주기적으로 갱신(30초). 새 글 알림이 곧 배지로 뜬다.
   useEffect(() => {
@@ -15,11 +17,17 @@ export function NotificationBell() {
     const load = () =>
       fetchNotifications()
         .then((d) => {
-          if (alive) setData(d)
+          // **읽음 처리 뒤에 도착한 옛 스냅샷은 버린다.** 첫 폴링 응답이 8초까지 걸릴 수
+          // 있는데, 그 사이 사용자가 종을 눌러 markAllRead가 끝나면 늦게 온 응답이
+          // `unread: 3`으로 되돌려놔 **배지가 사라졌다가 되살아난다**(다음 30초 폴링까지).
+          if (alive && !readAtRef.current) setData(d)
         })
         .catch(() => {})
     load()
-    const t = setInterval(load, 30000)
+    const t = setInterval(() => {
+      readAtRef.current = false // 새 주기부터는 서버 값을 다시 신뢰한다
+      load()
+    }, 30000)
     return () => {
       alive = false
       clearInterval(t)
@@ -54,6 +62,7 @@ export function NotificationBell() {
     setOpen(next)
     // 열 때 안 읽음이 있으면 전부 읽음 처리(배지 사라짐)
     if (next && data.unread > 0) {
+      readAtRef.current = true
       await markAllRead()
       setData((d) => ({ unread: 0, items: d.items.map((i) => ({ ...i, read: true })) }))
     }

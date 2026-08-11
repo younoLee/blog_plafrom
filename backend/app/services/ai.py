@@ -257,9 +257,20 @@ def _claude(
     # usage가 없을 수 있는 경로(SDK 버전·프록시)를 대비해 방어적으로 읽는다.
     # 못 읽으면 None이고, 호출부는 '0으로 세지 않고 모름으로 둔다' — 0으로 세면
     # 토큰 상한이 조용히 무력화된다(이 저장소가 반복해 배운 fail-open의 모양).
+    #
+    # ⚠️ `getattr(u, "x", 0)`의 기본값은 **속성이 없을 때만** 쓰인다. 속성이 있고 값이
+    #    `None`이면 그대로 `None`이 나와 `int(None)` → TypeError다. 그리고 그건
+    #    `messages.create`가 **성공한 뒤**에 터지므로 라우터의 `except Exception`이
+    #    502 "키/모델명 확인"으로 바꾸고 `charged=False`라 슬롯까지 환불한다 —
+    #    **벤더엔 청구됐는데 횟수도 토큰도 0으로 남는다.** 위 주석이 대비하겠다고 적은
+    #    "프록시"가 `{"input_tokens": null}`을 주는 상황에서 정확히 그렇게 됐다.
+    #    (2026-08-11 교차검증 — 방어를 적어놓고 방어가 안 되던 자리다)
+    def _n(v: object) -> int:
+        return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+
     u = getattr(resp, "usage", None)
     usage = (
-        TokenUsage(int(getattr(u, "input_tokens", 0)), int(getattr(u, "output_tokens", 0)))
+        TokenUsage(_n(getattr(u, "input_tokens", None)), _n(getattr(u, "output_tokens", None)))
         if u is not None
         else None
     )

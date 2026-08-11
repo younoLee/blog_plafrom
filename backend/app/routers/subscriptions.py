@@ -173,7 +173,14 @@ def my_requests(db: Session = Depends(get_db), user: User = Depends(get_current_
     return [{"id": r.id, "name": r.display_name or "회원"} for r in rows]
 
 
-def _pending_request(db: Session, author_id: int, subscriber_id: int) -> AuthorSubscription | None:
+def _subscription(db: Session, author_id: int, subscriber_id: int) -> AuthorSubscription | None:
+    """이름이 `_pending_request`였는데 **pending을 안 걸렀다** — 승인된 구독도 그대로 준다.
+    바로 위 `my_requests`는 `approved.is_(False)`를 명시하는데 여기만 빠져 있어서,
+    읽는 사람은 "이 헬퍼와 두 라우트는 승인 대기만 다룬다"고 믿게 된다.
+    실제로는 아래 DELETE가 **이미 승인된 구독자도 해지**한다(= 강제 해지).
+    동작 자체는 글쓴이에게 필요한 기능이라 그대로 두고, **이름과 문서를 사실에 맞춘다.**
+    (2026-08-11 교차검증 — 이름이 거짓말해서 재사용하면 승인 관계가 조용히 날아간다)
+    """
     return db.scalar(
         select(AuthorSubscription).where(
             AuthorSubscription.author_id == author_id,
@@ -187,7 +194,7 @@ def approve_request(
     subscriber_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     # 내 글에 대한 구독 신청 승인 (author = 나)
-    sub = _pending_request(db, user.id, subscriber_id)
+    sub = _subscription(db, user.id, subscriber_id)
     if sub is None:
         raise HTTPException(status_code=404, detail="구독 신청을 찾을 수 없어")
     sub.approved = True
@@ -198,8 +205,11 @@ def approve_request(
 def reject_request(
     subscriber_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    # 거절 = 그 신청(구독 관계) 삭제. 신청자는 다시 신청할 수 있다.
-    sub = _pending_request(db, user.id, subscriber_id)
+    # 거절 = 그 구독 관계 삭제. 신청자는 다시 신청할 수 있다.
+    # **승인된 구독자에게도 동작한다** = 강제 해지. 지우면 그 사람은 구독자공개 글을
+    # 못 보고 알림도 끊긴다. 화면('받은 구독 신청')은 pending만 보여주므로 승인된 관계가
+    # 여기로 오는 건 의도한 조작일 때뿐이다.
+    sub = _subscription(db, user.id, subscriber_id)
     if sub is not None:
         db.delete(sub)
         db.commit()

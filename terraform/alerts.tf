@@ -211,3 +211,34 @@ resource "aws_cloudwatch_metric_alarm" "watch_heartbeat" {
   # ok_actions를 안 붙이는 이유는 위 EC2 알람과 같다(복구 전이가 거짓말을 할 수 있다).
   # 다만 여기선 성격이 다르다 — 감시가 되살아나면 그 실행 결과 자체가 메일로 온다.
 }
+
+# ── CPU 크레딧 고갈 ─────────────────────────────────────────────────────────
+# t2.micro는 버스터블이라 크레딧이 0이 되면 CPU가 baseline 10%로 **강제 제한**된다.
+# 그 상태에서도 상태검사는 2/2 ok이고 `/api/status`도 200이다 — 즉 이 계정의
+# 다른 모든 장치가 초록인데 사이트만 10배 느린, **유일한 '전부 초록인데 다 느린'
+# 장애 모드**다. 지금까지 이걸 보는 눈이 0개였다(2026-08-11 병목검사).
+#
+# 왜 30인가 — `CpuCredits = "standard"`(실측)라 **정지할 때 적립분을 전부 잃고**
+# 부팅 때 launch credit 30으로 리셋된다. 10일치 지표에서 일별 최솟값이 전부
+# 29.7~30.2인 게 그 증거다. 30 = 100% 1 vCPU로 30분치이므로, 여기서 더 내려간다는 건
+# 버스트 예산을 실제로 쓰고 있다는 뜻이다. 임계를 15로 두면 '절반 썼다' 시점에 울린다.
+#
+# `treat_missing_data = "notBreaching"` — 인스턴스가 꺼져 있으면 지표가 없다.
+# 위 EC2 상태검사 알람과 같은 이유이고, 하트비트 알람과는 반대다(거기선 침묵이 곧 고장).
+resource "aws_cloudwatch_metric_alarm" "cpu_credit_low" {
+  alarm_name        = "blog-cpu-credit-low"
+  alarm_description = "t2.micro CPU 크레딧이 15 미만. 곧 baseline 10%로 스로틀된다 — '전부 초록인데 느린' 상태의 원인."
+
+  namespace   = "AWS/EC2"
+  metric_name = "CPUCreditBalance"
+  dimensions  = { InstanceId = aws_instance.backend.id }
+
+  period              = 300
+  evaluation_periods  = 2
+  statistic           = "Minimum"
+  comparison_operator = "LessThanThreshold"
+  threshold           = 15
+  treat_missing_data  = "notBreaching" # 꺼져 있음 ≠ 고갈
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+}

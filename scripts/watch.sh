@@ -508,7 +508,13 @@ if aws cloudwatch put-metric-data --namespace "blog/watch" \
   echo "  --   하트비트 발행됨 (blog/watch HeartBeat=1)"
 else
   echo
-  echo "  ⚠️  하트비트를 못 보냈다 — 3시간 뒤 blog-watch-heartbeat-missing 알람이 운다."
+  # **`warn()`을 써야 한다.** 맨 echo로 ⚠️만 찍으면 WARN 카운터가 안 올라가고,
+  # 마지막 줄(`[ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]`)이 exit 0을 내서
+  # "== 이상 없음 ==" + Actions 초록 + 메일 없음이 된다 — 이 파일 상단이
+  # "경고도 종료코드에 넣는다"고 적어둔 것과 정면으로 어긋난다.
+  # 하트비트를 못 보내는 건 감시의 눈이 하나 감기는 일이라 조용하면 안 된다.
+  # (2026-08-11 교차검증 — 오늘 내가 이 블록을 쓰면서 만든 자리다)
+  warn "하트비트를 못 보냈다 — 3시간 뒤 blog-watch-heartbeat-missing 알람이 운다."
   sed 's/^/       /' /tmp/hb.err
 fi
 

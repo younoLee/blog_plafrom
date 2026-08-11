@@ -334,6 +334,15 @@ def create_draft(
     # 공짜가 되는 건 시간당 '시도' 캡이 막는다(그건 실패도 센다).
     # 되돌리기는 finally에 둔다 — 실패 경로가 셋(503/503/502)이라 각 except에 흩어놓으면
     # 하나만 빠뜨려도 사용자가 쓰지도 않은 한도를 잃는다.
+    # **커밋 뒤에는 ORM 객체를 건드리지 않는다.** `expire_on_commit=True`(기본)라
+    # `user.id`를 읽는 순간 refresh SELECT가 나가 커넥션을 다시 빌린다 — 위 commit이
+    # 반납한 그 커넥션을. 풀이 차 있으면 30초 뒤 PoolTimeoutError → main.py가 503으로
+    # 바꿔, **이미 생성되고 이미 과금된 초안이 환불도 없이 사라진다**(charged=True라
+    # finally의 환불도 안 돈다). 그래서 필요한 값을 커밋 전에 로컬로 떠둔다.
+    # (2026-08-11 교차검증 — `add_tokens`만 try로 감싸는 건 불완전한 수정이다)
+    uid = user.id
+    usage_day = ai_usage.today()  # 자정을 넘겨도 예약과 같은 날짜 버킷에 기록되게
+
     charged = False
     try:
         markdown, usage = generate_draft(body.memo, model, provider, user_key, base_url)
@@ -385,14 +394,32 @@ def create_draft(
     # 여기가 이 저장소에서 **처음으로 토큰을 세는 자리**다(2026-08-11까지 0곳이었다).
     # usage가 None인 건 '0'이 아니라 '모름'이다 — 0으로 세면 토큰 상한이 조용히
     # 무력화되므로 기록도 안 하고, 그 경우엔 횟수 상한이 받쳐준다.
-    if provider == "claude" and usage is not None:
-        ai_usage.add_tokens(db, user.id, usage.input_tokens, usage.output_tokens)
-        logger.info(
-            "AI 초안 완료: user=%s model=%s 입력=%d 출력=%d",
-            user.id,
+    # usage를 못 읽었으면 **조용히 넘기지 않는다.** 기록 안 하는 것 자체는 맞지만,
+    # 아무 신호가 없으면 SDK·프록시가 바뀌어 모든 호출이 '모름'이 돼도 토큰 상한이
+    # 영원히 0을 보고 안 걸린다 — 이 커밋이 닫으려던 창("없음 ≠ 못 봤음")이 다시 열린다.
+    # (2026-08-11 교차검증. TokenUsage(0,0)도 같은 결과라 함께 잡는다)
+    if provider == "claude" and (usage is None or (usage.input_tokens == 0 and usage.output_tokens == 0)):
+        logger.warning(
+            "AI 초안 토큰을 읽지 못했다 (user=%s model=%s usage=%r) — 토큰 상한이 이 호출을 못 센다",
+            uid,
             model,
-            usage.input_tokens,
-            usage.output_tokens,
+            usage,
         )
+    if provider == "claude" and usage is not None:
+        # **여기서 터져도 초안은 돌려준다.** 토큰 기록은 비용 관측이고, 이미 생성되고
+        # 이미 과금된 결과물을 그것 때문에 버리는 건 손해가 더 크다. DB가 흔들리면
+        # 로그로 남기고 넘어간다(그 자체가 다음 호출의 상한을 느슨하게 만들지만,
+        # 전체 '횟수' 상한이 원자적으로 받쳐준다).
+        try:
+            ai_usage.add_tokens(db, uid, usage.input_tokens, usage.output_tokens, day=usage_day)
+            logger.info(
+                "AI 초안 완료: user=%s model=%s 입력=%d 출력=%d",
+                uid,
+                model,
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+        except Exception:
+            logger.exception("토큰 기록 실패 (user=%s model=%s) — 초안은 정상 반환한다", uid, model)
 
     return DraftResponse(markdown=markdown, model=model)

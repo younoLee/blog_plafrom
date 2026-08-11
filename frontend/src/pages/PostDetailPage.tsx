@@ -45,32 +45,58 @@ function PostDetailPage() {
   // effect가 아니라 **렌더 중**인 이유: effect는 페인트 뒤에 돌아서 옛 글이 한 프레임
   // 그려진 뒤 지워진다 — 없애려는 그 잔상을 그대로 만든다. React가 권장하는
   // '프롭이 바뀔 때 상태 조정' 패턴이다(이 setState는 커밋 전에 리렌더로 흡수된다).
-  const [shownId, setShownId] = useState(postId)
-  if (shownId !== postId) {
-    setShownId(postId)
+  //
+  // ⚠️ **비교는 숫자(postId)가 아니라 URL 문자열(id)로 한다.** `Number("abc")`는 NaN이고
+  //    `NaN !== NaN`은 **항상 참**이라, 숫자로 비교하면 렌더마다 setState가 다시 걸려
+  //    무한 루프가 난다. React의 상태 bailout은 `Object.is`를 쓰고 `Object.is(NaN,NaN)`는
+  //    true라 상태는 안 바뀌지만, **조건문이 매번 참**이라 루프는 그대로다.
+  //    재현함(react-dom/server, 2026-08-11): id="12" 정상 / id="abc" → Too many re-renders.
+  //    그러면 App 최상단 ErrorBoundary가 잡아 **헤더까지 통째로 사라진다** —
+  //    `/blog/posts/abc` 같은 오타 하나로 앱 전체가 죽는다. 이 패턴을 넣기 전엔
+  //    getPost(NaN)이 422를 받아 빨간 줄 하나로 끝났다(= 오늘 내가 만든 회귀다).
+  const [shownId, setShownId] = useState(id)
+  if (shownId !== id) {
+    setShownId(id)
     setPost(null)
     setComments([])
     setSeries(null)
     setError('')
     setAsleep(false)
+    setSubscribed(false) // 이게 빠져서 남의 글에 "구독중 ✓"이 남았다
   }
 
   useEffect(() => {
+    // **숫자가 아닌 id는 요청조차 하지 않는다.** 리셋 판정은 문자열 `id`로 하는데
+    // 이 effect의 deps는 `postId`(숫자)라, `/blog/posts/abc` → `/blog/posts/def`처럼
+    // 둘 다 NaN이면 `Object.is(NaN, NaN)`이 true여서 effect가 안 돈다. 화면 표시는
+    // 아래 `invalidId`로 렌더에서 직접 판정하므로(상태를 안 쓴다) 여기선 요청만 막는다.
+    // 크래시를 고치면서 만든 짝이다(2026-08-11 병목검사).
+    if (!Number.isFinite(postId)) return
+
+    // **늦게 온 응답이 이미 넘어간 화면을 덮어쓰지 않게 한다.** 이 취소 플래그가
+    // 없으면 A→B로 넘긴 뒤 A의 응답이 도착해 B 화면에 A의 본문·댓글이 그려진다
+    // (차가운 서버는 8초까지 걸리니 겹칠 시간이 충분하다). 렌더 중 리셋은 화면을
+    // 비우기만 할 뿐 in-flight 요청을 취소하지 못한다 — 둘 다 필요하다.
+    let alive = true
     getPost(postId)
-      .then(setPost)
+      .then((p) => alive && setPost(p))
       .catch((e) => {
+        if (!alive) return
         setAsleep(e instanceof ServerAsleepError)
         setError((e as Error).message)
       })
     fetchComments(postId)
-      .then(setComments)
+      .then((c) => alive && setComments(c))
       .catch((e) => {
         // 댓글 실패로 글 읽기의 에러 톤을 덮어쓰지 않는다 — 본문 쪽 상태가 우선이다.
-        setAsleep((prev) => prev || e instanceof ServerAsleepError)
+        if (alive) setAsleep((prev) => prev || e instanceof ServerAsleepError)
       })
     // 연재는 부가정보 — 실패해도 글 읽기를 막지 않는다(fetchSeries가 null을 준다)
-    fetchSeries(postId).then(setSeries)
-  }, [postId])
+    fetchSeries(postId).then((s) => alive && setSeries(s))
+    return () => {
+      alive = false
+    }
+  }, [postId, id]) // id도 deps에 — 둘 다 NaN인 경로에서 effect가 안 도는 걸 막는다
 
   // 이 글의 작성자를 내가 구독 중인지 확인
   useEffect(() => {
@@ -133,6 +159,10 @@ function PostDetailPage() {
   // 바뀌어 페이지가 재렌더돼도 같은 엘리먼트 참조라 React가 이 큰 서브트리를 재조정하지 않음
   // → 자동번역으로 텍스트 노드가 바뀐 상태에서의 재조정 크래시를 예방.
   // content만 따로 빼서 의존성으로 둠(post 객체 참조가 아니라 내용 기준 → exhaustive-deps도 충족).
+  // 잘못된 주소는 상태가 아니라 파생값이다 — effect에서 setError를 하면 eslint가
+  // 옳게 잡는다(연쇄 렌더). 렌더에서 바로 판정하면 상태가 하나 줄고 경로도 짧다.
+  const invalidId = !Number.isFinite(postId)
+
   const content = post?.content
   const body = useMemo(
     () =>
@@ -177,11 +207,18 @@ function PostDetailPage() {
           는 서버 없이도 읽을 수 있어.
         </p>
       )}
-      {error && !asleep && <p role="alert" className="mt-4 text-sm text-red-600">에러: {error}</p>}
+      {invalidId && (
+        <p role="alert" className="mt-4 text-sm text-red-600">
+          글을 찾을 수 없어 — 주소가 올바른지 확인해줘.
+        </p>
+      )}
+      {!invalidId && error && !asleep && (
+        <p role="alert" className="mt-4 text-sm text-red-600">에러: {error}</p>
+      )}
 
       {/* 아직 안 왔고 실패도 아니면 로딩이다. 예전엔 이 자리가 통째로 비어
           "목록으로" 링크 한 줄만 있는 백지였다. */}
-      {!post && !error && (
+      {!post && !error && !invalidId && (
         <div className="mt-4 space-y-3" aria-hidden>
           <div className="h-9 w-2/3 animate-pulse rounded-lg bg-black/[0.06] dark:bg-white/[0.08]" />
           <div className="h-64 animate-pulse rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]" />

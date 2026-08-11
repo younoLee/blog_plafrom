@@ -800,3 +800,57 @@ def test_global_token_cap_blocks(client, make_user, auth_headers, db, monkeypatc
     r = client.post("/api/ai/draft", headers=auth_headers(b), json={"memo": "메모" * 20})
     assert r.status_code == 429, r.text
     assert ai_usage.count_today(db, b.id) == 0  # 예약이 되돌려졌는가
+
+
+# ── 교차검증(2026-08-11)에서 나온 회귀 방어 ────────────────────────────────
+def test_usage_with_none_fields_does_not_500(monkeypatch):
+    """벤더가 `{"input_tokens": null}`을 주면 예전엔 `int(None)` → TypeError였다.
+
+    그리고 그건 `messages.create`가 **성공한 뒤**라, 라우터가 502로 바꾸고 슬롯까지
+    환불했다 — 벤더엔 청구됐는데 횟수도 토큰도 0으로 남는다. 방어를 적어놓고
+    방어가 안 되던 자리다.
+    """
+    from app.services import ai as ai_service
+
+    class _U:
+        input_tokens = None
+        output_tokens = 7
+
+    class _Resp:
+        stop_reason = None
+        content: list = []
+        usage = _U()
+
+    class _Msgs:
+        def create(self, **kw):
+            return _Resp()
+
+    class _Client:
+        messages = _Msgs()
+
+    monkeypatch.setattr(ai_service.anthropic, "Anthropic", lambda **kw: _Client())
+    monkeypatch.setattr(ai_service.settings, "anthropic_api_key", "sk-test")
+    text, usage = ai_service._claude("sys", "mat", "claude-haiku-4-5")
+    assert text == ""
+    assert usage == ai_service.TokenUsage(0, 7)  # None은 0으로 낮추되 터지지 않는다
+
+
+def test_add_tokens_uses_reserved_day_not_now(client, make_user, auth_headers, db):
+    """자정을 넘긴 호출이 D+1 행을 찾다가 UPDATE 0행으로 사라지던 것.
+
+    `day`를 명시하면 예약과 같은 버킷에 기록된다. 예전엔 add_tokens가 `_today()`를
+    다시 계산해서, 23:59에 시작해 00:00에 끝난 호출의 토큰이 조용히 증발했다.
+    """
+    from datetime import timedelta
+
+    from app.models.ai_usage import AiUsage
+    from app.services import ai_usage
+
+    user = make_user(role="writer")
+    yesterday = ai_usage.today() - timedelta(days=1)
+    db.add(AiUsage(user_id=user.id, day=yesterday, count=1))
+    db.commit()
+
+    ai_usage.add_tokens(db, user.id, 100, 200, day=yesterday)
+    row = db.query(AiUsage).filter(AiUsage.user_id == user.id, AiUsage.day == yesterday).one()
+    assert (row.input_tokens, row.output_tokens) == (100, 200)

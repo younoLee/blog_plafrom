@@ -3,8 +3,10 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.deps import require_writer
 from app.core.ratelimit import limiter
 from app.models.user import User
@@ -63,7 +65,17 @@ def _sniff_image(data: bytes) -> tuple[str, str] | None:
 #
 # `def`로 두면 FastAPI가 threadpool에서 돌리므로 느려도 그 요청 하나만 느리다.
 def upload_image(
-    request: Request, file: UploadFile, user: User = Depends(require_writer)
+    request: Request,
+    file: UploadFile,
+    user: User = Depends(require_writer),
+    # `db`를 **직접 받는다.** require_writer가 이미 세션을 열지만(deps.py의 get_current_user가
+    # `db.get(User, ...)`를 한다) 이 라우트가 세션 인자를 안 받아서 **커밋하고 싶어도 손이
+    # 안 닿았다.** 그래서 그 트랜잭션이 아래 S3 호출 내내(최악 ≈51초 = 2시도 × (연결5+읽기20)
+    # + 백오프) 열린 채였고, 풀 15칸 중 1칸이 그동안 `idle in transaction`으로 묶였다.
+    # 에디터에서 이미지 여러 장을 올리는 정상 동작만으로 풀이 찰 수 있다.
+    # ai.py가 2026-08-10에 벤더 호출 앞에서 정확히 같은 이유로 커밋을 넣었는데
+    # 업로드만 안 쓸려 있었다. (2026-08-11 병목검사)
+    db: Session = Depends(get_db),
 ):
     # 승인된 사람(writer/admin)만 — 글쓰기 부속이라 같이 잠금
 
@@ -84,6 +96,14 @@ def upload_image(
             status_code=400, detail="이미지 파일만 업로드 가능 (png/jpeg/gif/webp)"
         )
     content_type, ext = sniffed
+
+    # **여기서 DB 커넥션을 놓는다.** 위 검증까지가 DB가 필요한 전부고(require_writer의
+    # 사용자 조회), 아래 S3 호출은 최악 ≈51초다. 커밋하면 커넥션이 그 자리에서 풀에
+    # 반납된다(ai.py:331이 같은 근거로 실측해둔 것: checkedout 1 → 0).
+    # 이 라우트는 이후 DB를 안 쓰므로 다시 빌릴 일도 없다.
+    # rollback이 아니라 commit인 이유도 ai.py와 같다 — 밀린 쓰기가 없다는 보장이
+    # 코드에 명시돼 있지 않고, rollback은 있으면 조용히 버린다.
+    db.commit()
 
     # 충돌 없는 고유 이름 + 판별된 안전한 확장자.
     # 사용자가 보낸 파일명은 아예 안 씀 → 경로조작(../)·실행 가능 확장자 모두 차단

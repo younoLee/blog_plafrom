@@ -32,7 +32,14 @@ services:
     # backend가 'DB 준비 완료' 후에 뜨도록 상태 체크
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
-      interval: 5s
+      # 5초였다. 이 주기가 필요한 이유는 backend의 `depends_on: service_healthy`뿐이고
+      # 그건 **부팅 30초 동안만** 의미가 있다. 나머지 시간엔 하루 17,280회 pg_isready
+      # 프로세스 생성 ≈ CPU 크레딧 4/일이다. 답은 이미 아래 backend 쪽에 있다 —
+      # start_period + start_interval 조합이면 부팅은 더 빨라지고(2초 간격) 상시 비용은
+      # 1/6이 된다. (2026-08-11 병목검사)
+      interval: 30s
+      start_period: 60s
+      start_interval: 2s
       timeout: 3s
       retries: 5
 

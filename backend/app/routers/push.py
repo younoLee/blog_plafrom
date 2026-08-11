@@ -110,7 +110,11 @@ def unsubscribe(
     **남의 구독은 못 지운다** — user_id 조건을 항상 함께 건다. endpoint만으로
     지우게 두면 남의 기기 endpoint를 아는 사람이 그 사람 알림을 꺼버릴 수 있다."""
     stmt = delete(PushSubscription).where(PushSubscription.user_id == user.id)
-    if endpoint:
+    # `if endpoint:`가 아니라 `is not None`이다. 빈 문자열(`?endpoint=`)은 falsy라
+    # **그 기기만 끄려던 요청이 전 기기를 지운다.** 프론트는 이미 이 사고를 겪고
+    # 우회 중이지만(api/push.ts에 "폰 알림까지 같이 꺼졌다"가 적혀 있다), 새 클라이언트를
+    # 붙이는 사람은 독스트링만 보고 그대로 밟는다. (2026-08-11 교차검증)
+    if endpoint is not None and endpoint != "":
         stmt = stmt.where(PushSubscription.endpoint == endpoint)
     db.execute(stmt)
     db.commit()

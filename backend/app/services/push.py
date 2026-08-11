@@ -169,6 +169,13 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
         return
 
     # 백그라운드라 요청 세션과 별개로 자체 세션을 연다(email.py와 같은 이유).
+    #
+    # **조회가 끝나면 세션을 닫고 나서 발송한다.** 예전엔 이 세션을 연 채로 아래
+    # 발송 루프를 다 돌아, 기기 N대 × 최대 10초 동안 풀 15칸 중 1칸이
+    # `idle in transaction`으로 묶였다. 글 1편 발행이 메일 태스크와 함께 돌므로
+    # 한 번의 발행이 2칸을 잡았다. 같은 파일 email.py:157-169는 **이미 반대로**
+    # (조회 후 close, 그다음 루프) 하고 있었고 ai.py도 08-10에 같은 이유로 고쳤는데
+    # 푸시만 안 쓸려 있었다. (2026-08-11 병목검사)
     db = SessionLocal()
     try:
         subs = db.execute(
@@ -188,7 +195,11 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
                 AuthorSubscription.notify.is_(True),
             )
         ).all()
+    finally:
+        # 발송 전에 놓는다 — 아래 루프는 DB가 필요 없다.
+        db.close()
 
+    if subs:
         payload = {
             "title": "새 글이 올라왔어",
             "body": post_title,
@@ -207,12 +218,17 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
 
         # 죽은 구독은 그 자리에서 지운다. 안 지우면 매 발행마다 같은 곳에 던지고
         # 실패하며, 사용자 목록의 '기기 수'도 영원히 틀린 값을 보여준다.
+        # 여기서만 세션을 다시 연다 — 발송이 끝난 뒤라 잡는 시간이 짧다.
         if dead:
-            db.execute(delete(PushSubscription).where(PushSubscription.id.in_(dead)))
-            db.commit()
-            logger.info("만료된 푸시 구독 %d건 정리", len(dead))
-    finally:
-        db.close()
+            db2 = SessionLocal()
+            try:
+                db2.execute(
+                    delete(PushSubscription).where(PushSubscription.id.in_(dead))
+                )
+                db2.commit()
+                logger.info("만료된 푸시 구독 %d건 정리", len(dead))
+            finally:
+                db2.close()
 
 
 def _selftest_roundtrip() -> bool:

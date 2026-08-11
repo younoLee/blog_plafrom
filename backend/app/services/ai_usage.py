@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session
 from app.models.ai_usage import AiGuardViolation, AiHourlyUsage, AiUsage
 
 
+def today() -> date:
+    """예약과 기록이 **같은 날짜 버킷**을 보게 하려고 밖으로 연다(add_tokens의 day 인자)."""
+    return _today()
+
+
 def _today() -> date:
     # 서버 로컬 tz에 안 휘둘리게 UTC 기준 '오늘'
     return datetime.now(UTC).date()
@@ -60,7 +65,9 @@ def increment_today(db: Session, user_id: int) -> int:
     return new_count
 
 
-def add_tokens(db: Session, user_id: int, input_tokens: int, output_tokens: int) -> None:
+def add_tokens(
+    db: Session, user_id: int, input_tokens: int, output_tokens: int, day: date | None = None
+) -> None:
     """성공한 서버키 호출의 실제 토큰을 그날 행에 누적한다.
 
     호출 **후에** 부른다 — 토큰은 벤더 응답을 봐야 알 수 있어서, 예약(increment_today)
@@ -68,14 +75,19 @@ def add_tokens(db: Session, user_id: int, input_tokens: int, output_tokens: int)
     한 호출만큼 넘칠 수 있지만, 비용 가드레일에서 그 오차는 허용 범위다(넘겨서 통과시키는
     것과 달리 다음 호출은 확실히 막힌다).
 
-    행은 increment_today가 이미 만들었다. 없으면(이론상 불가) 조용히 넘긴다 —
-    토큰 기록 실패로 초안 생성을 죽일 이유는 없다.
+    ⚠️ **`day`는 예약 시점의 날짜를 받아야 한다.** 여기서 `_today()`를 다시 계산하면
+    UTC 자정을 넘긴 호출이 D+1 행을 찾다가 **UPDATE 0행**이 되어 토큰이 조용히 사라진다
+    (예약은 D일에 했고 벤더 대기가 최대 55초다). "이론상 불가"라고 적어뒀던 그 경로가
+    실제로는 하루 55초짜리 창으로 존재했다 — 2026-08-11 교차검증에서 잡혔다.
+    `day`를 안 주면 옛 동작(오늘 기준)이라, 부르는 쪽이 반드시 넘긴다.
+
+    행이 없으면 조용히 넘긴다 — 토큰 기록 실패로 초안 생성을 죽일 이유는 없다.
     """
     if input_tokens <= 0 and output_tokens <= 0:
         return
     db.execute(
         update(AiUsage)
-        .where(AiUsage.user_id == user_id, AiUsage.day == _today())
+        .where(AiUsage.user_id == user_id, AiUsage.day == (day or _today()))
         .values(
             input_tokens=AiUsage.input_tokens + input_tokens,
             output_tokens=AiUsage.output_tokens + output_tokens,

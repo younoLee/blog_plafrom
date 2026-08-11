@@ -254,7 +254,7 @@ say "4-B/6 디스크 회수 + 잔량"
 if out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
            -i "$SSH_KEY" "ec2-user@$DNS" \
-           'sudo docker image prune -f; df -h --output=pcent,avail / | tail -1' 2>&1); then
+           'sudo docker image prune -f && sudo docker builder prune -f; df -h --output=pcent,avail / | tail -1' 2>&1); then
   printf '%s\n' "$out" | sed 's/^/   /'
 else
   echo "   ⚠️  정리 실패 — 정지는 계속합니다: $out"

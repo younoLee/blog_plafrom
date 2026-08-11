@@ -103,7 +103,15 @@ def validate_base_url(url: str) -> str:
     백엔드가 컨테이너에서 인스턴스 역할로 S3에 업로드하고(routers/uploads.py)
     도커 브리지가 홉을 하나 더 먹어서 1로 낮추면 업로드가 깨진다. 그래서 2다.
     """
-    parsed = urlparse(url)
+    # ⚠️ `urlparse()` **자체도** ValueError를 낸다 — 깨진 IPv6 괄호(`https://[::1`)가
+    #    그렇다(실측). 아래 주석은 "속성을 읽는 시점"만 막으면 되는 것처럼 서술했지만
+    #    파싱 시점에도 새고, 그러면 라우터가 InvalidBaseURLError만 잡으므로 똑같이
+    #    **500 text/plain**이 나간다. 08-10에 포트 범위만 닫고 이쪽은 열려 있었다.
+    #    (2026-08-11 교차검증 — "이 입구는 이미 봤다"고 넘길 뻔한 자리다)
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        raise InvalidBaseURLError("base URL 형식이 올바르지 않아") from None
     # ⚠️ `parsed.port` 접근이 **예외를 던질 수 있다.** 포트가 0~65535 밖이면
     # (`https://example.com:99999/v1`) urlparse가 그때서야 평범한 `ValueError`를 낸다 —
     # 파싱 시점이 아니라 **속성을 읽는 시점**이다. 아래 getaddrinfo 줄에서 처음 건드리는데,

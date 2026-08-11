@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { PostSummary } from '../types/post'
 import type { PostMetaResult } from '../api/posts'
@@ -34,18 +34,39 @@ function HomePage() {
   // 이미 막아뒀는데, 정작 제일 많이 보는 이 화면에만 없었다 — 2026-08-11 공백검사)
   const [loaded, setLoaded] = useState(false)
 
+  // **늦게 온 응답이 이미 바뀐 조건의 결과를 덮어쓰지 않게 한다.** 검색어를 A→B로
+  // 바꿨을 때 A의 응답이 나중에 오면 제목줄은 B("aws 검색 결과")인데 카드는 A가
+  // 깔린다. 차가운 서버는 8초까지 걸리니 겹칠 시간이 충분하다.
+  const reqSeq = useRef(0)
+
   async function loadPosts() {
+    const seq = ++reqSeq.current
+    setLoaded(false) // 조건이 바뀌면 다시 '모르는 상태'다 — 아래 개수 표시가 거짓말하지 않게
     try {
       const res = await fetchPosts({ q, tag, offset: (page - 1) * POSTS_PAGE_SIZE })
+      if (seq !== reqSeq.current) return // 더 최신 요청이 이미 나갔다
+      // 범위 밖 쪽으로 남으면 "3 / 2 쪽"과 "아직 글이 없어"가 같이 뜬다 — 마지막 쪽의
+      // 마지막 글을 지웠거나 누가 ?page=99로 들어온 경우다. 조용히 마지막 쪽으로 되돌린다.
+      const lastP = Math.max(1, Math.ceil(res.total / POSTS_PAGE_SIZE))
+      if (res.items.length === 0 && page > lastP) {
+        updateParams({ page: lastP > 1 ? String(lastP) : undefined })
+        return // 이 setState들은 건너뛴다 — 곧 새 요청이 돈다
+      }
       setPosts(res.items)
       setTotal(res.total)
       setAsleep(false)
+      // **성공하면 옛 에러를 지운다.** 이게 없어서, 절전 중에 들어와 에러가 남은 상태로
+      // 서버가 깨어나면 `{error && !asleep}` 줄이 그제야 드러나 **멀쩡한 목록 위에
+      // 빨간 "에러: 서버가 절전 중이야"가 떴다** — 노란 안내가 빨간 에러로 승격되는 셈이라
+      // 오늘 만든 톤 구분이 정확히 반대로 작동했다.
+      setError('')
     } catch (e) {
+      if (seq !== reqSeq.current) return
       // 절전(서버 꺼짐)과 진짜 에러를 구분해 안내 톤을 다르게 한다.
       setAsleep(e instanceof ServerAsleepError)
       setError((e as Error).message)
     } finally {
-      setLoaded(true)
+      if (seq === reqSeq.current) setLoaded(true)
     }
   }
 
@@ -191,8 +212,13 @@ function HomePage() {
         </span>
       </div>
 
-      {/* 로딩 중 자리를 잡아두는 스켈레톤. 카드가 나타날 때 레이아웃이 안 튄다. */}
-      {!loaded && (
+      {/* 로딩 중 자리를 잡아두는 스켈레톤.
+          **`posts.length === 0`도 봐야 한다.** 이게 없으면 재조회(2쪽 이동·태그·검색)마다
+          기존 카드 10장 **위에** 스켈레톤 4장이 끼어들어 모바일 기준 약 700px이 밀렸다가
+          응답이 오면 되돌아온다 — 레이아웃이 안 튀게 하려고 넣은 것이 정확히 반대로
+          작동했다. 첫 진입에서만 의도대로였다. (2026-08-11 병목검사)
+          기존 목록이 있으면 그걸 그대로 두는 게 맞다(stale-while-revalidate). */}
+      {!loaded && posts.length === 0 && (
         <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3" aria-hidden>
           {[0, 1, 2, 3].map((i) => (
             <div

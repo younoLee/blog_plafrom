@@ -437,8 +437,18 @@ if [ "$srcn" -lt 0 ] || [ "$dstn" -lt 0 ]; then
   :   # 위에서 이미 WARN을 냈다. 아래 비교는 성립하지 않으므로 건너뛴다.
 elif [ "$dstn" -ge "$srcn" ] && [ "$srcn" -gt 0 ]; then
   echo "  OK   이미지 사본 $dstn개 (원본 $srcn개) — s3://$BUCKET/uploads/"
+elif [ "$srcn" -eq 0 ] && [ "$dstn" -gt 0 ]; then
+  # **사본이 원본보다 많다는 것 자체가 원본 삭제의 신호다.** 여기 있던 분기는
+  # `srcn -eq 0`을 정보 한 줄로 넘겼는데, 그건 RECOVERY.md가 시나리오 C(업로드
+  # 이미지를 잃었다)로 정의한 바로 그 상태다. watch.sh는 2026-08-11에 같은 자리를
+  # 고쳤는데(그 전까지 실제 삭제를 12일간 초록으로 보고했다) **이 파일은 count_objects
+  # 함수만 이식되고 분기는 수정 전 버전이 남아 있었다** — 고친 자리 옆의 안 쓸린 입구다.
+  echo "  WARN 원본 이미지가 사라졌습니다 (원본 0 / 사본 $dstn). 사본이 더 많다 = 원본이 지워졌다는 뜻입니다."
+  echo "       버저닝으로 복구: 삭제 표식을 지웁니다(RECOVERY.md 시나리오 C)."
+  echo "       aws s3api list-object-versions --bucket $IMAGE_BUCKET --prefix uploads/ \\"
+  echo "         --query \"DeleteMarkers[?IsLatest==\\\`true\\\`].[Key,VersionId]\" --output text"
 elif [ "$srcn" -eq 0 ]; then
-  echo "  --   원본 버킷에 이미지가 없습니다"
+  echo "  --   원본 버킷에 이미지가 없습니다 (사본도 0 — 애초에 올린 적이 없습니다)"
 else
   echo "  WARN 이미지 사본이 부족합니다 (원본 $srcn / 사본 $dstn). 정지 절차가 미러합니다:"
   echo "       aws s3 sync s3://$IMAGE_BUCKET/uploads/ s3://$BUCKET/uploads/"

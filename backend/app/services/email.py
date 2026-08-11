@@ -174,6 +174,13 @@ def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:
     # 제목은 사용자 입력 → HTML 이스케이프(메일 HTML 인젝션 방지)
     safe_title = html_escape(post_title)
     html = _action_html(f"새 글이 올라왔어: <b>{safe_title}</b>", link, "글 보러 가기")
+    # **실패를 로그로 남긴다.** 예전엔 `except Exception: continue`뿐이라, 구독자
+    # 전원에게 한 통도 안 나가도 **로그가 0줄**이었다. `_background_send`가 스스로
+    # "발송의 유일한 출구 — 예외를 여기서 로그로 만든다"고 적어놨는데, 정작 팬아웃이
+    # 가장 큰 이 경로가 그걸 안 지났다. 200 응답 + 침묵은 이 저장소가 없애기로 한 모양이다.
+    # (2026-08-11 교차검증)
+    sent = 0
+    failed = 0
     for email in emails:
         try:
             send_email(
@@ -182,6 +189,13 @@ def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:
                 body=text,
                 html=html,
             )
+            sent += 1
         except Exception:
-            # 한 수신자 실패(예: SES 미인증 주소)가 나머지 발송을 막지 않게
-            continue
+            # 한 수신자 실패(예: SES 미인증 주소)가 나머지 발송을 막지 않게 계속하되,
+            # 조용히 넘기지는 않는다. 주소별 사유는 스택으로 남긴다.
+            failed += 1
+            logger.exception("새 글 알림 메일 실패 (수신자 1건)")
+    if failed:
+        logger.warning("새 글 알림: %d명 성공 / %d명 실패 (총 %d)", sent, failed, len(emails))
+    elif sent:
+        logger.info("새 글 알림: %d명에게 발송", sent)
