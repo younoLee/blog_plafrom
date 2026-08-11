@@ -32,6 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 히스토리 전체를 받는다. watch.sh의 7절이 '배포 스탬프의 커밋 ↔ HEAD' 사이에
+          # 프론트 변경이 있는지 세는데, 기본 얕은 체크아웃(depth 1)이면 그 커밋이
+          # 아예 없어서 **비교가 항상 통과한다** — 조용히 초록인 검사가 하나 느는 셈이다.
+          # (ci.yml의 gitleaks 잡에서 실측: 199커밋에 0.8초)
+          fetch-depth: 0
 
       - name: AWS 자격증명 (OIDC)
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3

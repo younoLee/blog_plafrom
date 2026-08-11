@@ -62,6 +62,28 @@ async def lifespan(app: FastAPI):
             "ORIGIN_SECRET에 ASCII가 아닌 문자가 있음. 헤더로 전달되는 값이라 "
             "ASCII여야 한다 (예: openssl rand -hex 32)."
         )
+    # 그런데 위 검사는 **빈 값을 못 잡는다** — `"".isascii()`는 True다. 비어 있으면
+    # 아래 require_origin_secret 미들웨어가 통째로 건너뛴다(fail open). 로컬에선 그게
+    # 의도지만(그래야 개발이 돌고, 켜는 순서가 성립한다), 프로드에서 그 상태는
+    # **엣지 우회 차단이 꺼진 채 도는 것**이다 — 공격자가 자기 CloudFront 배포를
+    # 우리 오리진에 겨누면 WAF·CSP·요청크기 함수를 전부 건너뛰고 /api/*에 닿는다.
+    #
+    # 이 실패는 밖에서 **아무 신호도 안 낸다.** 사이트가 멀쩡히 200이고, watch.sh의
+    # 403 단서조차 안 뜬다(막히는 게 아니라 다 통과하니까). 반대 방향(값 불일치)은
+    # 사이트가 통째로 죽어서 즉시 알지만, 이 방향은 영원히 조용하다.
+    # SECRET_KEY·S3_BUCKET·PAYMENTS_REQUIRE_LIVE에 대해 이미 같은 모양을 막아뒀는데
+    # **여기만 안 쓸려 있었다**(2026-08-11).
+    #
+    # 켜는 순서는 안 깨진다: ① terraform으로 CloudFront에 헤더를 붙이고 ② .env에
+    # 같은 값을 넣는 순서라, 이 가드는 ② 시점에만 걸린다. 넣기 전에 프로드 에스크로
+    # (SSM /blog/prod/env)에 64자로 실재하는 걸 확인했다 — 현행 서버는 안 죽는다.
+    if settings.public_base_url.startswith("https://") and not settings.origin_secret:
+        raise RuntimeError(
+            "프로드인데 ORIGIN_SECRET이 비어 있다. 이 상태면 오리진 공유 시크릿 검사가 "
+            "통째로 꺼져서, 공격자가 자기 CloudFront 배포로 오리진을 직접 때릴 수 있다"
+            "(WAF·CSP 우회). 값은 terraform의 origin_secret과 같아야 한다 — "
+            "에스크로(SSM /blog/prod/env)에 있다. 절차는 RECOVERY.md의 origin_secret 항목."
+        )
     # 업로드 저장소 가드. S3_BUCKET이 비면 routers/uploads.py가 **예외 없이** 로컬 디스크로
     # 떨어져서, 정성 들인 503 방어를 통째로 건너뛰고 200 + CloudFront URL을 돌려준다.
     # 파일은 컨테이너 안에 있으므로 그 URL은 404이고 컨테이너를 갈면 사라진다.

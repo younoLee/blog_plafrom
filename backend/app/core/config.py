@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     # 막힌다(밖에서는 403이 아니라 200+HTML로 보인다. 이유는 main.py 미들웨어 주석 참고).
     # fail open이 맞는 이유: 이건 인증이 아니라 '엣지 우회 차단'이고, 진짜 인증(JWT)과
     # 권한 검사는 이것과 무관하게 라우터에서 그대로 돈다.
+    #
+    # **단, 그 fail open은 요청 시점 얘기고 프로드에서는 기동을 막는다.**
+    # 프로드(PUBLIC_BASE_URL이 https)에서 이 값이 비면 main.py의 lifespan이 RuntimeError로
+    # 죽는다 — 요청마다 403을 내는 것과는 다른 얘기다. 비어 있는 프로드는 '우회 차단이
+    # 꺼진 줄 모르고 도는' 상태이고 밖에서 아무 신호도 안 난다(2026-08-11).
     origin_secret: str = ""
 
 

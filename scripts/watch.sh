@@ -511,6 +511,60 @@ else
   fi
 fi
 
+# ── 7. 프론트가 최신 커밋으로 나가 있는가 ───────────────────────────────────
+# 2026-08-11에 푸시 자동배포를 폐지했다(백엔드 동시변경 게이트가 fail-open이라
+# 무의미했다). 그래서 프론트는 이제 **사람이 Actions에서 Run workflow를 눌러야**
+# 나간다. 그런데 안 눌렀다는 걸 알려줄 장치가 저장소에 **하나도 없었다** —
+# 백엔드·백업·이미지·메일·자격증명·비용·알람은 전부 이 스크립트가 보는데
+# 프론트만 사각이었다. 실제로 같은 날 "정적 아카이브가 아직 28편이 아니다"를
+# 사람이 눈으로 발견했다. 그게 이 절이 막으려는 모양이다.
+#
+# **왜 파일 갱신시각이 아니라 커밋 SHA인가.** LastModified 비교는 `s3 sync`가
+# 내용이 같은 파일을 안 올린다는 이유로 늘 어긋난다 — 테스트만 고친 커밋처럼
+# dist가 안 바뀌는 변경이 영구 경고가 된다. 영구 경고는 무시하게 되고, 그러면
+# 감시가 있으나 없으나 같아진다. 스탬프는 '무엇이 나갔는가'를 정확히 말한다.
+if ! stamp=$(aws s3 cp "s3://$IMAGE_BUCKET/deploy-stamp.txt" - --region "$REGION" 2>&1); then
+  case "$stamp" in
+    *NoSuchKey*|*"Not Found"*|*404*|*"does not exist"*)
+      warn "프론트 배포 스탬프가 없다 — 스탬프를 넣은 뒤로 프론트를 한 번도 배포하지 않았다."
+      echo "       Actions → '배포' → Run workflow. (푸시로는 안 나간다 — 2026-08-11에 폐지)"
+      ;;
+    *)
+      # 읽기 실패를 '배포된 적 없음'으로 읽으면 안 된다 — 이 스크립트가 2·3절에서
+      # 이미 같은 실수를 했다(AccessDenied가 "백업 0건"이라는 사실 주장으로 나갔다).
+      fail "배포 스탬프를 읽지 못했다(s3://$IMAGE_BUCKET/deploy-stamp.txt) — 권한이나 자격증명 확인"
+      sed 's/^/       /' <<< "$stamp"
+      ;;
+  esac
+elif ! deployed=$(sed -n 's/^sha=//p' <<< "$stamp") || [ -z "$deployed" ]; then
+  fail "배포 스탬프에 sha 줄이 없다 — deploy.yml의 '배포 스탬프 기록' 스텝이 바뀌었는지 확인."
+elif [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+  # 얕은 체크아웃이면 아래 비교가 **항상 통과**한다(비교할 히스토리가 없으니까).
+  # 조용히 통과하는 대신 그 사실을 말한다. watch.yml은 fetch-depth: 0으로 받는다.
+  warn "히스토리가 얕아서 프론트 배포 시점을 비교할 수 없다(체크아웃에 fetch-depth: 0 필요)."
+elif ! git cat-file -e "${deployed}^{commit}" 2>/dev/null; then
+  warn "배포된 커밋 $deployed 을 이 저장소에서 못 찾는다 — 히스토리가 바뀌었거나 다른 브랜치에서 배포됐다."
+else
+  # dist에 영향을 주는 경로만 본다. 프론트 테스트·마크다운은 산출물에 안 들어가므로
+  # 빼지 않으면 "테스트만 고쳤는데 배포하라"는 오탐이 상시로 뜬다.
+  # content/devlog/ 를 포함하는 이유: 개발일지 정적 아카이브의 **원본**이 거기다.
+  behind=$(git rev-list --count "$deployed..HEAD" -- \
+    frontend/ content/devlog/ \
+    ':!frontend/**/*.test.ts' ':!frontend/**/*.test.tsx' ':!frontend/*.md' 2>/dev/null || echo "?")
+  if [ "$behind" = "?" ]; then
+    warn "프론트 변경분을 세지 못했다(git rev-list 실패)."
+  elif [ "$behind" -eq 0 ]; then
+    ok "프론트 최신 (배포 ${deployed:0:7} · 그 뒤 프론트 변경 없음)"
+  else
+    warn "프론트가 $behind 커밋 뒤처져 있다 (배포 ${deployed:0:7} → HEAD $(git rev-parse --short HEAD))."
+    echo "       Actions → '배포' → Run workflow 를 눌러야 나간다. 안 누르면 영원히 옛것이 뜬다."
+    git log --oneline "$deployed..HEAD" -- \
+      frontend/ content/devlog/ \
+      ':!frontend/**/*.test.ts' ':!frontend/**/*.test.tsx' ':!frontend/*.md' 2>/dev/null \
+      | head -10 | sed 's/^/       /'
+  fi
+fi
+
 # ── 하트비트 ────────────────────────────────────────────────────────────────
 # "감시가 돌았다"는 사실을 AWS에 남긴다. 3시간 안 오면 알람이 운다
 # (terraform/alerts.tf의 blog-watch-heartbeat-missing, treat_missing_data="breaching").
