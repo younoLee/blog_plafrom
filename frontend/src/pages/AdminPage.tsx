@@ -212,6 +212,9 @@ function AdminPage() {
   const { user, loading } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [infra, setInfra] = useState<InfraStatus | null>(null)
+  // 게이지가 '지금'을 보여주는지 '마지막으로 살아 있던 때'를 보여주는지 구분하기 위한 둘
+  const [infraStale, setInfraStale] = useState(false)
+  const [infraAt, setInfraAt] = useState<Date | null>(null)
   const [error, setError] = useState('')
 
   // 가입자 목록 불러오기 (관리자일 때만)
@@ -224,7 +227,19 @@ function AdminPage() {
   useEffect(() => {
     if (user?.role !== 'admin') return
     let alive = true
-    const load = () => fetchInfra().then((d) => alive && setInfra(d)).catch(() => {})
+    // `.catch(() => {})`만 두면 실패해도 infra state가 **마지막 성공값 그대로** 남아,
+    // 서버가 꺼진 뒤에도 CPU 12%·메모리 40%가 초록으로 떠 있다. 이 프로젝트는
+    // 서버를 껐다 켜는 게 운영 방식이라 **정확히 그 순간에 틀린다**(2026-08-11 공백검사).
+    // 실패를 상태로 만들고, 마지막 갱신 시각도 같이 보여준다.
+    const load = () =>
+      fetchInfra()
+        .then((d) => {
+          if (!alive) return
+          setInfra(d)
+          setInfraAt(new Date())
+          setInfraStale(false)
+        })
+        .catch(() => alive && setInfraStale(true))
     load()
     const t = setInterval(load, 10000)
     return () => {
@@ -267,6 +282,12 @@ function AdminPage() {
       </p>
 
       {/* 인프라 상태 대시보드 (서버 EC2 + DB 실측, 10초 폴링). 관리자만 봄 */}
+      {infraStale && (
+        <p className="mt-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          ⚠️ 인프라 상태를 못 가져오고 있어 (서버 정지 또는 장애). 아래 값은
+          {infraAt ? ` ${infraAt.toLocaleTimeString()} 기준 옛 값` : ' 갱신되지 않은 값'}이야.
+        </p>
+      )}
       {infra && (
         <section className="mt-6">
           <h2 className="mb-3 flex items-baseline gap-2 text-xl font-semibold tracking-tight">
@@ -283,7 +304,10 @@ function AdminPage() {
               detail={infra.db.connections != null ? `${infra.db.connections} / ${infra.db.max_connections}` : '조회 불가'}
             />
           </div>
-          <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">서버 가동시간: {formatUptime(infra.uptime_seconds)}</p>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            서버 가동시간: {formatUptime(infra.uptime_seconds)}
+            {infraAt && ` · 갱신 ${infraAt.toLocaleTimeString()}`}
+          </p>
         </section>
       )}
 

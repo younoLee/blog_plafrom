@@ -46,6 +46,8 @@ function WritePostPage() {
   const [series, setSeries] = useState('') // 연재 이름(선택). 같은 이름끼리 한 시리즈
   const [tagInput, setTagInput] = useState('') // 태그 입력 중인 값
   const [error, setError] = useState('')
+  // 저장 진행 중 — 중복 제출을 막는다(같은 글이 여러 개 생기던 자리)
+  const [saving, setSaving] = useState(false)
 
   // AI 초안 생성용
   const [memo, setMemo] = useState('')
@@ -218,6 +220,13 @@ function WritePostPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim() || !content.trim()) return
+    // **중복 제출 방어.** 예전엔 busy 상태도 disabled도 없었고 createPost에 타임아웃도
+    // 없어서(CloudFront 오리진 상한 60초), 느릴 때 두세 번 누르면 **같은 글이 여러 개
+    // 생성됐다.** 글 생성은 30/h 리밋 안이라 서버도 안 막는다. (2026-08-11 공백검사)
+    // 같은 페이지의 AI 초안만 disabled·스피너·타임아웃이 제대로 돼 있었는데, 정작
+    // 글을 저장하는 동작에는 없었다.
+    if (saving) return
+    setSaving(true)
     try {
       const cover = coverImage.trim() || null
       // 입력 중이던 태그도 마지막에 반영
@@ -229,6 +238,8 @@ function WritePostPage() {
       navigate('/blog') // 끝나면 홈으로
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -489,10 +500,12 @@ function WritePostPage() {
           </label>
         </div>
         <div className="flex gap-2">
-          <button type="submit" className={btnPrimary}>{editingId === null ? '글 작성' : '수정 저장'}</button>
+          <button type="submit" className={btnPrimary} disabled={saving} aria-busy={saving}>
+            {saving ? '저장 중…' : editingId === null ? '글 작성' : '수정 저장'}
+          </button>
           <button type="button" onClick={() => navigate('/blog')} className={btnGhost}>취소</button>
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       </form>
       </div>
     </div>

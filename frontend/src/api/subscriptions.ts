@@ -63,8 +63,12 @@ export async function fetchMySubscriptionsDetail(): Promise<SubscribedAuthor[]> 
 }
 
 // 구독할 수 있는 글쓴이 목록 (writer/admin, 나 제외)
+// 이 파일의 다른 조회는 전부 fetchWithTimeout인데 여기만 맨 fetch였다 → 8초 규칙 밖이라
+// 서버가 꺼져 있으면 CloudFront 오리진 상한 60초까지 매달렸다. 호출부가 실패를 []로
+// 삼키므로(SubscriptionsPage) 화면엔 "구독할 수 있는 다른 글쓴이가 아직 없어"가 뜬다 —
+// 1분을 기다린 끝에 **거짓 사실**을 보는 셈이었다. (2026-08-11 공백검사)
 export async function fetchAuthors(): Promise<SubscribedAuthor[]> {
-  const res = await fetch(`${BASE}/subscriptions/authors`, { headers: authHeaders() })
+  const res = await fetchWithTimeout(`${BASE}/subscriptions/authors`, { headers: authHeaders() })
   if (!res.ok) return []
   return res.json()
 }

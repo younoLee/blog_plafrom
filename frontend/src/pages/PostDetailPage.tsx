@@ -6,6 +6,7 @@ import type { Post, SeriesNav, Visibility } from '../types/post'
 import type { Comment } from '../types/comment'
 import { getPost, changeVisibility, fetchSeries } from '../api/posts'
 import { fetchComments, addComment, deleteComment } from '../api/comments'
+import { ServerAsleepError } from '../api/http'
 import { fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
@@ -26,6 +27,9 @@ function PostDetailPage() {
   // 브라우저 탭/북마크/검색결과에 글 제목이 뜨도록 (글 로딩 전엔 사이트 기본 제목)
   useDocumentTitle(post?.title)
   const [error, setError] = useState('')
+  // 절전(서버 꺼짐)과 진짜 에러의 톤을 가른다. HomePage는 이미 그렇게 하는데
+  // 여기만 절전도 빨간 "에러:"로 보여 고장처럼 읽혔다(2026-08-11 공백검사).
+  const [asleep, setAsleep] = useState(false)
   const [subscribed, setSubscribed] = useState(false)
   const [series, setSeries] = useState<SeriesNav | null>(null)
 
@@ -33,13 +37,37 @@ function PostDetailPage() {
   const [author, setAuthor] = useState('')
   const [text, setText] = useState('')
 
+  // **글이 바뀌면 렌더 중에 비운다.** 이게 없으면 연재 '다음 편'을 눌렀을 때 새 글이
+  // 도착할 때까지(서버가 차가우면 최대 8초) **이전 글의 본문·댓글·목차가 그대로** 보인다.
+  // 이전 글이 full height라 스크롤도 유지돼 새 글의 중간에 떨어지고, 사용자는 클릭이
+  // 안 먹은 줄 알고 다시 누른다. (2026-08-11 공백검사)
+  //
+  // effect가 아니라 **렌더 중**인 이유: effect는 페인트 뒤에 돌아서 옛 글이 한 프레임
+  // 그려진 뒤 지워진다 — 없애려는 그 잔상을 그대로 만든다. React가 권장하는
+  // '프롭이 바뀔 때 상태 조정' 패턴이다(이 setState는 커밋 전에 리렌더로 흡수된다).
+  const [shownId, setShownId] = useState(postId)
+  if (shownId !== postId) {
+    setShownId(postId)
+    setPost(null)
+    setComments([])
+    setSeries(null)
+    setError('')
+    setAsleep(false)
+  }
+
   useEffect(() => {
     getPost(postId)
       .then(setPost)
-      .catch((e) => setError((e as Error).message))
+      .catch((e) => {
+        setAsleep(e instanceof ServerAsleepError)
+        setError((e as Error).message)
+      })
     fetchComments(postId)
       .then(setComments)
-      .catch((e) => setError((e as Error).message))
+      .catch((e) => {
+        // 댓글 실패로 글 읽기의 에러 톤을 덮어쓰지 않는다 — 본문 쪽 상태가 우선이다.
+        setAsleep((prev) => prev || e instanceof ServerAsleepError)
+      })
     // 연재는 부가정보 — 실패해도 글 읽기를 막지 않는다(fetchSeries가 null을 준다)
     fetchSeries(postId).then(setSeries)
   }, [postId])
@@ -137,7 +165,28 @@ function PostDetailPage() {
         <IconArrowLeft className="h-4 w-4" />목록으로
       </Link>
 
-      {error && <p className="mt-4 text-sm text-red-600">에러: {error}</p>}
+      {/* 절전은 '고장'이 아니라 의도된 비용 절약이다 — HomePage와 같은 톤을 쓴다.
+          여기만 빨간 "에러:"로 보여서, 링크를 타고 글로 바로 들어온 사람에게는
+          이 사이트가 망가진 것처럼 보였다. 정적 아카이브로 안내해 읽을 길을 준다. */}
+      {asleep && (
+        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 글은 깨어난 뒤에 보여.{' '}
+          <a href="/devlog.html" className="font-medium underline">
+            개발일지 아카이브
+          </a>
+          는 서버 없이도 읽을 수 있어.
+        </p>
+      )}
+      {error && !asleep && <p role="alert" className="mt-4 text-sm text-red-600">에러: {error}</p>}
+
+      {/* 아직 안 왔고 실패도 아니면 로딩이다. 예전엔 이 자리가 통째로 비어
+          "목록으로" 링크 한 줄만 있는 백지였다. */}
+      {!post && !error && (
+        <div className="mt-4 space-y-3" aria-hidden>
+          <div className="h-9 w-2/3 animate-pulse rounded-lg bg-black/[0.06] dark:bg-white/[0.08]" />
+          <div className="h-64 animate-pulse rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]" />
+        </div>
+      )}
 
       {post && (
         <Reveal>

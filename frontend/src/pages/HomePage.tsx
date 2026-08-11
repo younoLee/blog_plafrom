@@ -27,6 +27,12 @@ function HomePage() {
   // 검색창 입력값. 제출(Enter)할 때만 URL에 반영한다 — 타이핑마다 부르면
   // 서버 레이트리밋(60/분)에 걸리고 검색은 일반 조회보다 비싸다.
   const [queryInput, setQueryInput] = useState(q ?? '')
+  // **한 번이라도 응답을 받았는가.** 이게 없으면 `posts=[]`·`asleep=false`인 첫 페인트부터
+  // 응답이 오거나 8초 타임아웃이 끝날 때까지 화면이 "아직 글이 없어. 첫 글을 써봐!" + "0개"를
+  // **확정적으로** 띄운다 — 이 사이트는 서버가 평소 꺼져 있어 그 8초가 흔한 상태다.
+  // 방문자에게 첫인상이 '빈 블로그'가 된다. (AdminPage는 같은 문제를 loaded 플래그로
+  // 이미 막아뒀는데, 정작 제일 많이 보는 이 화면에만 없었다 — 2026-08-11 공백검사)
+  const [loaded, setLoaded] = useState(false)
 
   async function loadPosts() {
     try {
@@ -38,6 +44,8 @@ function HomePage() {
       // 절전(서버 꺼짐)과 진짜 에러를 구분해 안내 톤을 다르게 한다.
       setAsleep(e instanceof ServerAsleepError)
       setError((e as Error).message)
+    } finally {
+      setLoaded(true)
     }
   }
 
@@ -177,14 +185,28 @@ function HomePage() {
             '최근 글'
           )}
         </h2>
-        <span className="text-sm text-gray-400 dark:text-gray-500">
-          {total > 0 ? `${total}개 중 ${first}–${last}` : '0개'}
+        {/* 로딩 중엔 개수를 단언하지 않는다 — '0개'는 사실 주장이다 */}
+        <span className="text-sm text-gray-500 dark:text-gray-400">
+          {!loaded ? '불러오는 중…' : total > 0 ? `${total}개 중 ${first}–${last}` : '0개'}
         </span>
       </div>
 
-      {/* 절전 중엔 목록이 비는 게 당연하므로 '글이 없다'는 안내를 겹쳐 띄우지 않는다. */}
-      {posts.length === 0 && !asleep && (
-        <p className="rounded-2xl border border-dashed border-black/10 p-12 text-center text-gray-400 dark:border-white/15 dark:text-gray-500">
+      {/* 로딩 중 자리를 잡아두는 스켈레톤. 카드가 나타날 때 레이아웃이 안 튄다. */}
+      {!loaded && (
+        <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3" aria-hidden>
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-40 animate-pulse rounded-2xl border border-black/[0.07] bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.04]"
+            />
+          ))}
+        </div>
+      )}
+
+      {/* 절전 중엔 목록이 비는 게 당연하므로 '글이 없다'는 안내를 겹쳐 띄우지 않는다.
+          **`loaded`도 봐야 한다** — 첫 응답 전에는 '없다'가 아직 참이 아니다. */}
+      {loaded && posts.length === 0 && !asleep && (
+        <p className="rounded-2xl border border-dashed border-black/10 p-12 text-center text-gray-500 dark:border-white/15 dark:text-gray-400">
           {q || tag ? '조건에 맞는 글이 없어.' : '아직 글이 없어. 첫 글을 써봐!'}
         </p>
       )}

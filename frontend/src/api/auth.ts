@@ -80,12 +80,25 @@ export async function resetPassword(token: string, newPassword: string): Promise
   if (!res.ok) throw new Error('유효하지 않거나 만료된 링크야')
 }
 
+/**
+ * 로그인 타임아웃을 목록(8초)보다 길게 준다 — bcrypt cost 12가 서버에서 도는데,
+ * 차가운 t2.micro면 목록 조회보다 느릴 수 있다. 그렇다고 무제한이면 안 된다:
+ * 예전엔 타임아웃이 아예 없어 CloudFront 오리진 상한 60초까지 매달렸고,
+ * 화면에 busy 표시도 없어 사용자가 버튼을 다시 눌렀다 → **자기가 만든 429**를 만났다
+ * ("로그인 시도가 너무 많아"). 원인을 알 수 없는 형태의 실패라 특히 나쁘다.
+ */
+const LOGIN_TIMEOUT_MS = 20000
+
 export async function login(email: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  })
+  const res = await fetchWithTimeout(
+    `${BASE}/auth/login`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    },
+    LOGIN_TIMEOUT_MS,
+  )
   if (res.status === 401) throw new Error('이메일 또는 비밀번호가 틀렸어')
   // 403 = 미인증/차단 (백엔드 메시지 그대로 보여줌), 429 = 너무 잦은 시도
   if (res.status === 403) {
