@@ -68,7 +68,7 @@ jobs:
         working-directory: frontend
         run: |
           missing=""
-          for f in rss.xml sitemap.xml robots.txt devlog.html; do
+          for f in rss.xml sitemap.xml robots.txt devlog.html devlog-index.json; do
             [ -s "dist/$f" ] || missing="$missing $f"
           done
           count=$(ls dist/devlog/*.html 2>/dev/null | wc -l)
@@ -78,6 +78,34 @@ jobs:
             exit 1
           fi
           echo "정적 산출물 OK — 개발일지 $count편 + rss/sitemap/robots"
+
+      # devlog-index.json은 **랜딩(/)이 첫 화면에 그리는 목록**이다(2026-08-12 신설).
+      # 존재 확인만으로는 부족하다 — 이 파일이 가리키는 slug가 실제 파일과 어긋나면
+      # 방문자가 보는 첫 화면의 링크가 전부 404가 되는데, 그건 아무 데도 안 뜬다.
+      # 이 사이트는 서버가 평소 꺼져 있어서 그 링크가 **글로 가는 유일한 경로**다.
+      # 편수 일치 + 전 slug 실재를 여기서 fail-closed로 잠근다.
+      - name: 랜딩 목록 무결성 (devlog-index.json ↔ 실제 페이지)
+        working-directory: frontend
+        run: |
+          node -e '
+            const fs = require("fs")
+            const d = JSON.parse(fs.readFileSync("dist/devlog-index.json", "utf8"))
+            const files = fs.readdirSync("dist/devlog").filter((f) => f.endsWith(".html"))
+            const problems = []
+            if (d.posts.length !== files.length)
+              problems.push(`편수 불일치: json ${d.posts.length} vs 파일 ${files.length}`)
+            if (d.total !== d.posts.length) problems.push(`total(${d.total})이 목록 길이와 다름`)
+            if (!(d.chars > 0)) problems.push("chars가 0 이하")
+            for (const p of d.posts) {
+              if (!fs.existsSync(`dist/${p.slug}`)) problems.push(`없는 링크: ${p.slug}`)
+              if (!p.title) problems.push(`제목 없음: ${p.date}`)
+            }
+            if (problems.length) {
+              for (const m of problems) console.error(`::error::랜딩 목록 ${m}`)
+              process.exit(1)
+            }
+            console.log(`랜딩 목록 OK — ${d.total}편 · ${d.chars.toLocaleString()}자 · 링크 전부 실재`)
+          '
 
       # 배포 스탬프 — "프론트가 어느 커밋으로 나가 있는가"를 산출물 안에 남긴다.
       #

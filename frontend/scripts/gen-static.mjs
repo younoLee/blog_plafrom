@@ -248,6 +248,30 @@ function main() {
     }),
   )
 
+  // 2-B) 포털용 목록 JSON — **첫 화면이 빈 채로 뜨는 문제를 서버 없이 고친다.**
+  //
+  //   진단(2026-08-12): 이 사이트의 랜딩(/)은 입구 카드 두 장뿐이라 글 제목·날짜가
+  //   0개였다. 반면 자산은 개발일지 29편 23.9만 자다 → 첫 화면 노출이 0%였다.
+  //   글 목록은 전량 /api에서 오는데 이 사이트는 EC2를 평소 꺼둔다. 즉 방문자가
+  //   **가장 흔하게 보는 상태가 빈 화면**이었고, 서버 없이 읽히는 유일한 경로인
+  //   /devlog.html은 푸터의 12px 회색 글씨였다.
+  //
+  //   그래서 API가 아니라 **여기서** 목록을 낸다. 이 파일은 이미 content/devlog를
+  //   읽고 있으니 추가 비용이 거의 없고, S3에 정적으로 놓이므로 EC2와 무관하게 산다.
+  //   링크도 SPA 라우트가 아니라 정적 아카이브(/devlog/*.html)로 건다 — 서버가
+  //   꺼져 있어도 클릭이 살아 있어야 이 작업이 의미가 있다.
+  //
+  //   요약은 이미 만든 summarize()를 그대로 쓴다(같은 값이 OG·RSS·아카이브에 쓰인다).
+  //   글자 수는 본문 기준이라 마크다운 기호가 섞이지만, 첫 화면에 쓰는 근사치다.
+  writeFileSync(
+    join(OUT, 'devlog-index.json'),
+    JSON.stringify({
+      total: posts.length,
+      chars: posts.reduce((n, p) => n + p.body.length, 0),
+      posts: posts.map(({ date, title, slug, summary }) => ({ date, title, slug, summary })),
+    }),
+  )
+
   // 3) RSS — 전문을 싣는다. 구독자는 이 파일 하나로 사이트에 들어오지 않고도
   //    전부 읽는다. 서버가 꺼져 있어도 동작하는 성질을 그대로 이어받는다.
   //
@@ -311,7 +335,7 @@ ${urls
   )
 
   console.log(
-    `  정적 산출물: 개발일지 ${posts.length}편 + devlog.html + ` +
+    `  정적 산출물: 개발일지 ${posts.length}편 + devlog.html + devlog-index.json + ` +
       `rss.xml(최근 ${feedPosts.length}편) + sitemap.xml + robots.txt`,
   )
 }
