@@ -21,22 +21,19 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import PortalPage from './PortalPage'
 
+// ⚠️ **픽스처는 6편 이상이어야 한다.** 2편만 두면 `slice(0, PREVIEW)`가 아무 일도 안 해서
+// PREVIEW를 5→3으로 바꿔도 테스트가 통과한다(2026-08-12 뮤테이션 검사에서 실측).
+// 6편이면 '5편만 보이고 6번째는 안 보인다'가 실제 단언이 된다.
 const INDEX = {
-  total: 2,
+  total: 29,
   chars: 237993,
   posts: [
-    {
-      date: '2026-08-11',
-      title: '블로그 만들기 #29 — 검사가 실패하지 않은 것과 통과한 것은 다르다',
-      slug: 'devlog/2026-08-11.html',
-      summary: '타입 검사를 처음 돌려 결함 둘을 찾았다.',
-    },
-    {
-      date: '2026-08-10',
-      title: '블로그 만들기 #28 — 고친 자리 옆에 안 쓸린 입구가 있다',
-      slug: 'devlog/2026-08-10.html',
-      summary: '고친 자리 옆의 안 쓸린 입구.',
-    },
+    { date: '2026-08-11', title: '블로그 만들기 #29 — 검사가 실패하지 않은 것과 통과한 것은 다르다', slug: 'devlog/2026-08-11.html', summary: '타입 검사를 처음 돌려 결함 둘을 찾았다.' },
+    { date: '2026-08-10', title: '블로그 만들기 #28 — 고친 자리 옆에 안 쓸린 입구가 있다', slug: 'devlog/2026-08-10.html', summary: '고친 자리 옆의 안 쓸린 입구.' },
+    { date: '2026-08-09', title: '블로그 만들기 #27 — 안 한 일 목록이 먼저 썩는다', slug: 'devlog/2026-08-09.html', summary: '목록이 코드보다 먼저 낡는다.' },
+    { date: '2026-08-07', title: '블로그 만들기 #26 — 초록불이 세 번 거짓말했다', slug: 'devlog/2026-08-07.html', summary: '초록불의 조건을 재봤다.' },
+    { date: '2026-08-04', title: '블로그 만들기 #25 — 빨간불 네 개, 처방이 네 개 달랐다', slug: 'devlog/2026-08-04.html', summary: '같은 빨간불이 아니었다.' },
+    { date: '2026-08-03', title: '블로그 만들기 #24 — 막는 것과 뚫렸는지 아는 것', slug: 'devlog/2026-08-03.html', summary: '여섯 번째 편이라 첫 화면에 안 나와야 한다.' },
   ],
 }
 
@@ -107,10 +104,31 @@ describe('PortalPage — 서버 없이 뜨는 첫 화면', () => {
     expect(urls).toContain('/devlog-index.json')
     expect(urls.some((u) => u.includes('/api/'))).toBe(false)
 
+    expect(container.textContent).toContain('최근 개발일지')
     expect(container.textContent).toContain('검사가 실패하지 않은 것과 통과한 것은 다르다')
     expect(container.textContent).toContain('고친 자리 옆에 안 쓸린 입구가 있다')
-    // 자산의 크기가 첫 화면에 드러나는가 (237,993자 → "약 24만 자")
+    // 자산의 크기가 첫 화면에 드러나는가 (237,993자 → "약 24만 자", 29편)
     expect(container.textContent).toContain('24만 자')
+    expect(container.textContent).toContain('29편')
+
+    // **5편만 그린다.** 6번째가 새면 첫 화면이 목록 페이지가 된다.
+    expect(container.textContent).not.toContain('여섯 번째 편이라')
+    const items = container.querySelectorAll('section li')
+    expect(items.length).toBe(5)
+
+    // **최신이 위.** 정렬을 뒤집으면 '최근 개발일지'가 가장 오래된 편이 된다.
+    expect(items[0].textContent).toContain('2026-08-11')
+    expect(items[4].textContent).toContain('2026-08-04')
+  })
+
+  it('①-B 200인데 목록이 아니면 조용히 뼈대로 남지 않는다', async () => {
+    // 뼈대는 '아직 오는 중'이라는 뜻이다. 영원히 남으면 그건 로딩이 아니라 고장이다.
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ total: 0, chars: 0 }), { status: 200 }))
+
+    await mount()
+
+    expect(container.textContent).not.toContain('최근 개발일지')
+    expect(container.textContent).toContain('블로그') // 입구 카드는 남는다
   })
 
   it('② 링크가 정적 아카이브를 가리킨다 (서버가 꺼져도 열리는 경로)', async () => {

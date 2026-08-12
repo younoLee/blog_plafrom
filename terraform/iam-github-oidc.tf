@@ -179,6 +179,24 @@ resource "aws_iam_role_policy" "github_watch" {
         Resource = "${aws_s3_bucket.db_backups.arn}/keep/*"
       },
       {
+        # watch.sh 7절이 "프론트가 어느 커밋으로 나가 있는가"를 읽는 파일.
+        #
+        # ⚠️ **이 한 문장이 없어서 감시가 19시간 동안 죽어 있었다.** 2026-08-11에 7절을
+        # 넣은 커밋(`ace0924`)이 watch.sh·deploy.yml만 고치고 이 파일을 안 건드렸다.
+        # 결과: 08-11 11:56 UTC부터 watch 워크플로가 **14회 연속 failure**(2026-08-12에
+        # GitHub API로 실측). 7절은 읽기 실패를 fail로 처리하므로 — 그건 옳다 —
+        # '뒤처짐' 판정에 **도달조차 못 했다.** 감시를 넣은 커밋이 감시를 죽인 것이다.
+        #
+        # 왜 못 봤나: 나는 watch.sh를 내 셸에서 돌렸고 내 자격증명엔 이 권한이 있다.
+        # **로컬만 초록**이었다. 이 저장소가 반복해 겪은 그 모양이다.
+        #
+        # 키 하나로 좁힌다 — 이 역할은 프론트 버킷의 다른 파일을 읽을 이유가 없다.
+        Sid      = "ReadFrontDeployStamp"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.frontend.arn}/deploy-stamp.txt"
+      },
+      {
         # SES 샌드박스 여부. 이 한 줄이 있었으면 '프로덕션 액세스 거부'를
         # 4주가 아니라 한 시간 만에 알았다.
         Sid      = "ReadSesAccountState"

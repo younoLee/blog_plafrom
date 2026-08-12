@@ -35,8 +35,14 @@ export function CopyButton({ value, label, copiedLabel = '복사됨', className 
         ta.style.opacity = '0'
         document.body.appendChild(ta)
         ta.select()
-        document.execCommand('copy')
+        // ⚠️ **execCommand는 실패해도 던지지 않는다 — `false`를 돌려준다.**
+        // 반환값을 안 보면 권한 거부·user-gesture 밖에서 아무것도 복사되지 않은 채
+        // 아래 setCopied(true)가 돌아 **버튼이 거짓말을 한다**(2026-08-12 검사에서 두 갈래가
+        // 각각 재현). remove()를 던지기 전에 두는 것도 같은 이유다 — 실패 경로에서
+        // 투명 textarea가 DOM에 남지 않게.
+        const ok = document.execCommand('copy')
         ta.remove()
+        if (!ok) throw new Error('execCommand copy failed')
       }
       setCopied(true)
       if (timer.current) clearTimeout(timer.current)

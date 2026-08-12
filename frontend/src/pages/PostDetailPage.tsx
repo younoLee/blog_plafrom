@@ -33,7 +33,15 @@ export function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<'pre'
   // (`{ node: _node, ... }`로 떼면 안 쓰는 변수가 되어 eslint가 막는다)
   delete props.node
   return (
-    <div className="group relative">
+    // ⚠️ **마진은 wrapper가 진다. `<pre>`는 my-0이다.** 감싸기만 하고 두면 세로 리듬이 깨진다:
+    //    @tailwindcss/typography에 `.prose :where(h2+*,h3+*,h4+*,hr+*){margin-top:0}` 과
+    //    `.prose>:first-child{margin-top:0}` / `:last-child{margin-bottom:0}` 이 있는데,
+    //    이제 그 규칙들이 무는 건 `<pre>`가 아니라 이 div다. div의 마진을 0으로 만들어도
+    //    안쪽 `<pre>`의 margin 1.71429em이 **마진 상쇄로 그대로 밖에 나온다**
+    //    (`position:relative`는 BFC를 안 만들어 상쇄를 못 막는다). 그러면 소제목 바로 뒤
+    //    코드블록에 없던 여백 ~27px이 생긴다 — 이 블로그에서 가장 흔한 배치다.
+    //    1.5em = pre의 1.71429em × pre의 font-size .875em (둘 다 typography 기본값).
+    <div className="group relative my-[1.5em] [&>pre]:my-0">
       <pre ref={ref} {...props}>
         {children}
       </pre>
@@ -61,6 +69,9 @@ function PostDetailPage() {
   const [asleep, setAsleep] = useState(false)
   const [subscribed, setSubscribed] = useState(false)
   const [series, setSeries] = useState<SeriesNav | null>(null)
+  // 공유용 주소. **아래 리셋 블록보다 먼저 선언해야 한다** — 리셋은 렌더 중에 도는데
+  // 선언이 그 아래 있으면 TDZ(초기화 전 접근)로 죽는다. 규칙은 postUtils.archiveUrlFor에.
+  const [archiveUrl, setArchiveUrl] = useState<string | null>(null)
 
   const [comments, setComments] = useState<Comment[]>([])
   const [author, setAuthor] = useState('')
@@ -92,6 +103,11 @@ function PostDetailPage() {
     setError('')
     setAsleep(false)
     setSubscribed(false) // 이게 빠져서 남의 글에 "구독중 ✓"이 남았다
+    // 이것도 빠져 있었다(2026-08-12 검사에서 재현). 공유 주소는 `post`가 도착한 **뒤에야**
+    // 조회를 시작하므로, 안 비우면 B 글이 그려진 화면에서 "링크 복사"가 **A 글의 주소**를
+    // 준다. 연재 '다음 편' 클릭이 정확히 그 경로다. 위 목록에 한 줄 더 붙는 게 아니라,
+    // **화면에 보이는 것과 짝이 안 맞는 상태는 전부 여기서 죽어야 한다**는 규칙의 일부다.
+    setArchiveUrl(null)
   }
 
   useEffect(() => {
@@ -192,10 +208,8 @@ function PostDetailPage() {
   // 옳게 잡는다(연쇄 렌더). 렌더에서 바로 판정하면 상태가 하나 줄고 경로도 짧다.
   const invalidId = !Number.isFinite(postId)
 
-  // 공유용 주소 — 규칙은 postUtils.archiveUrlFor에 있다(거기 주석 참고).
   // 목록은 빌드 산출물이라 /api가 아니라 정적 파일에서 읽는다. 로컬 dev에는 그 파일이
   // 없어서 404가 정상이고, 그때는 현재 주소로 공유한다.
-  const [archiveUrl, setArchiveUrl] = useState<string | null>(null)
   const postTitle = post?.title
   useEffect(() => {
     if (!postTitle) return

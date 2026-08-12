@@ -136,12 +136,23 @@ def _like_escape(s: str) -> str:
 def list_posts(
     request: Request,
     q: str | None = Query(None, min_length=2, max_length=100, description="제목·본문 검색어"),
-    tag: str | None = None,
+    # `q`엔 상한이 있는데 **바로 옆 `tag`엔 아무 제약이 없었다**(2026-08-12 동적 분석:
+    # 6,000자 태그가 200으로 인덱스 조회까지 갔다). 고친 자리 옆의 안 쓸린 입구다.
+    # 태그는 작성 시 스키마가 이미 짧게 제한하므로 조회 쪽도 같은 크기로 맞춘다.
+    tag: str | None = Query(None, max_length=50),
     limit: int = Query(10, ge=1, le=50),  # 상한 필수: ?limit=999999로 전체를 뽑아가는 걸 막는다
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
+    # **NUL 바이트를 먼저 막는다.** psycopg2는 `\x00`이 든 문자열을 만나면 DB에 닿기도 전에
+    # `ValueError: A string literal cannot contain NUL characters`를 던지고, 핸들러가 없어
+    # **인증 없이 500 + text/plain**이 나갔다(2026-08-12 동적 분석에서 `?tag=%00`·`?q=a%00b`로
+    # 재현). `q=%00` 단독은 min_length=2에 걸리지만 `a%00b`는 길이 검사를 통과한다.
+    # 프론트는 JSON을 기대하므로 text/plain 500은 파싱조차 못 한다 — 422로 정직하게 돌려준다.
+    if (q and "\x00" in q) or (tag and "\x00" in tag):
+        raise HTTPException(status_code=422, detail="검색어에 사용할 수 없는 문자가 있어.")
+
     # 필터는 전부 공개범위 조건과 AND — 하나라도 OR로 새면 검색으로 비공개 글이 샌다(IDOR).
     filters = [visible_condition(user, db)]
     if tag:

@@ -29,7 +29,12 @@ function PortalPage() {
     fetch('/devlog-index.json')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: DevlogIndex) => {
-        if (alive && Array.isArray(d?.posts)) setIndex(d)
+        if (!alive) return
+        // 모양이 틀리면 **접는다.** 예전엔 걸러내고 아무 상태로도 안 가서 스켈레톤이
+        // 영원히 남았다 — 뼈대는 '오는 중'이라는 뜻이라 그건 로딩이 아니라 고장이다
+        // (2026-08-12 검사에서 7가지 응답을 렌더해 확인).
+        if (Array.isArray(d?.posts)) setIndex(d)
+        else setFailed(true)
       })
       .catch(() => {
         if (alive) setFailed(true)

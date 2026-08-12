@@ -19,7 +19,21 @@ router = APIRouter(prefix="/upload", tags=["uploads"])
 # 로컬 개발용 저장 폴더. 운영은 S3_BUCKET이 설정돼 있어 아래에서 S3로 올린다
 # (2026-06-26에 이전 완료 — 인스턴스를 교체해도 이미지가 안 사라지게).
 UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
+
+# ⚠️ **import 단계에서 죽으면 안 된다.** 예전엔 여기서 곧바로 mkdir을 했는데, 그 한 줄이
+# **새로 클론한 사람의 `docker compose up`을 통째로 실패시켰다**(2026-08-12 동적 분석에서
+# 재현). 조각은 셋 다 멀쩡한데 조합이 안 쓸린 자리였다:
+#   ① Dockerfile이 비-root(uid 10001)로 돌고 `/app/uploads`만 chown한다(2026-08-10 보안검사)
+#   ② dev compose는 핫리로드용으로 `./backend:/app` **전체**를 마운트해 그 chown을 덮는다
+#   ③ `backend/uploads/`는 .gitignore라 새 클론엔 없다 → uid 10001이 uid 1000 소유
+#      디렉터리에 mkdir → PermissionError → **import 실패 → 컨테이너가 영원히 unhealthy**
+# 기존 체크아웃에는 그 폴더가 이미 있어 아무도 재현하지 못했다.
+# 운영은 S3를 쓰므로(2026-06-26 이전 완료) 이 폴더가 없어도 서비스는 정상이다.
+# 그래서 여기서는 '되면 만들고, 안 되면 넘어간다'. 실제로 필요한 시점(로컬 저장)에 다시 만든다.
+try:
+    UPLOAD_DIR.mkdir(exist_ok=True)
+except OSError as e:  # 권한 없음·읽기전용 마운트 등
+    logger.warning("로컬 업로드 폴더를 만들지 못했다(%s) — S3 경로만 쓴다", e)
 
 MAX_BYTES = 5 * 1024 * 1024  # 5MB — 디스크/메모리 폭탄 방지
 
@@ -166,8 +180,18 @@ def upload_image(
             ) from e
     else:
         # 로컬 개발: 디스크에 저장 (확장자가 판별값이라 StaticFiles도 올바른 타입으로 서빙)
-        dest = UPLOAD_DIR / name
-        dest.write_bytes(content)
+        # 폴더는 여기서 만든다 — import 시점의 mkdir은 실패해도 넘어가기 때문이다(위 주석).
+        # 실패하면 S3 경로와 **같은 모양의 503**을 준다. 스택트레이스를 밖으로 내지 않는다.
+        try:
+            UPLOAD_DIR.mkdir(exist_ok=True)
+            dest = UPLOAD_DIR / name
+            dest.write_bytes(content)
+        except OSError as e:
+            logger.warning("로컬 업로드 저장 실패: %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="이미지 저장소에 일시적으로 접근할 수 없어. 잠시 후 다시 시도해줘.",
+            ) from e
 
     # 마크다운에 넣을 수 있는 절대 URL 반환 (둘 다 /uploads/<name>)
     return {"url": f"{settings.public_base_url}/uploads/{name}"}

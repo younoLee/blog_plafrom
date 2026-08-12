@@ -204,3 +204,30 @@ def test_series_nav_beyond_limit_returns_null_not_500(
 
     # 글 자체는 정상적으로 열려야 한다(이게 500의 실제 피해였다)
     assert client.get(f"/api/posts/{ids[3]}").status_code == 200
+
+
+def test_nul_byte_in_query_is_422_not_500(client):
+    """NUL 바이트가 든 검색어는 **인증 없이 500을 만들 수 있었다.**
+
+    psycopg2가 `\\x00`이 든 문자열에서 DB에 닿기도 전에 ValueError를 던지는데 핸들러가
+    없어 `500 text/plain`이 나갔다(2026-08-12 동적 분석에서 실제 HTTP로 재현).
+    프론트는 JSON을 기대하므로 그 응답은 파싱조차 못 한다.
+
+    `q=%00` 단독은 min_length=2에 걸리지만 **`a%00b`는 길이 검사를 통과한다** — 그게
+    이 테스트가 두 모양을 다 보는 이유다.
+    """
+    for params in ({"q": "a\x00b"}, {"tag": "\x00"}, {"tag": "a\x00b"}):
+        r = client.get("/api/posts", params=params)
+        assert r.status_code == 422, f"{params} → {r.status_code} {r.text[:120]}"
+        # 프론트가 파싱할 수 있는 모양이어야 한다(500 text/plain이 문제였다)
+        assert r.headers["content-type"].startswith("application/json")
+
+
+def test_tag_has_length_limit_like_q(client):
+    """`q`엔 max_length=100이 있는데 **바로 옆 `tag`엔 아무 제약이 없었다.**
+
+    6,000자 태그가 200으로 인덱스 조회까지 갔다(2026-08-12 실측).
+    '고친 자리 옆의 안 쓸린 입구'라 같은 검사에 함께 둔다.
+    """
+    assert client.get("/api/posts", params={"tag": "x" * 6000}).status_code == 422
+    assert client.get("/api/posts", params={"tag": "x" * 50}).status_code == 200
