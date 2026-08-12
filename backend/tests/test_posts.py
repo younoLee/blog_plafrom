@@ -231,3 +231,88 @@ def test_tag_has_length_limit_like_q(client):
     """
     assert client.get("/api/posts", params={"tag": "x" * 6000}).status_code == 422
     assert client.get("/api/posts", params={"tag": "x" * 50}).status_code == 200
+
+
+# ── 2026-08-12 검사: 무인증으로 500을 만들 수 있던 다섯 갈래 ───────────────────
+# 이 저장소에서 500은 "핸들러가 없다"는 뜻이고, 응답이 text/plain이면 프론트가 파싱조차
+# 못 한다. 아래는 전부 실제 HTTP로 재현된 것들이라 회귀하면 조용히 같은 상태로 돌아간다.
+
+
+def test_infinity_in_json_body_does_not_500(client):
+    """`Infinity`/`NaN`이 들어오면 **422를 만들다가** 터졌다.
+
+    FastAPI 기본 핸들러가 문제의 입력을 `detail[].input`에 그대로 담는데 starlette은
+    `allow_nan=False`로 직렬화한다 → ValueError → 500 text/plain.
+    **숫자 필드가 아니어도 난다**(문자열 필드에 넣어도 같다) → JSON 본문을 받는 모든
+    POST/PUT/PATCH가 해당됐다. 무인증 로그인으로도 가능했다.
+    """
+    for body in (b'{"email":1e999,"password":"x"}', b'{"email":-1e999,"password":"x"}'):
+        r = client.post("/api/auth/login", content=body, headers={"content-type": "application/json"})
+        assert r.status_code == 422, f"{body!r} → {r.status_code} {r.text[:120]}"
+        assert r.headers["content-type"].startswith("application/json")
+        # 입력값을 되돌려주지 않는다(그게 터진 원인이자, 반사하지 않는 게 낫다)
+        assert "input" not in r.text
+
+
+def test_infinity_does_not_bypass_rate_limit(client):
+    """**리밋 우회가 진짜 피해였다.** 검증은 slowapi 데코레이터보다 먼저 도는 계층이라,
+    터지는 입력을 보내면 429가 영원히 안 뜨고 500만 무제한으로 나왔다(실측 25연발 500×25,
+    정상 값 대조군은 401×10 → 429×15). 이제는 422로 끝나므로 500이 0건이어야 한다."""
+    codes = [
+        client.post(
+            "/api/auth/login",
+            content=b'{"email":1e999,"password":"x"}',
+            headers={"content-type": "application/json"},
+        ).status_code
+        for _ in range(25)
+    ]
+    assert 500 not in codes, f"500이 {codes.count(500)}건 — 핸들러가 다시 빠졌다"
+
+
+def test_lone_surrogate_does_not_500(client):
+    """고아 서로게이트(`\\ud800`)는 두 갈래로 500을 만들었다 —
+    422를 UTF-8로 인코딩하다가, 그리고 검증을 통과해 DB에 닿아서. 둘 다 무인증 경로였다."""
+    r = client.post(
+        "/api/posts/1/comments",
+        content=b'{"author":"a","content":"x\\ud800y"}',
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code != 500, r.text[:200]
+    assert r.headers["content-type"].startswith("application/json")
+
+
+def test_nul_byte_in_write_paths_does_not_500(client, make_user, auth_headers):
+    """오전에 `list_posts`의 q·tag만 막았는데 **쓰기 경로엔 그대로 남아 있었다.**
+    라우터마다가 아니라 DataError 핸들러로 받는다 — 필드마다 막으면 필드가 늘 때 또 샌다."""
+    writer = make_user(role="writer")
+    r = client.post(
+        "/api/posts",
+        headers={**auth_headers(writer), "content-type": "application/json"},
+        content=b'{"title":"a\\u0000b","content":"c","tags":[],"visibility":"public"}',
+    )
+    assert r.status_code != 500, r.text[:200]
+    assert r.headers["content-type"].startswith("application/json")
+
+
+def test_offset_has_upper_bound_like_limit(client):
+    """`limit`엔 le=50이 있는데 `offset`엔 상한이 없었다 → `2**63`에서 bigint 초과로
+    **무인증 500**. 임계값이 정확히 2^63인 것도 실측됐다."""
+    assert client.get("/api/posts", params={"offset": 2**63}).status_code == 422
+    assert client.get("/api/posts", params={"offset": 0}).status_code == 200
+
+
+def test_nul_byte_blocked_in_comments_too(client, make_user, auth_headers):
+    """**한 라우터가 아니라 스키마 기반 클래스에서 막는다**는 걸 잠근다.
+
+    오전에 필드 단위로 막았다가 다섯 라우터를 놓쳤다. 익명 댓글은 그중 하나이자
+    **무인증**이라 가장 넓은 입구였다. 여기가 막히면 같은 기반을 쓰는 나머지도 막힌다.
+    """
+    writer = make_user(role="writer")
+    post = _create_post(client, auth_headers(writer))
+    r = client.post(
+        f"/api/posts/{post['id']}/comments",
+        content=b'{"author":"a","content":"x\\u0000y"}',
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code == 422, f"{r.status_code} {r.text[:150]}"
+    assert r.headers["content-type"].startswith("application/json")

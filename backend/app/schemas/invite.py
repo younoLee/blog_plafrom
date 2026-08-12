@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.schemas.base import SafeModel
 from app.schemas.user import PW_MAX, PW_MIN
 
 
@@ -52,7 +53,7 @@ class InviteCreated(InviteOut):
 # `GET /api/auth/invite?token=...`으로 두면 원문 토큰이 컨테이너 로그에 평문으로 쌓인다
 # — DB에 해시만 저장한 의미가 사라진다(models/invite.py 참고). 본문은 안 찍힌다.
 # reset-password가 같은 이유로 이미 본문을 쓴다.
-class InviteToken(BaseModel):
+class InviteToken(SafeModel):
     token: str = Field(max_length=200)
 
 
@@ -66,6 +67,6 @@ class InvitePreview(BaseModel):
 # 초대 가입 요청. **이메일을 받지 않는다** — 주소는 토큰에 묶여 있고 서버가 그걸
 # 쓴다. 폼에서 받으면 토큰과 어긋날 때 어떻게 할지를 또 정해야 하고, 안 정하면
 # 그게 구멍이 된다. 받지 않으면 어긋날 수가 없다.
-class InviteRedeem(BaseModel):
+class InviteRedeem(SafeModel):
     token: str = Field(max_length=200)
     password: str = Field(min_length=PW_MIN, max_length=PW_MAX)

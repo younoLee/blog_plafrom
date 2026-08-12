@@ -13,6 +13,7 @@ from app.core.deps import get_current_user
 from app.core.ratelimit import limiter
 from app.models.payment import Payment
 from app.models.user import User
+from app.schemas.base import SafeModel
 from app.schemas.user import UserRead
 
 # 토스페이먼츠 일회성 결제.
@@ -41,7 +42,7 @@ class CheckoutResponse(BaseModel):
     order_name: str
 
 
-class ConfirmRequest(BaseModel):
+class ConfirmRequest(SafeModel):
     payment_key: str
     order_id: str
     amount: int

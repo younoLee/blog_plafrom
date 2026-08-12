@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,7 +15,7 @@ from sqlalchemy import select
 # PoolTimeoutError = 풀 고갈. 파이썬 빌트인 TimeoutError(=OSError 하위)와 **이름만 같고
 # 계통이 완전히 다르다**(issubclass → False). 별칭 없이 들여오면 모듈 전역에서 빌트인을
 # 조용히 가리므로 반드시 이름을 바꿔 받는다.
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DataError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 from starlette.datastructures import Headers
@@ -209,6 +210,51 @@ async def db_pool_exhausted(request: Request, exc: PoolTimeoutError):
         status_code=503,
         headers={"Retry-After": "5"},
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    """검증 실패는 422 JSON으로 — **입력값을 되돌려주지 않는다.**
+
+    FastAPI 기본 핸들러는 `detail[].input`에 문제의 입력을 그대로 담아 되돌려준다.
+    그런데 starlette의 JSONResponse는 `json.dumps(..., allow_nan=False)`라
+    **`Infinity`/`NaN`을 인코딩하지 못한다** → 422를 만들다가 ValueError로 터져
+    `500 text/plain`이 나갔다. 고아 서로게이트(`\\ud800`)는 UTF-8 인코딩 단계에서 같은 일을 낸다.
+
+    피해가 문법 오류에 그치지 않았다(2026-08-12 실측):
+      - **무인증**이고 **모든 JSON 본문 엔드포인트**가 해당된다(숫자 필드가 아니어도 난다).
+      - **레이트리밋을 우회한다.** 검증은 slowapi 데코레이터보다 먼저 도는 계층이라
+        `{"email":1e999}` 25연발이 **500 × 25**(429 0건)였다. 정상 값 대조군은 401×10 → 429×15.
+      - 프론트는 JSON을 기대하므로 text/plain 500은 파싱조차 못 한다.
+
+    그래서 `input`을 떼고 `loc`·`msg`·`type`만 돌려준다. 그 셋으로 프론트가 어느 필드가
+    왜 틀렸는지 그리기에 충분하고, **입력을 그대로 반사하지 않는 게 보안상으로도 낫다**.
+    """
+    safe = [
+        {"loc": list(e.get("loc", ())), "msg": str(e.get("msg", "")), "type": str(e.get("type", ""))}
+        for e in exc.errors()
+    ]
+    return JSONResponse({"detail": safe}, status_code=422)
+
+
+@app.exception_handler(DataError)
+async def db_bad_value(request: Request, exc: DataError):
+    """DB가 '이 값은 담을 수 없다'고 거절한 것 → 400 JSON. 서버 잘못이 아니다.
+
+    **라우터마다 막지 않고 여기서 받는 이유**: 같은 계열이 계속 새로 생기기 때문이다.
+    2026-08-12 오전에 `list_posts`의 `q`·`tag`에 NUL 가드를 넣었는데, 같은 날 오후 검사가
+    **같은 병이 다섯 라우터에 그대로 남아 있는 것**을 찾았다(익명 댓글 `content`,
+    글 `title`·`tags`, 푸시 `endpoint`, 결제 `order_id`). 필드마다 막는 접근은
+    필드가 늘 때마다 다시 샌다 — 이 저장소가 '고친 자리 옆의 안 쓸린 입구'라고 부르는 모양이다.
+
+    범위: `DataError`만. 이건 **값 자체가 부적합**할 때만 나온다(NUL 바이트, 고아 서로게이트,
+    bigint 범위 초과, 잘못된 날짜 리터럴). `ProgrammingError`·`IntegrityError`로 넓히면
+    '코드가 틀렸다'와 '제약을 어겼다'가 '입력이 나쁘다'로 둔갑한다 — 위 두 핸들러와 같은 이유다.
+
+    원인 문자열은 로그에만 남긴다(스키마·컬럼명을 밖에 알려줄 이유가 없다).
+    """
+    logger.warning("DB가 값을 거절: %s", exc)
+    return JSONResponse({"detail": "입력에 사용할 수 없는 값이 있어."}, status_code=400)
 
 app.add_middleware(
     CORSMiddleware,

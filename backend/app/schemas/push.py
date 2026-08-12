@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.base import SafeModel
+
 
 class PushKey(BaseModel):
     """브라우저가 구독에 쓸 VAPID 공개키(base64url). 비밀이 아니다."""
@@ -14,7 +16,7 @@ class PushStatus(BaseModel):
     devices: int
 
 
-class PushSubscribe(BaseModel):
+class PushSubscribe(SafeModel):
     """브라우저의 `pushManager.subscribe()` 결과를 그대로 받는다.
 
     길이 상한을 두는 이유: 이 값들은 클라이언트가 주는 문자열이고 DB에 그대로

@@ -2,8 +2,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.base import SafeModel
 
-class CommentCreate(BaseModel):
+
+class CommentCreate(SafeModel):
     # author는 DB varchar(50)에 맞춤, content는 과대입력 방지. 넘으면 422
     author: str = Field(min_length=1, max_length=50)
     content: str = Field(min_length=1, max_length=2000)

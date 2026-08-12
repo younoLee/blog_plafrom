@@ -141,7 +141,11 @@ def list_posts(
     # 태그는 작성 시 스키마가 이미 짧게 제한하므로 조회 쪽도 같은 크기로 맞춘다.
     tag: str | None = Query(None, max_length=50),
     limit: int = Query(10, ge=1, le=50),  # 상한 필수: ?limit=999999로 전체를 뽑아가는 걸 막는다
-    offset: int = Query(0, ge=0),
+    # ⚠️ **`limit`엔 상한이 있는데 `offset`엔 없었다** — `q`↔`tag`와 글자 그대로 같은
+    # "짝지어진 파라미터 중 한쪽만 안 쓸린" 모양이 여기 한 번 더 있었다(2026-08-12 검사).
+    # `offset=2**63` → psycopg2가 `bigint out of range`로 던져 **무인증 500**이었다.
+    # 임계값도 정확히 2^63으로 실측됐다(2^63-1은 200).
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):

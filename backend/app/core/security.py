@@ -55,7 +55,15 @@ def decode_access_token(token: str) -> tuple[int, int] | None:
         # 이메일용 토큰(verify/reset)은 purpose가 있음 → 로그인 토큰으로 못 쓰게 거부(토큰 혼동 방지)
         if "purpose" in payload:
             return None
-        return int(payload["sub"]), int(payload.get("ver", 0))
+        # ⚠️ **`.get("ver", 0)`이면 안 된다.** `ver` 클레임이 **없는** 토큰이 0으로 채워져
+        # 재설정·차단 이력이 없는 모든 계정(token_version=0)과 일치해 통과했다
+        # (2026-08-12 검사에서 위조 토큰으로 200 실측). 뜻은 이렇다 — 키가 한 번 새면
+        # `token_version`을 올려도 ver 없는 토큰은 그대로 먹어서 **사고 후 대응 수단이
+        # 하나 사라진다.** 없는 클레임은 '0'이 아니라 '이 토큰은 우리가 만든 게 아니다'다.
+        # 아래 except가 이미 KeyError를 잡으므로 대괄호 하나로 닫힌다.
+        # (`options={"require": [...]}`로 가지 않은 이유: 거기에 `purpose`를 넣으면
+        #  위 :55와 교집합이 공집합이 되어 **모든 인증이 죽는다.** 실측으로 확인했다.)
+        return int(payload["sub"]), int(payload["ver"])
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
 

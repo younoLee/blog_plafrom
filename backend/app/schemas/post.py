@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.base import SafeModel
+
 # 공개범위는 이 세 값만 허용 (다른 값 보내면 422)
 #  - public:      전체공개 (누구나)
 #  - subscribers: 구독자공개 (그 작성자를 구독한 사람 + 본인 + 관리자)
@@ -20,7 +22,7 @@ SERIES_MAX = 100  # 연재 이름 길이 상한 (DB varchar(100)에 맞춤)
 
 
 # 글 생성/수정 공통 필드 (id·시각은 서버가 채움)
-class _PostBody(BaseModel):
+class _PostBody(SafeModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     content: str = Field(min_length=1, max_length=CONTENT_MAX)
     # 커버 이미지 URL(선택). 빈 값이면 None으로 저장
