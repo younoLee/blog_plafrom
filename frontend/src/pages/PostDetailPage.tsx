@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeSlug from 'rehype-slug'
@@ -14,10 +14,39 @@ import { IconArrowLeft, IconLock, IconCheck } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { Toc } from '../components/Toc'
 import { SeriesBox, SeriesPrevNext } from '../components/SeriesBox'
-import { readingTime } from '../postUtils'
+import { readingTime, archiveUrlFor } from '../postUtils'
 import { useDocumentTitle } from '../useDocumentTitle'
+import { CopyButton } from '../components/CopyButton'
 
 const { input, btnPrimary, btnGhost } = ui
+
+/** 코드블록 + 복사 버튼.
+ *
+ *  복사할 값을 마크다운 원문이 아니라 **렌더된 DOM의 innerText**에서 읽는다. 원문에는
+ *  펜스(```)와 언어 태그가 섞여 있어 그대로 복사하면 붙여넣은 쪽에서 안 돌아간다.
+ *
+ *  `node`는 react-markdown이 주는 AST 노드다. DOM 속성이 아니라서 <pre>에 그대로
+ *  펼치면 React가 경고를 뱉는다 — 여기서 떼어낸다. */
+export function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<'pre'> & { node?: unknown }) {
+  const ref = useRef<HTMLPreElement>(null)
+  // props는 rest로 만든 새 객체라 지워도 호출부에 영향이 없다.
+  // (`{ node: _node, ... }`로 떼면 안 쓰는 변수가 되어 eslint가 막는다)
+  delete props.node
+  return (
+    <div className="group relative">
+      <pre ref={ref} {...props}>
+        {children}
+      </pre>
+      {/* 모바일엔 hover가 없다 — 작은 화면에서는 항상 보이고, 큰 화면에서만 hover로 나타난다. */}
+      <CopyButton
+        value={() => ref.current?.innerText ?? ''}
+        label="복사"
+        title="코드 복사"
+        className="absolute right-2 top-2 rounded-md border border-white/15 bg-black/40 px-2 py-1 text-xs text-white/80 backdrop-blur transition hover:bg-black/60 hover:text-white focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+      />
+    </div>
+  )
+}
 
 function PostDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -163,6 +192,27 @@ function PostDetailPage() {
   // 옳게 잡는다(연쇄 렌더). 렌더에서 바로 판정하면 상태가 하나 줄고 경로도 짧다.
   const invalidId = !Number.isFinite(postId)
 
+  // 공유용 주소 — 규칙은 postUtils.archiveUrlFor에 있다(거기 주석 참고).
+  // 목록은 빌드 산출물이라 /api가 아니라 정적 파일에서 읽는다. 로컬 dev에는 그 파일이
+  // 없어서 404가 정상이고, 그때는 현재 주소로 공유한다.
+  const [archiveUrl, setArchiveUrl] = useState<string | null>(null)
+  const postTitle = post?.title
+  useEffect(() => {
+    if (!postTitle) return
+    let alive = true
+    fetch('/devlog-index.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { posts?: { title: string; slug: string }[] } | null) => {
+        if (alive) setArchiveUrl(archiveUrlFor(d?.posts, postTitle, window.location.origin))
+      })
+      .catch(() => {
+        if (alive) setArchiveUrl(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [postTitle])
+
   const content = post?.content
   const body = useMemo(
     () =>
@@ -181,7 +231,10 @@ function PostDetailPage() {
           // 그때 {languages: {...}} 서브셋으로 되살려라(공통 37언어 전체는 172 KB, 7개면 52.9 KB).
           // rehypeSlug: 소제목에 id를 붙인다 → 목차(Toc)의 #앵커가 여기로 점프
           rehypePlugins={[rehypeSlug]}
-          components={{ img: (props) => <img {...props} className="rounded-lg" /> }}
+          components={{
+            img: (props) => <img {...props} className="rounded-lg" />,
+            pre: CodeBlock,
+          }}
         >
           {content}
         </ReactMarkdown>
@@ -248,6 +301,17 @@ function PostDetailPage() {
             <time className="text-sm text-gray-500 dark:text-gray-400">
               {new Date(post.created_at).toLocaleString()} · {readingTime(post.content)}분 읽기
             </time>
+            <CopyButton
+              value={() => archiveUrl ?? window.location.href}
+              label="링크 복사"
+              copiedLabel="복사됨 ✓"
+              title={
+                archiveUrl
+                  ? '서버가 꺼져 있어도 열리는 주소를 복사한다 (미리보기 카드도 이 글로 뜬다)'
+                  : '이 페이지 주소를 복사한다'
+              }
+              className="rounded-full border border-black/[0.1] px-3 py-1 text-sm text-gray-500 transition hover:bg-black/[0.03] dark:border-white/15 dark:text-gray-400 dark:hover:bg-white/[0.06]"
+            />
             {/* 로그인 + 남의 글이면 글쓴이 구독 버튼 (구독하면 그 사람 비공개글도 볼 수 있음) */}
             {user && post.owner_id && post.owner_id !== user.id && (
               <button type="button" onClick={toggleSubscribe} className={subscribed ? btnGhost : btnPrimary}>

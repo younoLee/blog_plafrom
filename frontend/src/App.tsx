@@ -28,6 +28,7 @@ import PaymentFailPage from './pages/PaymentFailPage'
 import SubscriptionsPage from './pages/SubscriptionsPage'
 import VerifyPage from './pages/VerifyPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import NotFoundPage from './pages/NotFoundPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import './App.css'
 
@@ -73,6 +74,11 @@ function App() {
                 옛 확인 메일 링크는 이제 없는 경로다 — 그 메일 자체를 더 이상 보내지 않는다. */}
             <Route path="/forgot" element={<ForgotPasswordPage />} />
             <Route path="/reset" element={<ResetPasswordPage />} />
+            {/* 없는 주소. 이게 없으면 오타 URL이 **아무것도 없는 흰 화면**이 됐다 —
+                CloudFront가 어떤 경로든 index.html을 돌려주므로 SPA가 라우트를 못 찾아도
+                200이 뜨고, 매칭되는 Route가 없으면 Layout만 렌더된다.
+                상태코드가 200인 이유는 NotFoundPage 주석 참고. */}
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

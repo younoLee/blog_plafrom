@@ -19,3 +19,25 @@ export function excerpt(md: string, max = 120): string {
 export function readingTime(md: string): number {
   return Math.max(1, Math.round(md.length / 500))
 }
+
+/** 공유용 주소 고르기 — 같은 글의 **정적 아카이브** 주소가 있으면 그걸 준다.
+ *
+ *  SPA 주소(/blog/posts/41)를 공유하면 받는 쪽 미리보기 카드가 어느 글이든 똑같고
+ *  (index.html의 og:*가 사이트 공통 1종, 봇은 JS를 안 돌린다), 이 사이트는 EC2를
+ *  평소 꺼두므로 눌렀을 때 글이 안 보일 확률이 높다. 정적 아카이브는 편마다 제
+ *  og:title·canonical을 갖고 서버 없이 열린다.
+ *
+ *  **제목으로 맞춘다.** 정적 아카이브 제목은 마크다운 H1이고 DB 글 제목은 발행
+ *  스크립트가 같은 원고에서 넣은 값이라 같은 문자열이다. 날짜로 맞추면 소급 발행
+ *  (created_at을 작업일로 되돌린다)과 얽혀 어긋난다.
+ *
+ *  못 찾으면 null — 부르는 쪽이 현재 주소를 쓴다(연재가 아닌 일반 글이 그렇다). */
+export function archiveUrlFor(
+  posts: { title: string; slug: string }[] | undefined | null,
+  title: string | undefined | null,
+  origin: string,
+): string | null {
+  if (!posts?.length || !title) return null
+  const hit = posts.find((p) => p.title === title)
+  return hit ? `${origin.replace(/\/$/, '')}/${hit.slug.replace(/^\//, '')}` : null
+}

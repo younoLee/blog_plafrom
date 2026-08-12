@@ -97,7 +97,7 @@ function readPost(file) {
   }
 }
 
-const page = ({ title, description, url, body, article }) => `<!doctype html>
+const page = ({ title, description, url, body, article, published }) => `<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
@@ -107,12 +107,32 @@ const page = ({ title, description, url, body, article }) => `<!doctype html>
 <link rel="canonical" href="${url}">
 <link rel="alternate" type="application/rss+xml" title="${esc(TITLE)}" href="${SITE}/rss.xml">
 <meta property="og:type" content="${article ? 'article' : 'website'}">
+<meta property="og:site_name" content="${esc(TITLE)}">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:url" content="${url}">
 <meta property="og:image" content="${SITE}/og-image.png">
-<meta property="og:locale" content="ko_KR">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="ko_KR">${published ? `
+<meta property="article:published_time" content="${published}">` : ''}
 <meta name="twitter:card" content="summary_large_image">
+<!-- twitter:*는 og로 폴백되지만 title/description/image는 폴백이 보장되지 않는다
+     (2026-08-12 실측: 이 페이지들엔 twitter:card만 있었다). 명시한다. -->
+<meta name="twitter:title" content="${esc(title)}">
+<meta name="twitter:description" content="${esc(description)}">
+<meta name="twitter:image" content="${SITE}/og-image.png">${article && published ? `
+<script type="application/ld+json">${JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: title,
+  description,
+  datePublished: published,
+  url,
+  image: `${SITE}/og-image.png`,
+  inLanguage: 'ko',
+  isPartOf: { '@type': 'Blog', name: TITLE, url: `${SITE}/devlog.html` },
+}).replace(/</g, '\\u003c')}</script>` : ''}
 <style>
 :root{color-scheme:light dark}
 *{box-sizing:border-box}
@@ -224,6 +244,9 @@ function main() {
         description: p.summary || DESC,
         url: `${SITE}/${p.slug}`,
         article: true,
+        // 날짜만 있는 원고라 자정 기준으로 만든다. 타임존을 빼면 읽는 쪽이 UTC로 보고
+        // 하루 앞당겨 표시하는 일이 생긴다(작성 시각은 애초에 날짜 단위로만 안다).
+        published: `${p.date}T00:00:00+09:00`,
         body: `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${p.html}`,
       }),
     )
