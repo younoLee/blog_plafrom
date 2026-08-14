@@ -33,4 +33,8 @@
 ## 연락
 
 - GitHub — [github.com/younoLee/blog_plafrom](https://github.com/younoLee/blog_plafrom) (이 사이트의 소스 전부)
-- 이메일 — [es2646526@gmail.com](mailto:es2646526@gmail.com)
+- 하고 싶은 말이 있으면 [GitHub Issues](https://github.com/younoLee/blog_plafrom/issues)나 글의 댓글로 남겨주세요. 댓글은 로그인 없이도 달 수 있습니다.
+
+이메일 주소는 일부러 적지 않았습니다. 이 사이트의 로그인 ID가 이메일이라,
+주소를 공개하면 연락처와 계정 식별자가 같아집니다.
+
