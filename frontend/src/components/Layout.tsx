@@ -7,7 +7,7 @@ import { IconMoon, IconSun, IconPencil } from './icons'
 import { NotificationBell } from './NotificationBell'
 
 function Layout() {
-  const { user, logout } = useAuth()
+  const { user, logout, sessionEnded, dismissSessionNotice } = useAuth()
   const { theme, toggle } = useTheme()
 
   return (
@@ -76,6 +76,39 @@ function Layout() {
           </nav>
         </div>
       </header>
+
+      {/* 세션이 **내가 안 눌렀는데** 끝났을 때의 안내.
+          왜 필요한가: 다른 기기에서 로그아웃하거나 비밀번호를 바꾸면 이 기기의 토큰이
+          죽는다. 그때 화면만 조용히 비로그인으로 바뀌면 사용자는 자기가 뭘 잘못 눌렀다고
+          생각하고, 쓰던 글이 안 올라간 이유도 모른다.
+          왜 헤더 아래 띠인가: 이 저장소엔 토스트 장치가 없고, 만들면 이 한 줄을 위해
+          전역 상태·타이머·포털이 생긴다. 띠는 스스로 사라지지 않아서 **놓칠 수 없다**는
+          장점이 오히려 맞다 — 놓치면 안 되는 안내다. */}
+      {sessionEnded && (
+        <div
+          role="status"
+          className="border-b border-amber-500/20 bg-amber-50 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
+        >
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+            <span>로그인이 풀렸어 — 다른 기기에서 로그아웃했거나 세션이 만료된 거야.</span>
+            <span className="flex items-center gap-1.5">
+              {!user && (
+                <Link to="/login" className={ui.btnPrimary} onClick={dismissSessionNotice}>
+                  다시 로그인
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={dismissSessionNotice}
+                aria-label="안내 닫기"
+                className="rounded-full px-2 py-1 text-lg leading-none transition hover:bg-black/[0.06] dark:hover:bg-white/10"
+              >
+                ×
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* 페이지 본문 */}
       <main className="mx-auto max-w-7xl px-4 py-12">

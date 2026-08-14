@@ -203,15 +203,19 @@ export async function fetchMe(): Promise<User | null> {
  * CloudFront 상한(60초)까지 멈춘 채 여전히 로그인 상태로 보인다.
  */
 export async function logout(): Promise<void> {
-  if (!getToken()) return
+  const headers = authHeaders()
+  if (!headers.Authorization) return
+  // **보내기 전에 지운다.** 그래야 이 요청이 401을 받아도(이미 죽은 토큰으로 눌렀을 때)
+  // '세션이 끊겼다' 안내가 안 뜬다 — sessionExpired()는 토큰이 없으면 아무 일도 안 한다.
+  // 내가 누른 로그아웃과 남이 끊은 세션은 화면에서 달라야 한다.
+  clearToken()
   try {
     await fetchWithTimeout(
       `${BASE}/auth/logout`,
-      { method: 'POST', headers: authHeaders() },
+      { method: 'POST', headers },
       QUICK_TIMEOUT_MS,
     )
   } catch {
     // 절전·네트워크 오류: 서버 쪽 무효화는 못 했지만 이 기기에서는 나간다.
   }
-  clearToken()
 }

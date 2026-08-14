@@ -14,6 +14,16 @@ export interface AuthState {
   logout: () => Promise<void>
   // 서버에서 내 정보를 다시 불러와 갱신 (예: 결제 후 is_pro 반영)
   refreshUser: () => Promise<void>
+  /**
+   * 내가 누르지 않았는데 로그인이 풀렸다 — 다른 기기에서 로그아웃했거나, 비밀번호를
+   * 바꿨거나, 토큰이 만료됐다. 화면이 조용히 비로그인으로 바뀌면 사용자는 자기가
+   * 뭘 잘못 눌렀다고 생각한다. Layout이 이걸 보고 안내 띠를 띄운다.
+   *
+   * 내가 누른 로그아웃에서는 **켜지지 않는다**(api/auth.ts의 logout이 보내기 전에
+   * 토큰을 지운다 → 401이 와도 만료 통지가 안 나간다).
+   */
+  sessionEnded: boolean
+  dismissSessionNotice: () => void
 }
 
 export const AuthContext = createContext<AuthState | null>(null)
