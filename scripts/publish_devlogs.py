@@ -9,6 +9,11 @@ created_at을 서버가 now()로 채워서 소급이 불가능하다.
 
 멱등: 같은 제목의 글이 이미 있으면 내용을 갱신만 한다(재실행해도 중복 생성 없음).
 
+알림: **새로 만든 글에만** 인앱·메일·푸시 알림을 보낸다(2026-08-14 추가). 갱신에는
+안 보낸다 — 오타 하나 고칠 때마다 구독자에게 옛 글 알림이 울리면 안 된다.
+그전까지 이 스크립트는 `POST /api/posts`를 거치지 않아 알림이 **한 번도 안 나갔다.**
+개발일지가 이 블로그의 거의 모든 글인데, 전부 조용히 올라가고 있었다.
+
 실행 (EC2에 ssh로 들어가서, ~/blog 에서):
   # ① 호스트 /tmp → 컨테이너 /tmp. 둘은 다른 파일시스템이라 scp만으론 안 들어간다.
   docker compose -f docker-compose.prod.yml cp /tmp/publish_devlogs.py backend:/tmp/publish_devlogs.py
@@ -30,9 +35,13 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
+from app.models.author_subscription import AuthorSubscription
+from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
 from app.schemas.post import PostCreate
+from app.services.email import notify_new_post
+from app.services.push import notify_new_post_push
 
 
 def main() -> None:
@@ -48,6 +57,7 @@ def main() -> None:
         print(f"소유자: id={owner.id} {owner.email}")
 
         created = updated = 0
+        new_posts: list[Post] = []  # 알림은 **새로 만든 글에만** 보낸다(아래)
         for item in posts:
             # 앱과 같은 검증을 태워서 API로 올린 것과 동일한 결과가 되게 한다
             # (제목·본문 길이, 태그 정리/개수 제한).
@@ -77,22 +87,59 @@ def main() -> None:
                 updated += 1
                 print(f"  갱신  {item['date']}  {body.title}")
             else:
-                db.add(
-                    Post(
-                        title=body.title,
-                        content=body.content,
-                        tags=body.tags,
-                        visibility=body.visibility,
-                        owner_id=owner.id,
-                        series=series,
-                        created_at=written,
-                        updated_at=written,
-                    )
+                fresh = Post(
+                    title=body.title,
+                    content=body.content,
+                    tags=body.tags,
+                    visibility=body.visibility,
+                    owner_id=owner.id,
+                    series=series,
+                    created_at=written,
+                    updated_at=written,
                 )
+                db.add(fresh)
+                new_posts.append(fresh)
                 created += 1
                 print(f"  생성  {item['date']}  {body.title}")
 
         db.commit()
+
+        # ── 알림 ──────────────────────────────────────────────────────────────
+        # **새로 만든 글에만** 보낸다. 갱신에도 보내면 오타 하나 고칠 때마다 구독자
+        # 편지함과 잠금화면이 옛 글로 울린다 — 실제로 2026-08-14에 오타 수정으로
+        # 세 편을 재발행했는데, 그때 이 코드가 있었다면 세 통이 나갔을 것이다.
+        #
+        # 왜 이 코드가 여기 필요한가 (2026-08-14 신고: "글쓰기 알림이 안 간다"):
+        # 이 스크립트는 `POST /api/posts`를 **거치지 않고 DB에 직접 쓴다.** 그래서
+        # 라우터에 있는 알림 발송(인앱·메일·푸시)이 한 번도 안 돌았다. 개발일지가
+        # 이 블로그의 거의 모든 글인데, 그 글들이 전부 알림 없이 올라가고 있었다.
+        # 알림 기능은 만들어져 있었고 검사도 통과했다 — **호출되는 자리만 없었다.**
+        #
+        # 라우터(routers/posts.py)와 같은 조건을 쓴다: 공개·구독자공개 글만,
+        # 승인된 구독자 중 notify를 켠 사람에게만.
+        for post in new_posts:
+            if post.visibility not in ("public", "subscribers"):
+                continue
+            uids = db.scalars(
+                select(AuthorSubscription.subscriber_id).where(
+                    AuthorSubscription.author_id == post.owner_id,
+                    AuthorSubscription.approved.is_(True),
+                    AuthorSubscription.notify.is_(True),
+                )
+            ).all()
+            for uid in uids:
+                db.add(Notification(user_id=uid, post_id=post.id))
+            if uids:
+                db.commit()
+            # 메일·푸시는 각각 따로 감싼다 — 한쪽이 죽어도 다른 쪽은 나가야 한다
+            # (라우터가 BackgroundTask 둘로 나눠 건 것과 같은 이유). 그리고 알림
+            # 실패가 **발행 자체를 실패시키면 안 된다** — 글은 이미 커밋됐다.
+            for label, fn in (("메일", notify_new_post), ("푸시", notify_new_post_push)):
+                try:
+                    fn(post.id, post.title, post.owner_id)
+                except Exception as e:  # noqa: BLE001 - 알림 실패로 발행을 되돌리지 않는다
+                    print(f"  ⚠️ {label} 알림 실패({post.title[:20]}): {type(e).__name__}: {e}")
+            print(f"  알림  대상 {len(uids)}명  {post.title}")
         print(f"\n완료: 생성 {created}건, 갱신 {updated}건")
     finally:
         db.close()
