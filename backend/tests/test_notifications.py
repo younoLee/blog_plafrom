@@ -32,8 +32,12 @@ def test_new_post_notifies_notify_subscriber(client, make_user, auth_headers):
     assert body["unread"] == 1
     assert body["items"][0]["title"] == "새 글"
     # 표시명은 display_name에서만 온다 — **이메일 유도가 아니다**(2026-08-10 보안검사).
-    # display_name을 안 정한 계정은 "회원"으로 뭉갠다. 이메일 로컬파트가 새지 않는 게 요점이다.
-    assert body["items"][0]["author"] == "회원"
+    # display_name을 안 정한 계정은 "회원 #<id>"로 뭉갠다. 이메일 로컬파트가 새지 않는 게 요점이다.
+    #
+    # ⚠️ **글쓴이의 user id여야 한다.** 이 쿼리는 Notification.id와 User.id를 한 행에
+    # 담는데, 폴백에 `r.id`를 넘기면 조용히 '회원 #<알림번호>'가 된다 — 고치는 중에
+    # 실제로 그렇게 썼다가 이 테스트가 잡았다.
+    assert body["items"][0]["author"] == f"회원 #{author.id}"
     assert author.email.split("@")[0] not in body["items"][0]["author"]
     assert body["items"][0]["read"] is False
 

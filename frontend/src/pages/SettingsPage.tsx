@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
+import { updateDisplayName } from '../api/auth'
 import { canWrite } from '../api/auth'
 import { fetchKeys, saveKey, deleteKey, type KeyStatus } from '../api/ai'
 import { ui } from '../ui'
@@ -34,10 +35,14 @@ const PROVIDERS: { id: string; name: string; hint: string; needsBaseUrl?: boolea
 ]
 
 function SettingsPage() {
-  const { user, loading } = useAuth()
+  const { user, loading, refreshUser } = useAuth()
   const [keys, setKeys] = useState<KeyStatus[]>([])
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [baseUrls, setBaseUrls] = useState<Record<string, string>>({}) // compatible용 주소
+  // 서버 값을 state로 **복사하지 않는다.** null이면 '아직 안 건드림' → 서버 값을 그대로 보여준다.
+  // 복사하면 effect로 동기화해야 하고(이 저장소가 금지하는 패턴), 저장 후 되돌리기도 번거롭다.
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
+  const [savingName, setSavingName] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
@@ -47,8 +52,27 @@ function SettingsPage() {
   }, [user, loading])
 
   if (loading) return null
-  // BYOK는 글쓰기 권한자(writer/admin)만 의미 있음
-  if (!canWrite(user)) return <Navigate to="/blog" replace />
+  // 로그인 자체가 없으면 볼 것이 없다.
+  // ⚠️ 예전엔 여기서 canWrite가 아니면 통째로 돌려보냈는데, 그러면 **표시명조차 못 정한다**
+  // (댓글·구독 목록에 이름이 보이는 건 권한과 무관하다). BYOK 구역만 권한으로 가린다.
+  if (!user) return <Navigate to="/login" replace />
+
+  const name = nameDraft ?? user?.display_name ?? ''
+
+  async function handleSaveName() {
+    setError(''); setMsg('')
+    setSavingName(true)
+    try {
+      const updated = await updateDisplayName(name.trim())
+      setNameDraft(null) // 다시 서버 값을 따라가게 한다
+      await refreshUser() // 헤더·다른 화면이 즉시 같은 이름을 쓰게 한다
+      setMsg(updated.display_name ? `표시명을 '${updated.display_name}'로 바꿨어` : '표시명을 지웠어')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '표시명 변경 실패')
+    } finally {
+      setSavingName(false)
+    }
+  }
 
   const keyOf = (provider: string) => keys.find((k) => k.provider === provider)
   const hasKey = (provider: string) => keyOf(provider)?.has_key ?? false
@@ -85,7 +109,33 @@ function SettingsPage() {
   return (
     <div>
       <h1 className={`text-3xl font-bold tracking-tight ${ui.gradientText}`}>설정</h1>
-      <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+      {/* 표시명 — 구독 목록·댓글·알림에 나가는 이름.
+          이 칸이 없던 동안 모든 계정이 "회원"으로 보여서 구독 화면에서 누가 누군지
+          구분이 안 됐다(2026-08-14 신고). 정하는 통로가 없으면 폴백이 아무리 좋아도
+          영원히 폴백이다. */}
+      <section className={`${ui.card} mt-6`}>
+        <h2 className="text-lg font-semibold tracking-tight">표시명</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          댓글·구독 목록에 보이는 이름이야. <span className="font-medium">공개돼</span> —
+          이메일은 어디에도 안 쓰이니 아무 이름이나 정하면 돼.
+          <br />
+          <span className="text-xs">비워서 저장하면 '안 정함'으로 돌아가고, 화면엔 `회원 #{user.id}`로 보여.</span>
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <input
+            className={`${ui.input} max-w-xs`}
+            value={name}
+            maxLength={50}
+            placeholder="예: 유노"
+            onChange={(e) => setNameDraft(e.target.value)}
+          />
+          <button type="button" className={ui.btnPrimary} onClick={handleSaveName} disabled={savingName}>
+            {savingName ? '저장 중…' : '저장'}
+          </button>
+        </div>
+      </section>
+
+      <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
         내 API 키를 등록하면 글쓰기에서 GPT·Gemini·Grok 등 다른 모델로도 초안을 만들 수 있어.
         키는 암호화해서 저장되고, 화면엔 등록 여부만 보여(원문은 다시 안 보임).
       </p>

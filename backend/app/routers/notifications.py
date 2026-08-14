@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.display import display_name_of
 from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
@@ -41,6 +42,9 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             Notification.id,
             Notification.post_id,
             Post.title,
+            # ⚠️ User.id는 Notification.id와 이름이 겹친다 — 라벨을 붙여야
+            # 폴백 이름이 알림 번호를 쓰는 사고를 안 낸다.
+            User.id.label("author_id"),
             User.display_name,
             Notification.read,
             Notification.created_at,
@@ -58,7 +62,7 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             "id": r.id,
             "post_id": r.post_id,
             "title": r.title,
-            "author": r.display_name or "회원",
+            "author": display_name_of(r.author_id, r.display_name),
             "read": r.read,
             "created_at": r.created_at,
         }

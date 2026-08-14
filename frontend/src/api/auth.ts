@@ -10,6 +10,8 @@ export interface User {
   id: number
   email: string
   role: Role
+  // 화면에 보일 이름. 안 정했으면 null → 서버가 "회원 #id"로 폴백한다
+  display_name?: string | null
   is_pro: boolean // 유료(고급 AI 모델 해금) 여부
   pro_until?: string | null // 구독 만료 시각(ISO). 없으면 null
   created_at: string
@@ -181,6 +183,30 @@ export async function fetchMe(): Promise<User | null> {
     return null
   }
   if (!res.ok) return null // 일시 오류: 토큰 유지, 다음 새로고침에 복구
+  return res.json()
+}
+
+/**
+ * 표시명 바꾸기. **비밀번호는 안 건드린다.**
+ *
+ * 이게 생기기 전까지 display_name을 정할 방법은 `create_user.py --display-name` 하나였는데,
+ * 그 스크립트는 같은 실행에서 비밀번호를 새로 만들어 덮어쓴다 — 이름 하나 바꾸려다
+ * 로그인을 잃는 구조였다. 그래서 화면에서 이름이 전부 "회원"으로 보였다.
+ *
+ * 빈 문자열을 보내면 '안 정함'으로 되돌아간다(서버가 NULL로 저장).
+ */
+export async function updateDisplayName(displayName: string): Promise<User> {
+  const res = await fetchWithTimeout(
+    `${BASE}/auth/me`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ display_name: displayName }),
+    },
+    QUICK_TIMEOUT_MS,
+  )
+  if (res.status === 422) throw new Error('이름은 50자까지야')
+  if (!res.ok) throw new Error('표시명을 바꾸지 못했어')
   return res.json()
 }
 

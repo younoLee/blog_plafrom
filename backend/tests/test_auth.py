@@ -149,3 +149,65 @@ def test_login_with_password_over_72_bytes(client, make_user):
         "/api/auth/login", json={"email": "krlogin@test.com", "password": "나" * 30}
     )
     assert r.status_code == 401
+
+
+# ── 표시명 (2026-08-14) ────────────────────────────────────────────────────────
+# 왜 이게 생겼나: 구독 화면이 "회원 · 회원 · 회원"으로 보인다는 신고. 원인은
+# display_name이 전부 NULL인 것이고, 진짜 원인은 **그걸 정할 방법이 제품에 없었다**는
+# 것이다. 유일한 경로(create_user.py --display-name)는 같은 실행에서 비밀번호를 덮어썼다.
+# 그래서 이 테스트가 잠그는 핵심은 "이름이 바뀐다"가 아니라 **"비밀번호가 안 바뀐다"**이다.
+
+
+def test_update_display_name_requires_auth(client):
+    r = client.patch("/api/auth/me", json={"display_name": "누구"})
+    assert r.status_code == 401
+
+
+def test_update_display_name(client, make_user, auth_headers):
+    u = make_user(email="dn@test.com")
+    r = client.patch("/api/auth/me", json={"display_name": "유노"}, headers=auth_headers(u))
+    assert r.status_code == 200
+    assert r.json()["display_name"] == "유노"
+    # 다시 읽어도 같은 값 (응답만 그럴듯한 게 아니라 실제로 저장됐는가)
+    assert client.get("/api/auth/me", headers=auth_headers(u)).json()["display_name"] == "유노"
+
+
+def test_update_display_name_does_not_touch_password(client, make_user, auth_headers):
+    """이름을 바꿔도 로그인은 그대로여야 한다 — 이 기능이 존재하는 이유 그 자체."""
+    make_user(email="keep@test.com", password="password123", verified=True)
+    tok = client.post(
+        "/api/auth/login", json={"email": "keep@test.com", "password": "password123"}
+    ).json()["access_token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    assert client.patch("/api/auth/me", json={"display_name": "이름"}, headers=h).status_code == 200
+    # 같은 비밀번호로 다시 로그인된다
+    assert (
+        client.post(
+            "/api/auth/login", json={"email": "keep@test.com", "password": "password123"}
+        ).status_code
+        == 200
+    )
+
+
+def test_blank_display_name_clears_it(client, make_user, auth_headers):
+    """지우는 방법이 없으면 한 번 정한 사람이 갇힌다."""
+    u = make_user(email="clear@test.com", display_name="예전이름")
+    r = client.patch("/api/auth/me", json={"display_name": "   "}, headers=auth_headers(u))
+    assert r.status_code == 200
+    assert r.json()["display_name"] is None
+
+
+def test_display_name_too_long_is_422(client, make_user, auth_headers):
+    """DB 컬럼이 50자다 — 스키마가 안 막으면 422가 아니라 DB에서 터진다."""
+    u = make_user(email="long@test.com")
+    r = client.patch("/api/auth/me", json={"display_name": "가" * 51}, headers=auth_headers(u))
+    assert r.status_code == 422
+
+
+def test_display_name_fallback_distinguishes_users(client, make_user, auth_headers):
+    """이름을 안 정한 계정끼리도 구분돼야 한다 — 전부 "회원"이면 화면이 못 쓰게 된다."""
+    author = make_user(email="a-nodn@test.com")
+    me = make_user(email="b-nodn@test.com")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(me))
+    rows = client.get("/api/subscriptions/detail", headers=auth_headers(me)).json()
+    assert rows[0]["name"] == f"회원 #{author.id}"

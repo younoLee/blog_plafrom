@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.display import display_name_of
 from app.models.author_subscription import AuthorSubscription
 from app.models.user import User
 
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
 class SubscribeIn(BaseModel):
     author_id: int
+
 
 
 @router.get("", response_model=list[int])
@@ -60,7 +62,12 @@ def my_subscriptions_detail(
     # 유도가 한 군데라도 남으면 "이름은 이메일에서 만든다"는 관습이 살아남고
     # 그게 무인증 경로로 다시 새어나간 것이 이번 건이다. NULL이면 "회원".
     return [
-        {"id": r.id, "name": r.display_name or "회원", "approved": r.approved, "notify": r.notify}
+        {
+            "id": r.id,
+            "name": display_name_of(r.id, r.display_name),
+            "approved": r.approved,
+            "notify": r.notify,
+        }
         for r in rows
     ]
 
@@ -92,7 +99,7 @@ def set_notify(
         # FK가 ondelete=CASCADE라 글쓴이가 지워지면 이 구독 행도 같이 사라지지만,
         # **위에서 sub을 읽고 commit한 뒤**라 그 사이 삭제가 끼면 여기서 None이 되고
         # `.display_name`이 AttributeError → 500이다. 창은 좁아도 방어는 한 글자다.
-        "name": (author.display_name if author else None) or "회원",
+        "name": display_name_of(author_id, author.display_name if author else None),
         "approved": sub.approved,
         "notify": sub.notify,
     }
@@ -108,7 +115,7 @@ def subscribable_authors(
         .where(User.role.in_(("writer", "admin")), User.id != user.id)
         .order_by(User.id)
     ).all()
-    return [{"id": r.id, "name": r.display_name or "회원"} for r in rows]
+    return [{"id": r.id, "name": display_name_of(r.id, r.display_name)} for r in rows]
 
 
 @router.post("", status_code=201)
@@ -174,7 +181,7 @@ def my_requests(db: Session = Depends(get_db), user: User = Depends(get_current_
         )
         .order_by(AuthorSubscription.created_at)
     ).all()
-    return [{"id": r.id, "name": r.display_name or "회원"} for r in rows]
+    return [{"id": r.id, "name": display_name_of(r.id, r.display_name)} for r in rows]
 
 
 def _subscription(db: Session, author_id: int, subscriber_id: int) -> AuthorSubscription | None:

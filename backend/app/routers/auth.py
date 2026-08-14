@@ -21,6 +21,7 @@ from app.models.invite import Invite
 from app.models.user import User
 from app.schemas.invite import InvitePreview, InviteRedeem, InviteToken
 from app.schemas.user import (
+    DisplayNameUpdate,
     ForgotPasswordRequest,
     RegisterRequest,
     ResetPasswordRequest,
@@ -317,6 +318,33 @@ def reset_password(
 
 @router.get("/me", response_model=UserRead)
 def me(current: User = Depends(get_current_user)):
+    return current
+
+
+@router.patch("/me", response_model=UserRead)
+def update_me(
+    data: DisplayNameUpdate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """내 표시명을 바꾼다. **비밀번호는 건드리지 않는다.**
+
+    2026-08-14에 구독 화면이 "회원 · 회원 · 회원"으로 보인다는 신고에서 나왔다.
+    표시명은 DB에 컬럼이 있고 화면 네 곳(구독·댓글·알림·사이드바)이 그걸 읽는데,
+    **정할 방법이 제품에 없었다.** 유일한 경로가 `create_user.py --display-name`이고
+    그 스크립트는 같은 실행에서 비밀번호를 새로 만들어 덮어쓴다 — 이름 하나 바꾸려다
+    로그인을 잃는 구조였다.
+
+    빈 문자열·공백만 주면 NULL로 되돌린다(= '안 정함'). 그러면 화면은 다시 폴백을 쓴다.
+    이름을 지울 방법이 없으면 한 번 정한 사람이 갇힌다.
+
+    ⚠️ 이 이름은 **공개된다** — 댓글 작성자명과 구독 목록에 그대로 나간다.
+    그래서 이메일에서 유도하지 않는다(주소가 새는 경로가 된다). 사람이 직접 고른 값만 쓴다.
+    """
+    name = data.display_name.strip()
+    current.display_name = name or None
+    db.commit()
+    db.refresh(current)
     return current
 
 

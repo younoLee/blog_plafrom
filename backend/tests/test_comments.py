@@ -51,7 +51,12 @@ def test_logged_in_comment_author_from_display_name(client, make_user, auth_head
 
 
 def test_logged_in_comment_without_display_name_falls_back(client, make_user, auth_headers):
-    """display_name이 없으면 '회원'으로 뭉갠다 — **이메일로 되돌아가지 않는다.**"""
+    """display_name이 없으면 폴백 이름을 쓴다 — **이메일로 되돌아가지 않는다.**
+
+    2026-08-14에 폴백이 "회원" → "회원 #<id>"로 바뀌었다. 전부 똑같이 "회원"이면
+    구독 목록에서 누가 누군지 구분이 안 됐기 때문이다(실제 신고).
+    이 테스트가 지키는 것은 문구가 아니라 **이메일 로컬파트가 안 새는 것**이다.
+    """
     writer = make_user(role="writer", email="nodisplay@test.com")
     pid = _public_post(client, auth_headers(writer))
     r = client.post(
@@ -60,7 +65,7 @@ def test_logged_in_comment_without_display_name_falls_back(client, make_user, au
         json={"author": "무시됨", "content": "x"},
     )
     assert r.status_code == 201
-    assert r.json()["author"] == "회원"
+    assert r.json()["author"] == f"회원 #{writer.id}"
     assert "nodisplay" not in r.json()["author"]
 
 

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_current_user_optional
+from app.core.display import display_name_of
 from app.core.ratelimit import limiter
 from app.models.comment import Comment
 from app.models.post import Post
@@ -89,7 +90,7 @@ def create_comment(
     # 그리고 표시명을 **이메일에서 유도하지 않는다** — 예전엔 email.split("@")[0]이었고,
     # 그 값이 공개 글의 댓글 목록으로 영구히 나갔다(같은 검사의 별건). display_name이
     # 없으면 "회원"으로 뭉갠다. 이름을 보이고 싶으면 create_user.py --display-name.
-    author = (user.display_name or "회원") if user is not None else data.author
+    author = display_name_of(user.id, user.display_name) if user is not None else data.author
     comment = Comment(
         post_id=post_id,
         user_id=user.id if user is not None else None,  # NULL = 익명

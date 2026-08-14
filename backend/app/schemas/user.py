@@ -30,6 +30,10 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    # 표시명. NULL이면 화면이 "회원 #id"로 폴백한다(이메일로 되돌아가지 않는다).
+    # 2026-08-14까지 이 필드가 응답에 **아예 없어서** 설정 화면이 현재값을 못 보여줬고,
+    # 그래서 바꿀 방법도 없었다 — 유일한 경로가 create_user.py였는데 그건 비번을 덮어쓴다.
+    display_name: str | None = None
     # **입력은 EmailStr, 출력은 str.** 여기가 EmailStr이면 DB에 형식이 어긋난 행이
     # 하나만 있어도 `GET /admin/users`가 **응답 검증에서 터져 목록 전체가 500**이 된다.
     # 그리고 그 계정을 지울 유일한 화면이 바로 그 목록이라 복구 경로가 psql뿐이다.
@@ -62,3 +66,16 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(SafeModel):
     token: str
     new_password: str = Field(min_length=PW_MIN, max_length=PW_MAX)
+
+
+# 표시명 변경 — 내 것만 바꾼다.
+#
+# 왜 이 스키마가 생겼나 (2026-08-14): 구독 화면에서 글쓴이가 전부 "회원"으로 보여
+# **누가 누군지 구분이 안 됐다.** 원인은 display_name이 전부 NULL인 것이고, 진짜
+# 원인은 **그걸 정할 방법이 제품에 없었다**는 것이다. 유일한 경로가
+# `create_user.py --display-name`인데 그건 같은 실행에서 비밀번호를 덮어쓴다.
+#
+# 최대 50자는 DB 컬럼(String(50))과 맞춘 값이다. 더 길면 422가 아니라 DB에서 터진다.
+# 빈 문자열은 '안 정함'(NULL)으로 되돌리는 뜻으로 받는다 — 지우는 방법도 있어야 한다.
+class DisplayNameUpdate(SafeModel):
+    display_name: str = Field(max_length=50)
