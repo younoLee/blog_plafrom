@@ -1,6 +1,6 @@
 import type { Comment } from '../types/comment'
 import { authHeaders } from './auth'
-import { fetchWithTimeout } from './http'
+import { apiFetch, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -19,7 +19,7 @@ export async function addComment(
   author: string,
   content: string,
 ): Promise<Comment> {
-  const res = await fetch(`${BASE}/posts/${postId}/comments`, {
+  const res = await apiFetch(`${BASE}/posts/${postId}/comments`, {
     method: 'POST',
     // 인증 헤더 포함: 비공개·구독자공개 글에도 댓글을 달 수 있고(권한 확인 통과),
     // 로그인 사용자는 백엔드가 작성자명을 계정으로 고정(사칭 방지).
@@ -34,7 +34,7 @@ export async function addComment(
 
 // 댓글 삭제 (글 작성자 본인 또는 관리자만 — 모더레이션)
 export async function deleteComment(postId: number, commentId: number): Promise<void> {
-  const res = await fetch(`${BASE}/posts/${postId}/comments/${commentId}`, {
+  const res = await apiFetch(`${BASE}/posts/${postId}/comments/${commentId}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })

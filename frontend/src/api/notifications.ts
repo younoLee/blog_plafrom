@@ -1,5 +1,5 @@
 import { authHeaders } from './auth'
-import { fetchWithTimeout } from './http'
+import { apiFetch, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -23,5 +23,5 @@ export async function fetchNotifications(): Promise<NotificationList> {
 }
 
 export async function markAllRead(): Promise<void> {
-  await fetch(`${BASE}/notifications/read`, { method: 'POST', headers: authHeaders() })
+  await apiFetch(`${BASE}/notifications/read`, { method: 'POST', headers: authHeaders() })
 }

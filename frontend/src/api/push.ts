@@ -1,3 +1,4 @@
+import { apiFetch } from './http'
 import { authHeaders } from './auth'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -14,14 +15,14 @@ export function pushSupported(): boolean {
 
 /** 서버 VAPID 공개키. 503(키 미설정)이면 null — 화면이 기능을 숨기는 근거가 된다. */
 async function fetchPublicKey(): Promise<string | null> {
-  const res = await fetch(`${BASE}/push/key`)
+  const res = await apiFetch(`${BASE}/push/key`)
   if (res.status === 503) return null
   if (!res.ok) throw new Error('알림 설정을 불러오지 못했어')
   return (await res.json()).public_key
 }
 
 export async function fetchPushStatus(): Promise<PushStatus> {
-  const res = await fetch(`${BASE}/push`, { headers: authHeaders() })
+  const res = await apiFetch(`${BASE}/push`, { headers: authHeaders() })
   if (!res.ok) throw new Error('알림 상태를 불러오지 못했어')
   return res.json()
 }
@@ -84,7 +85,7 @@ export async function subscribePush(): Promise<SubscribeResult> {
       applicationServerKey: urlBase64ToBytes(key),
     }))
 
-  const res = await fetch(`${BASE}/push`, {
+  const res = await apiFetch(`${BASE}/push`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(toPayload(sub)),
@@ -106,7 +107,7 @@ export async function unsubscribePush(): Promise<void> {
 
   // 서버를 먼저 지운다. 순서를 뒤집으면 브라우저 구독은 사라졌는데 서버엔 남아,
   // 다음 발송이 죽은 endpoint로 나가고 그제서야 정리된다.
-  const res = await fetch(`${BASE}/push?endpoint=${encodeURIComponent(sub.endpoint)}`, {
+  const res = await apiFetch(`${BASE}/push?endpoint=${encodeURIComponent(sub.endpoint)}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })

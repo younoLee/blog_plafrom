@@ -64,6 +64,62 @@ def test_me_with_token(client, make_user, auth_headers):
     assert r.json()["email"] == "me@test.com"
 
 
+# ── 로그아웃 (2026-08-14) ──────────────────────────────────────────────────────
+# 잠그는 불변식은 "204가 온다"가 아니라 **그 토큰이 정말 죽었는가**다.
+# 상태코드만 보면 엔드포인트가 아무것도 안 해도 통과한다.
+
+
+def test_logout_requires_auth(client):
+    assert client.post("/api/auth/logout").status_code == 401
+
+
+def test_logout_invalidates_the_token_that_called_it(client, make_user, auth_headers):
+    u = make_user(email="lo@test.com")
+    h = auth_headers(u)
+    assert client.get("/api/auth/me", headers=h).status_code == 200
+    assert client.post("/api/auth/logout", headers=h).status_code == 204
+    # 같은 토큰으로 다시 → 401. token_version이 올라가 서명은 맞지만 버전이 안 맞는다.
+    assert client.get("/api/auth/me", headers=h).status_code == 401
+
+
+def test_logout_invalidates_other_devices_too(client, make_user, auth_headers):
+    """계정 단위 무효화 — 이게 이 기능의 목적이다(기기 분실).
+
+    기기 단위였다면 아래 phone 토큰은 살아 있어야 한다. 살아 있으면 안 된다.
+    """
+    u = make_user(email="two@test.com")
+    laptop = auth_headers(u)
+    phone = auth_headers(u)  # 같은 계정의 다른 기기(같은 token_version으로 따로 발급)
+    assert client.post("/api/auth/logout", headers=laptop).status_code == 204
+    assert client.get("/api/auth/me", headers=phone).status_code == 401
+
+
+def test_logout_then_login_again_works(client, make_user):
+    """로그아웃이 계정을 잠그면 안 된다 — 새 로그인은 새 버전으로 발급된다."""
+    make_user(email="back@test.com", password="password123", verified=True)
+    tok = client.post(
+        "/api/auth/login", json={"email": "back@test.com", "password": "password123"}
+    ).json()["access_token"]
+    assert (
+        client.post(
+            "/api/auth/logout", headers={"Authorization": f"Bearer {tok}"}
+        ).status_code
+        == 204
+    )
+    r = client.post(
+        "/api/auth/login", json={"email": "back@test.com", "password": "password123"}
+    )
+    assert r.status_code == 200
+    new = r.json()["access_token"]
+    assert new != tok
+    assert (
+        client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {new}"}
+        ).status_code
+        == 200
+    )
+
+
 # ── 비밀번호 바이트 길이 경계 (bcrypt 5.0 회귀 방지, 2026-07-22) ────────────────
 # bcrypt는 72'바이트'까지만 받고 5.0부터 초과분을 ValueError로 거부한다(4.x는 조용히
 # 잘랐다). 스키마의 PW_MAX=72는 '글자 수'라 이걸 못 막는다 — 한글은 글자당 3바이트라

@@ -57,7 +57,17 @@ function Layout() {
                     </Link>
                   </>
                 )}
-                <button type="button" onClick={logout} className={ui.btnGhost}>로그아웃</button>
+                {/* 2026-08-14부터 서버에도 알린다 — 이 계정의 **모든 기기**가 함께 로그아웃된다.
+                    라벨은 '로그아웃'으로 두되 title로 범위를 밝힌다: 헤더에 긴 문구를 넣으면
+                    좁은 화면에서 줄이 무너지는데, 범위를 숨기면 기기 분실 때 잘못 믿게 된다. */}
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  title="모든 기기에서 로그아웃돼"
+                  className={ui.btnGhost}
+                >
+                  로그아웃
+                </button>
               </>
             ) : (
               // 가입은 초대제로 닫아둠 → 헤더엔 로그인만 노출 (자세한 안내는 /register 화면)

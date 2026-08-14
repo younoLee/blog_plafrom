@@ -18,6 +18,13 @@
 # 마지막 재빌드는 일부러 여기서 실행하지 않는다 — 규칙7(프로덕션 앱 코드를 갈아끼우는
 # 명령은 사용자가 직접 실행). 준비까지 하고 명령을 출력한다.
 #
+# ⚠️ 이 스크립트는 **보내기만 한다.** 나간 것이 실제로 도는지는 짝인
+# `scripts/verify_deploy.sh`가 잰다(앱 해시·alembic·uid·헬스·오리진 가드·로그·공개 경로).
+# 절차: deploy_backend.sh → 사용자 재빌드 → verify_deploy.sh.
+# 왜 나눴는가: 재빌드가 사용자 셸에서 도니 그 뒤에 붙일 자리가 없고, "지금 운영에 뭐가
+# 떠 있나"는 배포와 무관한 때에도 물을 수 있어야 한다(2026-08-11에 미배포 목록이 낡아
+# 헛수고할 뻔했다 — 해시를 떠보고 알았다).
+#
 # 사용:
 #   scripts/deploy_backend.sh
 
@@ -97,13 +104,8 @@ cat <<CMD
   ssh -i $SSH_KEY ec2-user@$DNS \\
     'cd ~/blog && sudo docker compose -f docker-compose.prod.yml up -d --build'
 
-  끝나면 확인 — healthy가 될 때까지 **기다린다**(눈으로 보는 대신):
-    ssh -i $SSH_KEY ec2-user@$DNS 'for i in \$(seq 1 40); do \\
-        s=\$(sudo docker inspect -f "{{.State.Health.Status}}" blog-backend-1 2>/dev/null); echo "  \$s"; \\
-        [ "\$s" = healthy ] && exit 0; [ "\$s" = unhealthy ] && exit 1; sleep 5; done; exit 1'
-    ssh -i $SSH_KEY ec2-user@$DNS \\
-      'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T backend alembic current'
-    curl -s https://d2j66m9udyg9yq.cloudfront.net/api/status
+  끝나면 **반드시** 검증하세요 — 보낸 것과 도는 것은 다릅니다:
+    scripts/verify_deploy.sh
 CMD
 echo
 echo "⚠️  이번 재빌드부터 PAYMENTS_REQUIRE_LIVE=true 가 반영됩니다 —"

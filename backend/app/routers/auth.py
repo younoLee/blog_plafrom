@@ -318,3 +318,29 @@ def reset_password(
 @router.get("/me", response_model=UserRead)
 def me(current: User = Depends(get_current_user)):
     return current
+
+
+@router.post("/logout", status_code=204)
+def logout(current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """로그아웃 — 이 계정에 발급된 **모든** 토큰을 무효화한다.
+
+    2026-08-12 보안 검사가 "레버는 있는데 손잡이가 없다"고 적어둔 자리다.
+    `token_version`은 비밀번호 재설정·초대 재발급에서만 올라갔고, 사용자가 스스로
+    세션을 끊을 방법은 저장소 어디에도 없었다. 기기를 잃어버렸을 때 할 수 있는 게
+    비밀번호 재설정뿐이었다는 뜻이다.
+
+    **왜 기기 단위가 아닌가.** 토큰은 서명된 JWT이고 서버에 세션 표가 없다. 특정
+    토큰만 죽이려면 폐기 목록(jti)이라는 표가 하나 더 필요한데, 그 표는 만료 전까지
+    지울 수 없어 계속 자란다. 지금 있는 레버(`token_version`)는 계정 단위이고,
+    로그아웃의 진짜 용도(기기 분실)에는 계정 단위가 오히려 맞는 답이다.
+
+    ⚠️ 이 응답을 받은 **다른 기기**는 그 즉시 401을 받는다. 프론트가 그 401에서
+    토큰을 지우고 화면을 비로그인으로 되돌리지 않으면 '로그인된 것처럼 보이는데
+    아무것도 안 되는' 상태가 된다 — 그래서 프론트의 401 전역 처리(`api/http.ts`의
+    `request`)가 **이 엔드포인트의 선행 조건**이었다. 순서를 뒤집지 말 것.
+
+    204를 주는 이유: 돌려줄 내용이 없다. 그리고 멱등하다 — 이미 무효인 토큰으로는
+    여기 도달조차 못 하고(401), 유효한 토큰으로 두 번 부르면 두 번째는 401이다.
+    """
+    current.token_version += 1
+    db.commit()

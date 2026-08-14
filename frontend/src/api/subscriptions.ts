@@ -1,5 +1,5 @@
 import { authHeaders } from './auth'
-import { fetchWithTimeout } from './http'
+import { apiFetch, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -33,14 +33,14 @@ export async function fetchRequests(): Promise<PendingRequest[]> {
   return res.json()
 }
 export async function approveRequest(subscriberId: number): Promise<void> {
-  const res = await fetch(`${BASE}/subscriptions/requests/${subscriberId}/approve`, {
+  const res = await apiFetch(`${BASE}/subscriptions/requests/${subscriberId}/approve`, {
     method: 'POST',
     headers: authHeaders(),
   })
   if (!res.ok) throw new Error('승인 실패')
 }
 export async function rejectRequest(subscriberId: number): Promise<void> {
-  const res = await fetch(`${BASE}/subscriptions/requests/${subscriberId}`, {
+  const res = await apiFetch(`${BASE}/subscriptions/requests/${subscriberId}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })
@@ -49,7 +49,7 @@ export async function rejectRequest(subscriberId: number): Promise<void> {
 
 // 구독한 글쓴이의 새 글 이메일 알림 켜기/끄기 (구독한 뒤에만 가능 — 아니면 404)
 export async function setNotify(authorId: number, notify: boolean): Promise<void> {
-  const res = await fetch(`${BASE}/subscriptions/${authorId}/notify`, {
+  const res = await apiFetch(`${BASE}/subscriptions/${authorId}/notify`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ notify }),
@@ -81,7 +81,7 @@ export async function fetchMySubscriptions(): Promise<number[]> {
 }
 
 export async function subscribeAuthor(authorId: number): Promise<void> {
-  const res = await fetch(`${BASE}/subscriptions`, {
+  const res = await apiFetch(`${BASE}/subscriptions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ author_id: authorId }),
@@ -90,7 +90,7 @@ export async function subscribeAuthor(authorId: number): Promise<void> {
 }
 
 export async function unsubscribeAuthor(authorId: number): Promise<void> {
-  const res = await fetch(`${BASE}/subscriptions/${authorId}`, {
+  const res = await apiFetch(`${BASE}/subscriptions/${authorId}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })

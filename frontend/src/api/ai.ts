@@ -1,5 +1,5 @@
 import { authHeaders } from './auth'
-import { fetchWithTimeout } from './http'
+import { apiFetch, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -47,7 +47,7 @@ export async function fetchKeys(): Promise<KeyStatus[]> {
 // 키 저장(있으면 교체). provider = 'openai' | 'gemini' | 'compatible'
 // compatible은 baseUrl(엔드포인트 주소)도 필요
 export async function saveKey(provider: string, key: string, baseUrl?: string): Promise<void> {
-  const res = await fetch(`${BASE}/ai/keys/${provider}`, {
+  const res = await apiFetch(`${BASE}/ai/keys/${provider}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ key, base_url: baseUrl }),
@@ -63,7 +63,7 @@ export async function saveKey(provider: string, key: string, baseUrl?: string): 
 
 // 키 삭제
 export async function deleteKey(provider: string): Promise<void> {
-  const res = await fetch(`${BASE}/ai/keys/${provider}`, {
+  const res = await apiFetch(`${BASE}/ai/keys/${provider}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })
@@ -79,7 +79,7 @@ export async function generateDraft(memo: string, model?: string, provider?: str
   const timer = setTimeout(() => ctrl.abort(), 90_000)
   let res: Response
   try {
-    res = await fetch(`${BASE}/ai/draft`, {
+    res = await apiFetch(`${BASE}/ai/draft`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ memo, model, provider }),

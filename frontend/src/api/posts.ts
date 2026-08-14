@@ -1,6 +1,6 @@
 import type { Post, PostSummary, SeriesNav, Visibility } from '../types/post'
 import { authHeaders } from './auth'
-import { fetchWithTimeout } from './http'
+import { apiFetch, fetchWithTimeout } from './http'
 
 // 백엔드 주소 (나중에 환경변수로 빼면 좋음)
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -88,7 +88,7 @@ export async function createPost(
   series: string | null,
   visibility: Visibility,
 ): Promise<Post> {
-  const res = await fetch(`${BASE}/posts`, {
+  const res = await apiFetch(`${BASE}/posts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ title, content, cover_image: coverImage, tags, series, visibility }),
@@ -111,7 +111,7 @@ export async function updatePost(
   series: string | null,
   visibility: Visibility,
 ): Promise<Post> {
-  const res = await fetch(`${BASE}/posts/${id}`, {
+  const res = await apiFetch(`${BASE}/posts/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ title, content, cover_image: coverImage, tags, series, visibility }),
@@ -128,7 +128,7 @@ export async function changeVisibility(
   id: number,
   visibility: Visibility,
 ): Promise<Post> {
-  const res = await fetch(`${BASE}/posts/${id}/visibility`, {
+  const res = await apiFetch(`${BASE}/posts/${id}/visibility`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ visibility }),
@@ -140,7 +140,7 @@ export async function changeVisibility(
 
 // 글 삭제 (소유자만, 성공 시 204)
 export async function deletePost(id: number): Promise<void> {
-  const res = await fetch(`${BASE}/posts/${id}`, {
+  const res = await apiFetch(`${BASE}/posts/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })

@@ -1,7 +1,7 @@
-import { fetchWithTimeout } from './http'
+import { QUICK_TIMEOUT_MS, fetchWithTimeout } from './http'
+import { authHeaders, clearToken, getToken, setToken } from './session'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
-const TOKEN_KEY = 'token'
 
 // 권한: pending(승인 대기) / writer(글쓰기 가능) / admin(관리자) / banned(차단)
 export type Role = 'pending' | 'writer' | 'admin' | 'banned'
@@ -20,22 +20,11 @@ export function canWrite(user: User | null): boolean {
   return user?.role === 'writer' || user?.role === 'admin'
 }
 
-// --- 토큰 저장/조회 (localStorage) ---
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
-}
-function setToken(t: string) {
-  localStorage.setItem(TOKEN_KEY, t)
-}
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
-}
-
-// 로그인했으면 Authorization 헤더, 아니면 빈 객체 (다른 api에서 가져다 씀)
-export function authHeaders(): Record<string, string> {
-  const t = getToken()
-  return t ? { Authorization: `Bearer ${t}` } : {}
-}
+// --- 토큰 저장/조회 ---
+// 실체는 session.ts로 옮겼다(http.ts가 401에서 토큰을 지워야 하는데, auth.ts를 import하면
+// 순환이 된다). 여기서 다시 내보내는 이유는 기존 호출부(`from './auth'`)를 안 건드리기
+// 위해서다 — 한 자리로 모으는 변경에 호출부 40곳 수정을 얹으면 위험이 섞인다.
+export { authHeaders, clearToken, getToken } from './session'
 
 // --- 인증 요청 ---
 export async function register(email: string, password: string): Promise<void> {
@@ -186,9 +175,43 @@ export async function fetchMe(): Promise<User | null> {
   // 401(만료/위조)일 때만 토큰 정리. 5xx 같은 일시적 서버 오류엔 토큰을 지우지 않음
   // (안 그러면 서버가 잠깐 흔들릴 때 사용자가 강제 로그아웃돼 재로그인해야 함)
   if (res.status === 401) {
+    // http.ts의 request()가 이미 지우고 통지했다. 여기서 한 번 더 부르는 건 무해하고,
+    // 이 함수만 따로 쓰는 호출부가 생겨도 계약이 유지된다.
     clearToken()
     return null
   }
   if (!res.ok) return null // 일시 오류: 토큰 유지, 다음 새로고침에 복구
   return res.json()
+}
+
+/**
+ * 서버 로그아웃 — 이 계정의 **모든 기기**에서 토큰을 무효화한다.
+ *
+ * 왜 '이 기기만'이 아닌가: 이 앱의 토큰은 서명된 JWT이고 서버에 세션 표가 없다.
+ * 개별 토큰을 지목해 죽이려면 폐기 목록(jti)이라는 표가 하나 더 필요하다. 지금 있는
+ * 레버는 `token_version` 하나뿐이고 그건 계정 단위다. 그래서 계정 단위로 정직하게
+ * 만들고 화면에도 그렇게 적는다 — '이 기기만'인 척하는 게 더 나쁘다(기기를 잃어버려서
+ * 누르는 게 로그아웃의 진짜 용도인데, 그때 안 끊기면 아무 의미가 없다).
+ *
+ * 실패해도 삼킨다: 서버가 꺼져 있어도 **로컬 로그아웃은 되어야 한다**. 이 블로그는
+ * 평소 서버를 꺼두므로 그게 예외가 아니라 기본 상태다.
+ *
+ * ⚠️ **쓰기인데 타임아웃을 건다** — 이 저장소의 규약(쓰기엔 안 건다)의 유일한 예외다.
+ * 규약의 근거는 "abort해도 서버 일은 안 되돌아가니, 끊으면 실패한 줄 알았는데 됐다가
+ * 된다"인데, 로그아웃은 그 위험이 **뒤집힌다**: 끊긴 뒤에 서버가 무효화를 마쳐도
+ * 사용자가 원한 그대로다. 반대로 안 걸면, 서버가 절전일 때 로그아웃 버튼이
+ * CloudFront 상한(60초)까지 멈춘 채 여전히 로그인 상태로 보인다.
+ */
+export async function logout(): Promise<void> {
+  if (!getToken()) return
+  try {
+    await fetchWithTimeout(
+      `${BASE}/auth/logout`,
+      { method: 'POST', headers: authHeaders() },
+      QUICK_TIMEOUT_MS,
+    )
+  } catch {
+    // 절전·네트워크 오류: 서버 쪽 무효화는 못 했지만 이 기기에서는 나간다.
+  }
+  clearToken()
 }

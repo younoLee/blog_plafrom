@@ -1,5 +1,5 @@
 import { authHeaders, type User } from './auth'
-import { fetchWithTimeout } from './http'
+import { apiFetch, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -12,7 +12,7 @@ export async function listUsers(): Promise<User[]> {
 
 // 승인: pending → writer (글쓰기 허용)
 export async function approveUser(id: number): Promise<User> {
-  const res = await fetch(`${BASE}/admin/users/${id}/approve`, {
+  const res = await apiFetch(`${BASE}/admin/users/${id}/approve`, {
     method: 'POST',
     headers: authHeaders(),
   })
@@ -22,7 +22,7 @@ export async function approveUser(id: number): Promise<User> {
 
 // 승인 취소: writer → pending (글쓰기 차단)
 export async function revokeUser(id: number): Promise<User> {
-  const res = await fetch(`${BASE}/admin/users/${id}/revoke`, {
+  const res = await apiFetch(`${BASE}/admin/users/${id}/revoke`, {
     method: 'POST',
     headers: authHeaders(),
   })
@@ -32,7 +32,7 @@ export async function revokeUser(id: number): Promise<User> {
 
 // 차단: role → banned (로그인·토큰 무효)
 export async function banUser(id: number): Promise<User> {
-  const res = await fetch(`${BASE}/admin/users/${id}/ban`, {
+  const res = await apiFetch(`${BASE}/admin/users/${id}/ban`, {
     method: 'POST',
     headers: authHeaders(),
   })
@@ -42,7 +42,7 @@ export async function banUser(id: number): Promise<User> {
 
 // 차단 해제: banned → pending
 export async function unbanUser(id: number): Promise<User> {
-  const res = await fetch(`${BASE}/admin/users/${id}/unban`, {
+  const res = await apiFetch(`${BASE}/admin/users/${id}/unban`, {
     method: 'POST',
     headers: authHeaders(),
   })
@@ -52,7 +52,7 @@ export async function unbanUser(id: number): Promise<User> {
 
 // 유료(pro) 토글: AI 초안에서 Opus 등 상위 모델 해금/회수
 export async function toggleProUser(id: number): Promise<User> {
-  const res = await fetch(`${BASE}/admin/users/${id}/toggle-pro`, {
+  const res = await apiFetch(`${BASE}/admin/users/${id}/toggle-pro`, {
     method: 'POST',
     headers: authHeaders(),
   })
@@ -62,7 +62,7 @@ export async function toggleProUser(id: number): Promise<User> {
 
 // 영구 삭제: 계정 + 그 사람의 글·댓글까지 (되돌리기 불가)
 export async function deleteUser(id: number): Promise<void> {
-  const res = await fetch(`${BASE}/admin/users/${id}`, {
+  const res = await apiFetch(`${BASE}/admin/users/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })
@@ -103,7 +103,7 @@ export async function createInvite(
   email: string,
   role: 'pending' | 'writer',
 ): Promise<InviteCreated> {
-  const res = await fetch(`${BASE}/admin/invites`, {
+  const res = await apiFetch(`${BASE}/admin/invites`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, role }),
@@ -120,7 +120,7 @@ export async function createInvite(
 }
 
 export async function revokeInvite(id: number): Promise<void> {
-  const res = await fetch(`${BASE}/admin/invites/${id}`, {
+  const res = await apiFetch(`${BASE}/admin/invites/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })

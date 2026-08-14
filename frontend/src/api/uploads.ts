@@ -1,3 +1,4 @@
+import { apiFetch } from './http'
 import { authHeaders } from './auth'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -7,7 +8,7 @@ export async function uploadImage(file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)
   // 업로드는 승인된 사람만 가능 → 토큰 첨부 (Content-Type은 브라우저가 자동 설정)
-  const res = await fetch(`${BASE}/upload`, {
+  const res = await apiFetch(`${BASE}/upload`, {
     method: 'POST',
     headers: authHeaders(),
     body: form,

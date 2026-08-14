@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AuthContext } from './auth-context'
 import type { User } from '../api/auth'
 import * as authApi from '../api/auth'
+import { onSessionExpired } from '../api/session'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -14,6 +15,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then(setUser)
       .finally(() => setLoading(false))
   }, [])
+
+  // 어떤 인증 요청이든 401을 받으면 화면을 비로그인으로 되돌린다.
+  //
+  // 이게 없으면 '좀비'가 생긴다 — 다른 기기에서 로그아웃했거나 비밀번호를 바꾸면
+  // 이 기기의 토큰은 죽는데, 화면은 여전히 로그인된 것처럼 보이고 누르는 것마다
+  // "로그인이 필요해"만 뜬다. 그 상태에서 로그인 화면으로 가는 길도 없다(헤더가
+  // 로그인 버튼 대신 로그아웃을 보여주니까).
+  useEffect(() => onSessionExpired(() => setUser(null)), [])
 
   async function login(email: string, password: string) {
     await authApi.login(email, password)
@@ -32,8 +41,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(await authApi.fetchMe())
   }
 
-  function logout() {
-    authApi.clearToken()
+  // 서버에도 알린다 — token_version이 올라가 다른 기기의 토큰까지 죽는다.
+  // 서버가 꺼져 있어도(평소 상태다) 이 기기에서는 반드시 나간다: authApi.logout이 삼킨다.
+  async function logout() {
+    await authApi.logout()
     setUser(null)
   }
 

@@ -8,7 +8,10 @@
  * 그 60초는 AI 초안 생성(실측 ~10초, 모델에 따라 더)에 필요해서 인프라에서
  * 낮출 수 없다. 그래서 '호출별로' 다르게 준다: 목록·상태는 짧게 끊어 빨리
  * 안내하고, AI 초안만 길게 기다린다.
+ *
+ * 2026-08-14에 역할이 하나 늘었다 — **인증 요청의 401을 여기서 잡는다**(아래 request).
  */
+import { sessionExpired } from './session'
 
 /** 화면 조회용 기본 상한. 서버가 깨어 있으면 이보다 훨씬 빨리 온다. */
 export const QUICK_TIMEOUT_MS = 8000
@@ -26,22 +29,71 @@ export function isAsleepStatus(status: number): boolean {
   return status === 502 || status === 503 || status === 504
 }
 
-export async function fetchWithTimeout(
+/**
+ * 요청이 Authorization 헤더를 달고 있었는가.
+ *
+ * **왜 헤더로 판단하는가** — 401을 무조건 '세션 만료'로 처리하면 로그인 실패가
+ * 로그아웃 통지를 낸다(`POST /auth/login`은 비밀번호가 틀리면 401이다). 로그인
+ * 요청은 토큰이 없으니 헤더도 없다. 즉 '토큰을 냈는데 거절당했다'만 만료다.
+ */
+function hasAuthHeader(init: RequestInit): boolean {
+  const h = init.headers
+  if (!h) return false
+  if (h instanceof Headers) return h.has('Authorization')
+  if (Array.isArray(h)) return h.some(([k]) => k.toLowerCase() === 'authorization')
+  return Object.keys(h).some((k) => k.toLowerCase() === 'authorization')
+}
+
+/**
+ * 모든 API 호출이 지나는 **한 자리**. 두 가지를 여기서만 판단한다:
+ *   ① 절전(5xx·무응답) ② 세션 만료(인증 요청의 401)
+ *
+ * 왜 한 자리인가 — 2026-08-12 보안 수정이 얻은 결론 그대로다("필드가 아니라 뿌리에서
+ * 막는다"). 401 처리를 호출부마다 적으면 새 호출을 추가할 때마다 다시 샌다. 실제로
+ * 이 저장소는 401에서 토큰을 지우는 코드가 `fetchMe` **한 곳뿐**이었고, 그래서
+ * 서버 로그아웃을 만들 수 없었다(다른 기기가 좀비가 된다).
+ *
+ * timeoutMs = null 이면 **안 끊는다.** 쓰기 요청의 규약이다 — abort는 내 기다림만
+ * 끊을 뿐 서버가 하던 일은 안 되돌아가므로, 끊으면 '실패한 줄 알았는데 됐다'가 된다.
+ */
+async function request(
   url: string,
-  init: RequestInit = {},
-  timeoutMs: number = QUICK_TIMEOUT_MS,
+  init: RequestInit,
+  timeoutMs: number | null,
 ): Promise<Response> {
   const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), timeoutMs)
+  const timer = timeoutMs === null ? null : setTimeout(() => ac.abort(), timeoutMs)
   try {
     const res = await fetch(url, { ...init, signal: ac.signal })
     if (isAsleepStatus(res.status)) throw new ServerAsleepError()
+    // 토큰을 냈는데 401 → 그 토큰은 더 이상 우리 것이 아니다. 지우고 화면에 알린다.
+    // 응답 자체는 그대로 돌려준다 — 호출부의 안내 문구("로그인이 필요해")는 살아야 한다.
+    if (res.status === 401 && hasAuthHeader(init)) sessionExpired()
     return res
   } catch (e) {
     // abort = 시간 안에 응답이 없음 → 켜지는 중이거나 꺼져 있음
     if (e instanceof DOMException && e.name === 'AbortError') throw new ServerAsleepError()
     throw e
   } finally {
-    clearTimeout(timer)
+    if (timer !== null) clearTimeout(timer)
   }
+}
+
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs: number = QUICK_TIMEOUT_MS,
+): Promise<Response> {
+  return request(url, init, timeoutMs)
+}
+
+/**
+ * 타임아웃 없는 호출 — **쓰기 전용**. 맨 `fetch` 대신 이걸 쓴다.
+ *
+ * 맨 `fetch`를 쓰면 위 401 처리를 건너뛴다. 이 저장소의 쓰기 경로(글·댓글·업로드·
+ * 관리자·결제·푸시)는 전부 맨 fetch였고, 그게 정확히 '좀비 상태'가 사는 자리였다 —
+ * 읽기만 하는 화면은 fetchMe가 정리해 주지만, 쓰기 화면은 아무도 안 정리했다.
+ */
+export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return request(url, init, null)
 }
