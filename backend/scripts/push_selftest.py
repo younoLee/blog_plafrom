@@ -21,14 +21,22 @@
 인자를 안 주면 등록된 구독 전부의 소유자 목록만 보여주고 끝낸다(오발송 방지).
 """
 
+import os
 import sys
 
-from sqlalchemy import select
+# 이 파일은 backend/scripts/ 아래에 있다. backend 루트를 path에 넣어야 `app.*`를 import 한다.
+# **create_user.py가 이미 같은 줄을 갖고 있는데 여기서 빠뜨렸다**(2026-08-14 첫 실행에서
+# ModuleNotFoundError: No module named 'app'). publish_devlogs.py 쪽은 호출부에
+# `-e PYTHONPATH=/app`를 붙이는 방식이라 그 계열을 따라 쓴 게 원인이다 — 그건 컨테이너
+# **밖에서** 넣는 파일이고, 이건 이미지에 구워져 들어가는 파일이라 create_user.py가 맞는 짝이다.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.database import SessionLocal
-from app.models.push_subscription import PushSubscription
-from app.models.user import User
-from app.services.push import PushGone, send_push
+from sqlalchemy import select  # noqa: E402
+
+from app.core.database import SessionLocal  # noqa: E402
+from app.models.push_subscription import PushSubscription  # noqa: E402
+from app.models.user import User  # noqa: E402
+from app.services.push import PushGone, send_push  # noqa: E402
 
 
 def main() -> None:
