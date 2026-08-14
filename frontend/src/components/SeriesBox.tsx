@@ -11,7 +11,7 @@ export function SeriesBox({ nav, currentId }: { nav: SeriesNav; currentId: numbe
         <h2 className="text-sm font-semibold tracking-tight">
           연재 · <span className="text-[#0071e3] dark:text-[#0a84ff]">{nav.series}</span>
         </h2>
-        <span className="text-xs text-gray-400 dark:text-gray-500">
+        <span className="text-xs text-gray-500 dark:text-gray-400">
           {nav.index} / {nav.total}편
         </span>
       </div>
@@ -20,7 +20,7 @@ export function SeriesBox({ nav, currentId }: { nav: SeriesNav; currentId: numbe
           const isCurrent = item.id === currentId
           return (
             <li key={item.id} className="flex gap-2 text-sm">
-              <span className="w-6 shrink-0 text-right text-xs text-gray-400 dark:text-gray-500">
+              <span className="w-6 shrink-0 text-right text-xs text-gray-500 dark:text-gray-400">
                 {i + 1}.
               </span>
               {isCurrent ? (
@@ -55,7 +55,7 @@ export function SeriesPrevNext({ nav }: { nav: SeriesNav }) {
     <nav className="my-8 flex flex-col gap-3 sm:flex-row" aria-label="연재 이동">
       {nav.prev ? (
         <Link to={`/blog/posts/${nav.prev.id}`} className={box}>
-          <div className="text-xs text-gray-400 dark:text-gray-500">← 이전 편</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">← 이전 편</div>
           <div className="mt-1 line-clamp-2 text-sm font-medium transition group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
             {nav.prev.title}
           </div>
@@ -65,7 +65,7 @@ export function SeriesPrevNext({ nav }: { nav: SeriesNav }) {
       )}
       {nav.next ? (
         <Link to={`/blog/posts/${nav.next.id}`} className={`${box} sm:text-right`}>
-          <div className="text-xs text-gray-400 dark:text-gray-500">다음 편 →</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">다음 편 →</div>
           <div className="mt-1 line-clamp-2 text-sm font-medium transition group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
             {nav.next.title}
           </div>

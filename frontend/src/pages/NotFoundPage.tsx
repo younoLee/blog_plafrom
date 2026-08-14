@@ -18,7 +18,7 @@ function NotFoundPage() {
 
   return (
     <div className="mx-auto max-w-lg py-20 text-center">
-      <p className="font-mono text-sm text-gray-400 dark:text-gray-500">404</p>
+      <p className="font-mono text-sm text-gray-500 dark:text-gray-400">404</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">이 주소에는 아무것도 없어.</h1>
       <p className="mt-3 text-gray-500 dark:text-gray-400">
         주소가 바뀌었거나, 지워진 글일 수 있어.
@@ -40,7 +40,7 @@ function NotFoundPage() {
       </div>
 
       {/* 서버가 꺼져 있으면 위 두 링크의 목적지도 비어 보인다. 그때도 읽히는 길을 같이 준다. */}
-      <p className="mt-8 text-sm text-gray-400 dark:text-gray-500">
+      <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
         서버가 절전 중이어도 읽을 수 있는 곳 —{' '}
         <a href="/devlog.html" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
           개발일지 아카이브

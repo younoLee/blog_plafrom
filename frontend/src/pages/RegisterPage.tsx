@@ -59,7 +59,7 @@ function ClosedNotice() {
         이 블로그는 개인 포트폴리오 프로젝트라, 새 계정 가입은 지금 닫아뒀어.<br />
         글은 로그인 없이 자유롭게 읽고, 댓글도 남길 수 있어.
       </p>
-      <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+      <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
         초대 링크를 받았다면 그 링크에서 바로 가입돼.
       </p>
       <div className="mt-6 flex flex-col items-center gap-2">
@@ -125,7 +125,7 @@ function InviteForm({ token, invite }: { token: string; invite: InvitePreview })
         {error && <p className="text-sm text-red-600">{error}</p>}
       </form>
       {invite.role === 'pending' && (
-        <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
+        <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">
           가입 직후엔 읽기·댓글만 돼. 글쓰기 권한은 관리자가 따로 켜줘.
         </p>
       )}

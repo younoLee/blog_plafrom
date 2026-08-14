@@ -144,7 +144,7 @@ function StatusPage() {
             <h2 className="font-semibold text-gray-800 dark:text-gray-100">
               업타임 · 최근 30일
             </h2>
-            <span className="text-xs text-gray-400 dark:text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               총 {history.total_checks}회 점검
             </span>
           </div>
@@ -156,7 +156,7 @@ function StatusPage() {
             ))}
           </div>
 
-          <div className="mt-2 flex justify-between text-xs text-gray-400 dark:text-gray-500">
+          <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-gray-400">
             <span>30일 전</span>
             <span>오늘</span>
           </div>
@@ -198,7 +198,7 @@ function StatusPage() {
       )}
 
       {status && (
-        <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-center text-xs text-gray-500 dark:text-gray-400">
           마지막 점검: {new Date(status.checked_at).toLocaleString('ko-KR')}
         </p>
       )}

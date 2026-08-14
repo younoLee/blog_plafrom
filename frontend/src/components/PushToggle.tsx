@@ -123,7 +123,7 @@ function PushToggle() {
           >
             {busy ? '처리 중…' : state === 'on' ? '이 기기 알림 끄기' : '이 기기 알림 켜기'}
           </button>
-          <span className="text-xs text-gray-400 dark:text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {state === 'on' ? '이 기기에서 받는 중' : '이 기기에서는 꺼져 있어'}
             {devices > 0 && ` · 전체 ${devices}대`}
           </span>

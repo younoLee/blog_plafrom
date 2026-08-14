@@ -29,7 +29,7 @@ function Meter({ label, percent, detail }: { label: string; percent: number; det
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/10">
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${p}%` }} />
       </div>
-      <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">{detail}</p>
+      <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{detail}</p>
     </div>
   )
 }
@@ -178,7 +178,7 @@ function InviteSection() {
             >
               <span className="text-sm font-medium">{inv.email}</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${st.badge}`}>{st.label}</span>
-              <span className="text-xs text-gray-400 dark:text-gray-500">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
                 {inv.role === 'writer' ? '글쓰기 가능' : '승인 대기'}로 · 만료 {new Date(inv.expires_at).toLocaleDateString()}
               </span>
               {/* 사용된 초대는 지우지 않는다 — '누가 이 계정을 들였나'가 초대제의 감사 기록이다 */}
@@ -193,7 +193,7 @@ function InviteSection() {
               )}
               {/* 그 감사 기록을 실제로 보여주는 줄. 이게 없으면 위 주석이 근거로 삼는
                   답을 psql로만 볼 수 있다. 계정이 지워지면 null이라 '(삭제됨)'으로 적는다. */}
-              <span className="basis-full text-xs text-gray-400 dark:text-gray-500">
+              <span className="basis-full text-xs text-gray-500 dark:text-gray-400">
                 발급 {inv.created_by_email ?? '(삭제된 계정)'}
                 {inv.used_at && ` · 가입 ${inv.used_by_email ?? '(삭제된 계정)'} · ${new Date(inv.used_at).toLocaleDateString()}`}
               </span>
@@ -201,7 +201,7 @@ function InviteSection() {
           )
         })}
         {loaded && !error && invites.length === 0 && (
-          <li className="text-sm text-gray-400 dark:text-gray-500">아직 발급한 초대가 없어.</li>
+          <li className="text-sm text-gray-500 dark:text-gray-400">아직 발급한 초대가 없어.</li>
         )}
       </ul>
     </section>
@@ -292,7 +292,7 @@ function AdminPage() {
         <section className="mt-6">
           <h2 className="mb-3 flex items-baseline gap-2 text-xl font-semibold tracking-tight">
             인프라 상태
-            <span className="text-xs font-normal text-gray-400 dark:text-gray-500">서버·DB 실측 · 10초마다 갱신</span>
+            <span className="text-xs font-normal text-gray-500 dark:text-gray-400">서버·DB 실측 · 10초마다 갱신</span>
           </h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Meter label="CPU" percent={infra.cpu_percent} detail={`부하 ${infra.load_avg['1m']} · ${infra.cpu_count}코어`} />

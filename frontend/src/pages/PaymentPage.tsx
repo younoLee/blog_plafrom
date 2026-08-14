@@ -178,7 +178,7 @@ function PaymentPage() {
         </div>
       </div>
 
-      <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-500">
+      <p className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
         ※ 토스페이먼츠 테스트 모드라 실제 카드 승인은 나지만 <b>실제 돈은 청구되지 않아</b>.
         <br />테스트 카드 아무거나 넣으면 돼 (예: 카드번호 4242-4242-4242-4242).
       </p>

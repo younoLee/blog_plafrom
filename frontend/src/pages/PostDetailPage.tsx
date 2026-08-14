@@ -246,7 +246,10 @@ function PostDetailPage() {
           // rehypeSlug: 소제목에 id를 붙인다 → 목차(Toc)의 #앵커가 여기로 점프
           rehypePlugins={[rehypeSlug]}
           components={{
-            img: (props) => <img {...props} className="rounded-lg" />,
+            // loading/decoding은 **예방**이다. 지금 공개 글 30편에 본문 이미지가 0건이라
+            // 체감 효과가 없지만, 업로드는 원본을 그대로 서빙하므로(리사이즈 파이프라인 없음)
+            // 첫 이미지 글이 올라가는 순간부터 화면 밖 사진까지 즉시 내려받게 된다.
+            img: (props) => <img {...props} loading="lazy" decoding="async" className="rounded-lg" />,
             pre: CodeBlock,
           }}
         >
@@ -384,9 +387,9 @@ function PostDetailPage() {
 
       <section className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">
         <h2 className="mb-4 text-lg font-semibold tracking-tight">
-          댓글 <span className="text-gray-400 dark:text-gray-500">({comments.length})</span>
+          댓글 <span className="text-gray-500 dark:text-gray-400">({comments.length})</span>
         </h2>
-        {comments.length === 0 && <p className="text-gray-400 dark:text-gray-500">아직 댓글이 없어. 첫 댓글을 남겨봐.</p>}
+        {comments.length === 0 && <p className="text-gray-500 dark:text-gray-400">아직 댓글이 없어. 첫 댓글을 남겨봐.</p>}
         <div className="space-y-3">
           {comments.map((c) => (
             <div key={c.id} className="rounded-xl bg-black/[0.03] p-3 dark:bg-white/[0.04]">
@@ -401,7 +404,7 @@ function PostDetailPage() {
                     회원
                   </span>
                 ) : (
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500">익명</span>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">익명</span>
                 )}
                 <time className="text-xs text-gray-500 dark:text-gray-400">{new Date(c.created_at).toLocaleString()}</time>
                 {canModerate && (

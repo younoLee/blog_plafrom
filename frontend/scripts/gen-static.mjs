@@ -39,10 +39,39 @@ const esc = (s) =>
 // 통째로 안 보이고 있었다**(2026-08-07 검사에서 발견). 게다가 같은 HTML이 rss.xml의
 // content:encoded로 나가는데, 피드 리더에는 우리 CSP가 안 걸린다.
 // 저자를 믿는 대신 파싱 단계에서 중화한다.
+/**
+ * 소제목 id — 절 단위 딥링크용. 편마다 초기화한다(아래 readPost).
+ *
+ * 왜 필요한가: 이 아카이브 페이지들이 '링크 복사'가 권하는 주소이고 검색 유입도
+ * 이쪽인데, h2/h3에 id가 **하나도 없어서** 긴 글의 특정 절을 가리킬 방법이 없었다.
+ * (SPA 쪽은 rehypeSlug가 id를 붙인다 — 정적만 빠져 있었다.)
+ *
+ * 같은 제목이 두 번 나오면 뒤엣것에 -1, -2를 붙인다. 안 하면 id가 겹쳐서
+ * 브라우저가 항상 첫 번째로만 뛴다.
+ */
+const slugCounts = new Map()
+function slugify(raw) {
+  const base =
+    raw
+      .toLowerCase()
+      .trim()
+      // 마크다운 강조 문자와 문장부호를 뺀다. \p{L}은 한글을 살린다 — 이 연재는
+      // 제목이 거의 전부 한글이라 ASCII만 남기면 id가 죄다 빈 문자열이 된다.
+      .replace(/[^\p{L}\p{N}\s-]/gu, '')
+      .replace(/\s+/g, '-') || 'section'
+  const n = slugCounts.get(base) ?? 0
+  slugCounts.set(base, n + 1)
+  return n ? `${base}-${n}` : base
+}
+
 const md = new Marked({
   renderer: {
     html({ text }) {
       return esc(text)
+    },
+    heading({ tokens, depth, text }) {
+      const inner = this.parser.parseInline(tokens)
+      return `<h${depth} id="${esc(slugify(text))}">${inner}</h${depth}>\n`
     },
   },
 })
@@ -87,6 +116,7 @@ function readPost(file) {
   // **matched 문자열만 지운다** — 정규식으로 다시 지우면 H1이 없는 파일에서
   // 코드펜스 안의 `# 주석` 첫 줄이 조용히 사라진다(이 일지들은 쉘 주석이 많다).
   const body = (h1 ? raw.replace(h1[0], '') : raw).trim()
+  slugCounts.clear() // id 중복 카운터는 **편마다** 초기화한다(안 하면 2편부터 -1이 붙는다)
   return {
     date,
     slug: `devlog/${date}.html`,
@@ -150,7 +180,17 @@ table{border-collapse:collapse;width:100%;margin:1.5rem 0;font-size:.92rem;displ
 th,td{border:1px solid #d2d2d7;padding:.5rem .75rem;text-align:left}
 img{max-width:100%;height:auto}
 .nav{font-size:.9rem;margin-bottom:2rem}
-.meta{color:#86868b;font-size:.9rem}
+.seriesnav{display:flex;gap:1rem;margin:3rem 0 1rem;padding-top:1.5rem;border-top:1px solid #e8e8ed}
+.seriesnav-item{flex:1;min-width:0;text-decoration:none;display:block}
+.seriesnav-item:last-child{text-align:right}
+.seriesnav-empty{pointer-events:none}
+.seriesnav-label{display:block;color:#6e6e73;font-size:.8rem;margin-bottom:.25rem}
+.seriesnav-title{display:block;font-weight:600;font-size:.95rem;line-height:1.4}
+.seriesnav-all{margin:0 0 1rem}
+@media(max-width:34rem){.seriesnav{flex-direction:column;gap:1.25rem}.seriesnav-item:last-child{text-align:left}}
+/* #86868b는 흰 배경에서 3.7:1이라 WCAG AA(4.5:1)에 못 미쳤다 — 날짜·요약이
+   본문 읽기 경로 위에 있어서 저시력 독자에게 바로 걸린다. #6e6e73은 5.1:1. */
+.meta{color:#6e6e73;font-size:.9rem}
 .list{list-style:none;padding:0}
 .list li{padding:1rem 0;border-bottom:1px solid #e8e8ed}
 .list a{font-weight:600;text-decoration:none;font-size:1.05rem}
@@ -163,6 +203,8 @@ blockquote{border-color:#38383a;color:#a1a1a6}
 th,td{border-color:#38383a}
 .list li{border-color:#1c1c1e}
 .meta,.list p{color:#a1a1a6}
+.seriesnav{border-color:#1c1c1e}
+.seriesnav-label{color:#a1a1a6}
 }
 </style>
 </head>
@@ -213,16 +255,41 @@ function main() {
       .replace(/^```[\s\S]*?^```/gm, '') // 펜스 블록
       .replace(/^(?: {4}|\t).*$/gm, '') // 들여쓰기 코드블록
       .replace(/`[^`\n]*`/g, '') // 인라인 코드
+      // 아래 autolink 검사를 위해 **정상적인 링크 표기**도 걷어낸다. 이 셋은 양쪽
+      // 렌더러가 똑같이 링크로 만들므로 어긋남이 아니다: 마크다운 링크 []()
+      // , CommonMark 명시 autolink <http://…>, <메일주소>.
+      .replace(/\]\([^)]*\)/g, '')
+      .replace(/<https?:\/\/[^>]*>/g, '')
+      .replace(/<[^@\s>]+@[^\s>]+>/g, '')
   const gfmOnly = [
     [/^\|[ :|-]+\|\s*$/m, '표(| --- |)'],
     [/~~[^~\n]+~~/, '취소선(~~)'],
     [/^\s*[-*] \[[ xX]\] /m, '체크박스(- [ ])'],
+    // ⚠️ **맨몸 URL·이메일도 GFM 전용이다**(autolink 확장). 2026-08-14 검사에서
+    // 이 가드가 그걸 안 보고 있다는 걸 알았고, 실제로 1편이 그 상태로 라이브였다 —
+    // 정적 아카이브에선 링크가 되고 앱에선 글자로 남았는데, 하필 그 링크가
+    // localhost와 **폐지된 데모 계정 주소**였다. 클릭하면 죽는 링크가 표면 하나에만
+    // 생긴 것이다. 쓰려면 백틱으로 감싸거나 []() 로 명시하라.
+    [/(^|[\s(])https?:\/\/[^\s)<]+/m, '맨몸 URL(autolink)'],
+    [/(^|[\s(])[\w.+-]+@[\w-]+\.[\w.-]+/m, '맨몸 이메일(autolink)'],
   ]
+  // about.md도 같은 가드를 받는다 — 이 파일 역시 두 렌더러가 함께 읽는다
+  // (여기서 /about.html, 앱에서 react-markdown). 실제로 처음 쓸 때 표를 넣었다가
+  // 앱에서 파이프 문자가 그대로 보일 뻔했다.
+  const aboutPath = join(SRC, '..', 'about.md')
+  const aboutRaw = existsSync(aboutPath) ? readFileSync(aboutPath, 'utf8') : null
+
   const offenders = []
   for (const p of posts) {
     const prose = stripCode(p.body)
     for (const [re, label] of gfmOnly) {
       if (re.test(prose)) offenders.push(`${p.date}: ${label}`)
+    }
+  }
+  if (aboutRaw) {
+    const prose = stripCode(aboutRaw)
+    for (const [re, label] of gfmOnly) {
+      if (re.test(prose)) offenders.push(`about.md: ${label}`)
     }
   }
   if (offenders.length) {
@@ -234,9 +301,40 @@ function main() {
 
   mkdirSync(join(OUT, 'devlog'), { recursive: true })
 
+  /**
+   * 연재 이동 링크. **이 페이지들이 막다른 길이었다**(2026-08-14 검사).
+   *
+   * SPA 쪽엔 이미 이전/다음 편 이동이 있는데(PostDetailPage의 SeriesPrevNext) 정적
+   * 아카이브엔 없었다. 그런데 sitemap에 30편이 전부 올라가 있어서 **검색으로 들어오는
+   * 독자는 이쪽에 떨어진다.** 게다가 서버가 평소 꺼져 있어 RSS·공유 링크도 이쪽을 가리킨다.
+   * 즉 24만 자 연재의 주 유입 경로에서, 한 편을 다 읽은 사람이 다음 편으로 갈 길이 없었다.
+   *
+   * ⚠️ `posts`는 **최신순**이다. i+1이 이전 편(더 오래된 것), i-1이 다음 편이다.
+   * 여기서 방향을 뒤집으면 30편짜리 연재가 거꾸로 읽힌다.
+   */
+  const seriesNav = (i) => {
+    const older = posts[i + 1] // 이전 편
+    const newer = posts[i - 1] // 다음 편
+    if (!older && !newer) return ''
+    const link = (p, label) =>
+      p
+        ? `<a class="seriesnav-item" href="/${p.slug}"><span class="seriesnav-label">${label}</span>` +
+          `<span class="seriesnav-title">${esc(p.title)}</span></a>`
+        : // 첫 편·마지막 편은 한쪽이 없다. 빈 칸을 남겨야 남은 하나가 제자리를 지킨다
+          // (안 남기면 '이전 편'만 있는 마지막 편에서 그 링크가 오른쪽으로 붙는다).
+          '<span class="seriesnav-item seriesnav-empty"></span>'
+    return (
+      `<nav class="seriesnav" aria-label="연재 이동">` +
+      link(older, '← 이전 편') +
+      link(newer, '다음 편 →') +
+      `</nav>` +
+      `<p class="nav seriesnav-all"><a href="/devlog.html">개발일지 ${posts.length}편 전체 보기</a></p>`
+    )
+  }
+
   // 1) 편별 정적 페이지 — 크롤러와 사람 모두 서버 없이 전문을 읽는다.
   //    SPA 라우트(/blog/posts/{id})와 달리 여기엔 편마다 제 OG 태그가 붙는다.
-  for (const p of posts) {
+  for (const [i, p] of posts.entries()) {
     writeFileSync(
       join(OUT, 'devlog', `${p.date}.html`),
       page({
@@ -247,7 +345,7 @@ function main() {
         // 날짜만 있는 원고라 자정 기준으로 만든다. 타임존을 빼면 읽는 쪽이 UTC로 보고
         // 하루 앞당겨 표시하는 일이 생긴다(작성 시각은 애초에 날짜 단위로만 안다).
         published: `${p.date}T00:00:00+09:00`,
-        body: `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${p.html}`,
+        body: `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${p.html}${seriesNav(i)}`,
       }),
     )
   }
@@ -295,6 +393,30 @@ function main() {
     }),
   )
 
+  // 2-C) 소개(About). **한 벌만 쓴다** — content/about.md가 유일한 원본이고,
+  //   여기서 정적 페이지 /about.html을 만들고 **원문도 그대로 배포한다**(/about.md).
+  //   앱의 /about 화면은 그 원문을 받아 렌더한다.
+  //
+  //   왜 앱에 같은 글을 또 안 박는가: 두 벌이 되면 반드시 갈라진다(이 저장소가
+  //   반복해서 당한 병이다 — 문서와 코드가 어긋나 있던 자리를 몇 번이나 고쳤다).
+  //   왜 import가 아니라 fetch인가: content/는 저장소 루트에 있는데 **프론트 Docker
+  //   이미지의 빌드 컨텍스트는 frontend/뿐이라** 안 보인다(위 main() 머리말과 같은 사정).
+  //   빌드 타임 import로 묶으면 로컬 compose의 프론트 빌드가 깨진다.
+  if (aboutRaw) {
+    writeFileSync(join(OUT, 'about.md'), aboutRaw)
+    const h1 = aboutRaw.match(/^#\s+(.+)$/m)
+    const aboutBody = (h1 ? aboutRaw.replace(h1[0], '') : aboutRaw).trim()
+    writeFileSync(
+      join(OUT, 'about.html'),
+      page({
+        title: `소개 — ${TITLE}`,
+        description: `${TITLE}를 만든 사람과, 이 사이트를 만든 방식.`,
+        url: `${SITE}/about.html`,
+        body: `<h1>${esc(h1 ? h1[1].trim() : '소개')}</h1>${md.parse(aboutBody)}`,
+      }),
+    )
+  }
+
   // 3) RSS — 전문을 싣는다. 구독자는 이 파일 하나로 사이트에 들어오지 않고도
   //    전부 읽는다. 서버가 꺼져 있어도 동작하는 성질을 그대로 이어받는다.
   //
@@ -335,6 +457,8 @@ ${feedPosts
   const urls = [
     { loc: `${SITE}/`, pri: '1.0' },
     { loc: `${SITE}/devlog.html`, pri: '0.9' },
+    // about.html도 서버 없이 열리는 정적 페이지라 색인해도 빈 껍데기가 아니다.
+    ...(aboutRaw ? [{ loc: `${SITE}/about.html`, pri: '0.5' }] : []),
     ...posts.map((p) => ({ loc: `${SITE}/${p.slug}`, pri: '0.8', lastmod: p.date })),
   ]
   writeFileSync(

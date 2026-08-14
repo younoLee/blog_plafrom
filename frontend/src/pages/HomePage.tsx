@@ -288,7 +288,7 @@ function HomePage() {
               </div>
             )}
             <div className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
-              <time className="text-xs text-gray-400 dark:text-gray-500">
+              <time className="text-xs text-gray-500 dark:text-gray-400">
                 {new Date(post.created_at).toLocaleDateString()} · {post.reading_minutes}분 읽기
               </time>
               {/* 본인 글이거나 관리자면 수정·삭제 버튼 노출 */}

@@ -9,6 +9,7 @@ import RegisterPage from './pages/RegisterPage'
 import WritePostPage from './pages/WritePostPage'
 import StatusPage from './pages/StatusPage'
 import PortalPage from './pages/PortalPage'
+import AboutPage from './pages/AboutPage'
 import AdminPage from './pages/AdminPage'
 import SettingsPage from './pages/SettingsPage'
 // **결제 화면만 lazy로 뗀다.** 라우트 코드분할 자체는 2026-08-10에 철회됐는데,
@@ -47,6 +48,9 @@ function App() {
             <Route path="/blog/new" element={<WritePostPage />} />
             <Route path="/blog/posts/:id" element={<PostDetailPage />} />
             <Route path="/blog/posts/:id/edit" element={<WritePostPage />} />
+            {/* 소개 — 글은 content/about.md 한 벌이고 이 화면은 그걸 받아 그린다.
+                정적 사본(/about.html)도 같이 나가므로 서버·JS 없이도 열린다. */}
+            <Route path="/about" element={<AboutPage />} />
             {/* 상태정보 */}
             <Route path="/status" element={<StatusPage />} />
             {/* 관리자 (페이지 안에서 admin 아니면 /blog로 리다이렉트) */}

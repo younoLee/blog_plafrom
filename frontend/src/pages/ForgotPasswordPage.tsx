@@ -37,7 +37,7 @@ function ForgotPasswordPage() {
               가입된 이메일이라면 재설정 링크를 보냈어.<br />
               메일의 링크를 눌러 새 비밀번호를 설정해줘 (1시간 안에).
             </p>
-            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">(로컬은 Mailpit http://localhost:8025)</p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">(로컬은 Mailpit http://localhost:8025)</p>
           </div>
         ) : (
           <>

@@ -70,6 +70,25 @@ class DevlogDoc:
         # 한글은 eastAsia 글꼴을 따로 지정하지 않으면 Word가 제멋대로 고른다.
         normal._element.rPr.rFonts.set(qn("w:eastAsia"), "맑은 고딕")
 
+    @staticmethod
+    def _strip_dup(label: str, text: str) -> str:
+        """호출부가 접두사를 한 번 더 넣었으면 떼어낸다.
+
+        왜 필요한가 — 2026-08-14에 #30 본문 첫 문장이 "이번 편의 형식: 이번 편의 형식:"
+        으로 라이브에 나가 있는 걸 발견했다. 캡션도 "▶ 실제 출력 — 실제 출력 —"이었다.
+        이 클래스는 #29부터 쓰기 시작한 공통 서식인데, **접두사를 여기서 붙인다는 걸
+        호출부가 모르고 같은 말을 또 썼다.** 그 편의 발췌문이 홈·아카이브·RSS 세 곳의
+        맨 위에 뜨는 자리라 가장 눈에 띄는 오타가 됐다.
+
+        막는 대신 **떼어내고 알린다**: 생성기는 사람이 손으로 돌리는 도구라 예외로
+        멈추면 그 자리에서 고치느라 흐름이 끊기고, 조용히 두면 이번처럼 발행까지 간다.
+        """
+        stripped = text.lstrip()
+        if stripped.startswith(label):
+            print(f"  ⚠️ 접두사 중복 제거: '{label}' — 호출부에서 그 말을 빼세요.")
+            return stripped[len(label) :].lstrip()
+        return text
+
     # ── 표지 ────────────────────────────────────────────────────────────
     def cover(self, subject: str, audience: str, note: str | None = None) -> None:
         self.doc.add_heading("블로그 개발일지", level=0)
@@ -77,7 +96,7 @@ class DevlogDoc:
         self.p(f"주제: {subject}")
         self.p(f"대상: {audience}")
         if note:
-            self.p(f"이번 편의 형식: {note}")
+            self.p(f"이번 편의 형식: {self._strip_dup('이번 편의 형식:', note)}")
 
     # ── 문단 ────────────────────────────────────────────────────────────
     def h1(self, t: str) -> None:
@@ -128,7 +147,7 @@ class DevlogDoc:
         cap = self.doc.add_paragraph()
         cap.paragraph_format.left_indent = Pt(12)
         cap.paragraph_format.space_after = Pt(2)
-        r = cap.add_run(f"▶ 실제 출력 — {title}")
+        r = cap.add_run(f"▶ 실제 출력 — {self._strip_dup('실제 출력 —', title)}")
         r.bold = True
         r.font.size = Pt(9.5)
         r.font.color.rgb = GRAY

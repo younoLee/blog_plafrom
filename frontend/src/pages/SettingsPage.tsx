@@ -106,7 +106,7 @@ function SettingsPage() {
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${DOT[p.id] ?? 'bg-gray-400'}`} />
                   {p.name}
                 </p>
-                <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.hint}</p>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{p.hint}</p>
               </div>
               {hasKey(p.id) ? (
                 <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">

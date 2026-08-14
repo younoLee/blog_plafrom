@@ -47,7 +47,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
         </div>
         <div className="mt-4 border-t border-black/[0.06] pt-3 text-center dark:border-white/10">
           <span className="text-lg font-semibold tracking-tight">{total}</span>
-          <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">개의 글</span>
+          <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">개의 글</span>
         </div>
       </div>
 
@@ -70,7 +70,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
                   >
                     {p.title}
                   </Link>
-                  <div className="text-xs text-gray-400 dark:text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     {new Date(p.created_at).toLocaleDateString()}
                   </div>
                 </div>
@@ -92,7 +92,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
                 className="inline-flex items-center gap-1 rounded-full bg-black/[0.05] px-2.5 py-1 text-xs text-gray-600 transition hover:bg-[#0071e3]/10 hover:text-[#0071e3] dark:bg-white/10 dark:text-gray-300 dark:hover:text-[#0a84ff]"
               >
                 #{tag}
-                <span className="text-gray-400 dark:text-gray-500">{count}</span>
+                <span className="text-gray-500 dark:text-gray-400">{count}</span>
               </Link>
             ))}
           </div>

@@ -138,11 +138,11 @@ function SubscriptionsPage() {
       {/* 구독할 글쓴이 목록 */}
       <section className={`${ui.card} mt-6`}>
         {!user ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             로그인하면 글쓴이를 구독 신청하고 새 글 알림을 받을 수 있어.
           </p>
         ) : authors.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             구독할 수 있는 다른 글쓴이가 아직 없어.
           </p>
         ) : (

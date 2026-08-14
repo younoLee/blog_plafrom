@@ -264,12 +264,12 @@ function WritePostPage() {
         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           떠오르는 메모를 대충 적고 누르면 제목·소제목·초안으로 정리해줘. (제목/본문을 덮어써)
         </p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           생성에 길면 1분쯤 걸려. 디스코드·인스타 같은 앱 안 브라우저에선 멈출 수 있으니 크롬 등 일반 브라우저에서 써줘.
         </p>
         {/* 서버 모델(Claude) 남은 횟수. BYOK(내 키)는 한도 없음 */}
         {usage && (
-          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             서버 모델 남은 횟수 · 오늘{' '}
             <span className={usage.daily_used >= usage.daily_cap ? 'font-medium text-red-500' : ''}>
               {Math.max(0, usage.daily_cap - usage.daily_used)}/{usage.daily_cap}
@@ -288,7 +288,7 @@ function WritePostPage() {
           className={`${input} mt-3`}
         />
         {memo.length > 0 && (
-          <p className="mt-1 text-right text-xs text-gray-400 dark:text-gray-500">{memo.length}/{MEMO_MAX}</p>
+          <p className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{memo.length}/{MEMO_MAX}</p>
         )}
         {/* 모델 선택 (애플풍 드롭다운, provider별 그룹) + 직접입력 칸 */}
         {models.length > 0 && (
@@ -338,7 +338,7 @@ function WritePostPage() {
             )}
             {/* Opus가 목록에 없으면(=비유료) 결제 안내 */}
             {!models.some((m) => m.id === 'claude-opus-4-8') && (
-              <p className="text-xs text-gray-400 dark:text-gray-500">Opus(고품질)는 결제 후 쓸 수 있어.</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Opus(고품질)는 결제 후 쓸 수 있어.</p>
             )}
           </div>
         )}
@@ -469,7 +469,7 @@ function WritePostPage() {
             {content.trim() ? (
               <ReactMarkdown>{content}</ReactMarkdown>
             ) : (
-              <p className="text-gray-400 dark:text-gray-500">미리볼 내용이 없어. 먼저 내용을 써봐.</p>
+              <p className="text-gray-500 dark:text-gray-400">미리볼 내용이 없어. 먼저 내용을 써봐.</p>
             )}
           </div>
         ) : (

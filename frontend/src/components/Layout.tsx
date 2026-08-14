@@ -12,6 +12,16 @@ function Layout() {
 
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] dark:bg-black dark:text-[#f5f5f7]">
+      {/* 본문 바로가기 — 평소엔 안 보이고 탭을 처음 누르면 나타난다.
+          헤더에 포커스 정류장이 8개 넘게 있어서(테마·종·구독·Pro·관리자·설정·글쓰기·로그아웃)
+          키보드나 화면낭독기 사용자는 **글마다** 그걸 다 지나야 본문에 닿았다.
+          sr-only만 쓰면 포커스됐을 때도 안 보이므로 focus: 로 되돌린다. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-full focus:bg-[#0071e3] focus:px-4 focus:py-2 focus:text-sm focus:text-white"
+      >
+        본문 바로가기
+      </a>
       {/* 상단 고정 헤더 (모든 페이지 공통) — 애플풍 프로스티드 바 */}
       <header className="sticky top-0 z-10 border-b border-black/5 bg-[#f5f5f7]/70 backdrop-blur-xl dark:border-white/10 dark:bg-black/60">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
@@ -116,15 +126,17 @@ function Layout() {
       )}
 
       {/* 페이지 본문 */}
-      <main className="mx-auto max-w-7xl px-4 py-12">
+      <main id="main" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-12">
         <Outlet />
       </main>
 
-      <footer className="mx-auto max-w-7xl px-4 py-12 text-center text-xs text-gray-400 dark:text-gray-500">
+      <footer className="mx-auto max-w-7xl px-4 py-12 text-center text-xs text-gray-500 dark:text-gray-400">
         © 2026 DEV 블로그 · FastAPI · React · Tailwind
         {/* 정적 아카이브와 피드. 서버(EC2)가 꺼져 있어도 열리는 경로라, 절전 중에
             글 목록이 안 뜰 때 여기로 빠져나갈 수 있다. React Router가 가로채면
             안 되므로(SPA 라우트가 아니라 S3의 실제 파일이다) <a>를 쓴다. */}
+        <span className="mx-1.5">·</span>
+        <Link to="/about" className="hover:underline">소개</Link>
         <span className="mx-1.5">·</span>
         <a href="/devlog.html" className="hover:underline">개발일지 아카이브</a>
         <span className="mx-1.5">·</span>

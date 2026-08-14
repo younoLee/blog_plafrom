@@ -105,7 +105,7 @@ export function NotificationBell() {
             알림
           </div>
           {data.items.length === 0 ? (
-            <p className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+            <p className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
               새 알림이 없어
             </p>
           ) : (

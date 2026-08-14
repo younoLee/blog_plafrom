@@ -65,7 +65,7 @@ function PortalPage() {
           인프라를 직접 만들며 배운 것을 남깁니다.
         </p>
         {index && (
-          <p className="mt-3 text-sm text-gray-400 dark:text-gray-500">
+          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
             개발일지 {index.total}편 · 약 {Math.round(index.chars / 10000)}만 자
           </p>
         )}
@@ -95,7 +95,7 @@ function PortalPage() {
                 {p ? (
                   <a href={`/${p.slug}`} className="group block py-4">
                     <div className="flex items-baseline gap-3">
-                      <time className="shrink-0 font-mono text-xs text-gray-400 dark:text-gray-500">
+                      <time className="shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">
                         {p.date}
                       </time>
                       <h3 className="font-medium group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
@@ -119,7 +119,7 @@ function PortalPage() {
             ))}
           </ul>
 
-          <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
             이 목록과 링크는 서버 없이 동작합니다 · <a href="/rss.xml" className="hover:underline">RSS</a>
           </p>
         </section>
