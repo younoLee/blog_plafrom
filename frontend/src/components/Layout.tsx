@@ -83,10 +83,15 @@ function Layout() {
           생각하고, 쓰던 글이 안 올라간 이유도 모른다.
           왜 헤더 아래 띠인가: 이 저장소엔 토스트 장치가 없고, 만들면 이 한 줄을 위해
           전역 상태·타이머·포털이 생긴다. 띠는 스스로 사라지지 않아서 **놓칠 수 없다**는
-          장점이 오히려 맞다 — 놓치면 안 되는 안내다. */}
+          장점이 오히려 맞다 — 놓치면 안 되는 안내다.
+          role="alert"인 이유: 이 띠는 **나타나면서** 글자를 함께 들고 온다.
+          role="status"(polite)는 이미 떠 있던 영역의 글자가 바뀔 때 읽히고, 내용을
+          품은 채 새로 삽입되면 화면낭독기가 그냥 지나치는 경우가 많다. 그러면
+          낭독기 사용자만 정확히 '조용한 로그아웃'을 겪는다 — 이 띠가 막으려던 그 일이다.
+          저장소의 다른 오류 안내(LoginPage·WritePostPage)도 role="alert"를 쓴다. */}
       {sessionEnded && (
         <div
-          role="status"
+          role="alert"
           className="border-b border-amber-500/20 bg-amber-50 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
         >
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">

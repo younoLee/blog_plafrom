@@ -28,16 +28,21 @@ let root: Root
 // 안내 띠는 Layout에 있고 Layout은 라우터를 요구한다. 여기서 보려는 건 '띠의 모양'이
 // 아니라 **provider가 sessionEnded를 켜는가**이므로, 그 값만 찍는 최소 소비자를 쓴다.
 function Probe() {
-  const { user, sessionEnded } = useAuth()
+  const { user, sessionEnded, logout } = useAuth()
   return (
     <div>
       <span data-testid="ended">{String(sessionEnded)}</span>
       <span data-testid="user">{user ? user.email : 'none'}</span>
+      <button type="button" data-testid="logout" onClick={() => void logout()}>
+        로그아웃
+      </button>
     </div>
   )
 }
 
 const ended = () => container.querySelector('[data-testid="ended"]')?.textContent
+const who = () => container.querySelector('[data-testid="user"]')?.textContent
+const ME = JSON.stringify({ id: 1, email: 'me@test.com', role: 'admin', is_pro: false, created_at: 'x' })
 
 async function mount() {
   await act(async () => {
@@ -65,9 +70,17 @@ afterEach(() => {
 })
 
 describe('세션 만료 안내', () => {
-  it('처음엔 꺼져 있다 — 익명 방문자에게 뜨면 안 된다', async () => {
+  it('익명 요청이 401을 받아도 안 뜬다 — 로그인한 적 없는 사람에게 뜨면 안 된다', async () => {
+    // ⚠️ 처음 쓴 판은 토큰 없이 마운트만 하고 끝냈는데, 그러면 fetchMe가 토큰이 없어
+    // **fetch를 아예 안 부른다.** 401 stub이 한 번도 안 쓰여서 초기값 false만 확인하는
+    // 빈 테스트였다(2026-08-14 코드리뷰가 지적). 401을 실제로 받게 만든다.
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
     await mount()
+
+    await act(async () => {
+      await apiFetch('/api/comments', { method: 'POST' }) // 익명 댓글 — 헤더가 없다
+    })
+
     expect(ended()).toBe('false')
   })
 
@@ -99,6 +112,27 @@ describe('세션 만료 안내', () => {
     })
 
     expect(ended()).toBe('false')
+  })
+
+  it('로그아웃은 서버 응답을 기다리지 않고 화면을 먼저 내린다', async () => {
+    // 왜 잠그는가 (2026-08-14 코드리뷰): authApi.logout은 **보내기 전에** 토큰을 지운다.
+    // 그래서 setUser(null)이 await 뒤에 있으면, 응답을 기다리는 동안(절전이면 8초)
+    // 헤더는 로그인 상태인데 모든 요청은 익명으로 나간다. 그 사이 주기 호출이 401을
+    // 받아도 Authorization 헤더가 없어 만료 안내도 안 뜨고, 이유 없는 "로그인이 필요해"만 남는다.
+    setToken('t')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(ME, { status: 200 })))
+    await mount()
+    expect(who()).toBe('me@test.com')
+
+    // 응답을 영원히 안 주는 서버(=절전). 로그아웃이 여기서 매달린다.
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})))
+    const btn = container.querySelector('[data-testid="logout"]') as HTMLButtonElement
+    await act(async () => {
+      btn.click()
+    })
+
+    expect(who()).toBe('none') // 응답을 못 받았어도 화면은 이미 내려가 있어야 한다
+    expect(ended()).toBe('false') // 내가 누른 것이므로 안내는 안 뜬다
   })
 
   it('앱을 열 때 토큰이 이미 죽어 있으면 켜진다 — 자리 비운 새 세션이 끝난 경우', async () => {

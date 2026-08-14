@@ -59,8 +59,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // 서버가 꺼져 있어도(평소 상태다) 이 기기에서는 반드시 나간다: authApi.logout이 삼킨다.
   async function logout() {
     setSessionEnded(false)
-    await authApi.logout()
+    // **화면을 먼저 내린다.** authApi.logout은 보내기 전에 토큰을 지우므로, 이 await가
+    // 끝날 때까지(절전이면 8초) 헤더는 로그인 상태인데 모든 요청은 익명으로 나간다.
+    // 그 사이 NotificationBell 같은 주기 호출이 401을 받아도 Authorization 헤더가 없어
+    // 만료 안내조차 안 뜨고, 사용자는 이유 없는 "로그인이 필요해"만 본다.
     setUser(null)
+    await authApi.logout()
   }
 
   function dismissSessionNotice() {

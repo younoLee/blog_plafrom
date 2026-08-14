@@ -33,6 +33,11 @@ SSH_KEY=~/.ssh/blog-key.pem
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CF_URL=https://d2j66m9udyg9yq.cloudfront.net
+CF_DIST_ID=E1438IL9CSVBS4   # 주차 여부를 '추측' 대신 '조회'하는 데 쓴다(7절)
+# 주차 자리는 정해진 한 값이다 — terraform/variables.tf:121의
+# `backend_origin_parked = aws_s3_bucket.frontend.bucket_regional_domain_name`.
+# 이 값과 '다르다'를 전부 주차로 읽으면 옛 인스턴스 주소가 남은 상태를 정상으로 보고한다.
+PARKED_ORIGIN=blogplafromops.s3.ap-northeast-2.amazonaws.com
 COMPOSE='sudo docker compose -f /home/ec2-user/blog/docker-compose.prod.yml'
 
 FAIL=0
@@ -69,7 +74,12 @@ remote=$(ssh -n -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i "$SS
     echo '@@HASH';   $COMPOSE exec -T backend sh -c 'LC_ALL=C find app -name \"*.py\" | LC_ALL=C sort | xargs sha256sum | sha256sum' 2>/dev/null | cut -d' ' -f1
     echo '@@ALEMBIC'; $COMPOSE exec -T backend alembic current 2>/dev/null | grep -oE '^[0-9a-f]+' | head -1
     echo '@@UID';    $COMPOSE exec -T backend id -u 2>/dev/null
-    echo '@@GUARD';  curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:8000/api/status
+    # ⚠️ curl의 -w '%{http_code}'는 **줄바꿈을 안 붙인다.** 그냥 두면 다음 구분자가 같은
+    # 줄에 붙어 '403@@ERRORS'가 되고, @@ERRORS 구간을 못 찾아 로그 검사까지 같이 죽는다
+    # (2026-08-14 첫 실행에서 실측). 구분자 방식은 출력이 줄 단위라는 걸 전제한다.
+    # ⚠️ 이 블록은 큰따옴표 안이라 **백틱을 쓰면 로컬 셸이 명령으로 실행한다.**
+    # 위 주석에 백틱을 썼다가 'line 79: -w: command not found'를 봤다(같은 날, 두 번째 실측).
+    echo '@@GUARD';  curl -s -o /dev/null -w '%{http_code}\n' --max-time 10 http://localhost:8000/api/status
     echo '@@ERRORS'; $COMPOSE logs backend --since 10m 2>&1 | grep -ciE 'error|traceback|exception'
     echo '@@END'
   " 2>/dev/null)
@@ -160,11 +170,37 @@ fi
 cf=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$CF_URL/api/status")
 if [ "$cf" = "200" ]; then
   ok "공개 /api/status 200 (CloudFront → 오리진 경로 살아 있음)"
-elif [ "$cf" = "504" ]; then
-  info "공개 /api/status 504 — 오리진이 **주차** 상태입니다(정지 절차의 정상 상태)."
-  info "  공개 사이트를 봐야 하면: terraform apply -var=\"backend_origin_dns=$DNS\""
 else
-  fail "공개 /api/status 가 $cf 입니다 (200도 504도 아님)."
+  # 200이 아닐 때 **주차인지 고장인지**를 추측하지 않는다. CloudFront에 실제로 뭐가
+  # 꽂혀 있는지 물어본다. 주차(오리진이 S3로 바뀐 상태)에서는 504가 오기도 하고
+  # 타임아웃(000)이 오기도 한다 — 같은 날 둘 다 봤다. 코드로 구분할 수 없는 걸
+  # 코드가 아는 척하면, 진짜 장애가 "정상입니다"로 지나간다.
+  origin=$(aws cloudfront get-distribution-config --id "$CF_DIST_ID" \
+    --query "DistributionConfig.Origins.Items[?Id=='api-backend'].DomainName | [0]" \
+    --output text 2>/dev/null)
+  if [ -z "$origin" ] || [ "$origin" = "None" ]; then
+    fail "공개 /api/status 가 $cf 이고, CloudFront 오리진 설정도 못 읽었습니다."
+  elif [ "$origin" = "$PARKED_ORIGIN" ]; then
+    info "공개 /api/status $cf — 오리진이 **주차**돼 있습니다(정지 절차의 정상 상태)."
+    info "  공개 사이트를 봐야 하면: terraform apply -var=\"backend_origin_dns=$DNS\""
+  elif [ "$origin" != "$DNS" ]; then
+    # ⚠️ '이 서버가 아니다'를 주차로 읽으면 안 된다. 주차 자리는 **정해진 한 값**이고,
+    # 그 밖의 값은 옛 인스턴스 주소가 남은 것이다(콘솔에서 껐다 켜면 이렇게 된다).
+    # 그건 정상이 아니라 /api 전체가 죽은 상태이고, 게다가 stop_server.sh 머리말이
+    # 경고하는 dangling origin — 그 주소를 제3자가 새로 받았을 수 있다.
+    fail "오리진이 이 서버도 주차 자리도 아닙니다: $origin"
+    echo "       옛 인스턴스 주소가 남아 있습니다(dangling origin). 즉시 고치세요:"
+    echo "       terraform -chdir=terraform apply -var=\"backend_origin_dns=$DNS\""
+  elif [ "$cf" = "403" ]; then
+    # 403은 '못 닿았다'가 아니다 — 닿았는데 거절당한 것이다. 원인을 안 적어두면
+    # 주차 해제부터 시도하게 되는데 이미 풀려 있어서 아무것도 안 바뀐다(watch.sh와 같은 함정).
+    fail "공개 /api/status 403 — 오리진에는 닿았는데 거절당했습니다."
+    echo "       **오리진 공유 시크릿 불일치**가 가장 유력합니다 — CloudFront의 X-Origin-Secret과"
+    echo "       서버 .env의 ORIGIN_SECRET이 다릅니다. 가장 흔한 원인: terraform.tfvars 없이 apply."
+    echo "       자세한 절차는 RECOVERY.md의 origin_secret 항목."
+  else
+    fail "공개 /api/status 가 $cf 입니다 — 오리진은 이 서버($DNS)를 가리키는데 안 닿습니다."
+  fi
 fi
 
 echo
