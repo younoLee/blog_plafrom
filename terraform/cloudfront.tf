@@ -148,6 +148,15 @@ resource "aws_cloudfront_distribution" "main" {
   # 라우팅은 aws_cloudfront_function.spa(기본 동작 viewer-request)가 대신한다.
   # 다시 넣지 말 것 — 넣는 순간 /api/*의 403이 또 200이 된다.
 
+  # 액세스 로그 → S3. **이 사이트에서 조회수를 셀 수 있는 유일한 지점이다** —
+  # 읽기의 대부분이 백엔드를 안 거치기 때문이다(이유·비용·개인정보는 cf-logs.tf에).
+  logging_config {
+    bucket = aws_s3_bucket.cf_logs.bucket_domain_name
+    prefix = "cf/"
+    # 쿠키는 안 받는다. 세션 토큰이 로그로 새면 그건 그 자체로 사고다.
+    include_cookies = false
+  }
+
   # 기본 CloudFront 인증서 (커스텀 도메인 없음)
   viewer_certificate {
     cloudfront_default_certificate = true
