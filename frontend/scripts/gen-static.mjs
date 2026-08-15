@@ -274,7 +274,11 @@ img{max-width:100%;height:auto}
 @media(max-width:34rem){.seriesnav{flex-direction:column;gap:1.25rem}.seriesnav-item:last-child{text-align:left}}
 /* 태그 칩 · 필터 · 관련 글 */
 .tags{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 1.75rem}
-.tag{display:inline-block;padding:.2rem .6rem;border:1px solid #d2d2d7;border-radius:999px;
+/* 테두리가 #d2d2d7(표·인용구와 같은 값)이면 흰 배경에서 **1.51:1**이다. 본문 구분선은
+   장식이라 그래도 되지만 이 칩은 **누르는 것**이라, 경계가 안 보이면 버튼인 줄 모른다
+   (WCAG 1.4.11은 UI 컴포넌트 경계에 3:1을 요구한다). #8e8e93 = 3.26:1.
+   2026-08-15에 계산으로 재고 고쳤다 — 눈으로는 "회색이네"로 넘어가는 자리다. */
+.tag{display:inline-block;padding:.2rem .6rem;border:1px solid #8e8e93;border-radius:999px;
   background:none;color:#515154;font:inherit;font-size:.82rem;text-decoration:none;cursor:pointer}
 .tag:hover{border-color:#0071e3;color:#0071e3}
 .tag[aria-pressed="true"]{background:#0071e3;border-color:#0071e3;color:#fff}
@@ -307,9 +311,13 @@ th,td{border-color:#38383a}
 .meta,.list p{color:#a1a1a6}
 .seriesnav{border-color:#1c1c1e}
 .seriesnav-label{color:#a1a1a6}
-.tag{border-color:#38383a;color:#a1a1a6}
+/* 라이트와 같은 이유로 테두리를 올린다: #38383a는 검은 배경에서 1.79:1, #636366은 3.51:1.
+   선택된 칩은 배경을 **어둡게** 바꾼다 — #0a84ff 위의 흰 글자는 3.65:1로 본문 기준(4.5)에
+   못 미친다. #0060df면 5.62:1이고, '파랑 위 흰 글자'라는 모양은 라이트와 그대로 같다
+   (글자를 검게 뒤집으면 대비는 되지만 라이트/다크가 서로 다른 물건처럼 보인다). */
+.tag{border-color:#636366;color:#a1a1a6}
 .tag:hover{border-color:#0a84ff;color:#0a84ff}
-.tag[aria-pressed="true"]{background:#0a84ff;border-color:#0a84ff;color:#fff}
+.tag[aria-pressed="true"]{background:#0060df;border-color:#0060df;color:#fff}
 .filter input{border-color:#38383a}
 .filter-count,.filter-empty{color:#a1a1a6}
 .related{border-color:#1c1c1e}
