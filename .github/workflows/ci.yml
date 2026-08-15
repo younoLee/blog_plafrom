@@ -135,6 +135,13 @@ jobs:
             koalaman/shellcheck@sha256:bb596a0d169b85ddd81d8b6d3a2ff6d5baf5fca10b97f575ebc647c3dff62b3d \
             -S warning $(find scripts -name '*.sh' | sort)
 
+      # CloudFront Function은 이 사이트의 모든 정적 요청이 지나가는 자리인데
+      # 여태 아무도 검사하지 않았다 — terraform validate는 이 .js를 문자열로만 보고
+      # (file()로 읽는다), 배포되면 그때부터 라이브다. 틀리면 증상이 '사이트 전체가
+      # 404'라 조용하지도 않지만, 조용하지 않은 게 배포 뒤라는 게 문제다.
+      - name: CloudFront Function 동작(node --test)
+        run: node --test terraform/
+
   runbook:
     runs-on: ubuntu-latest
     # 복구 런북이 코드와 어긋났는지. 2026-07-27 DR 게임데이의 첫 블로커(F1)가

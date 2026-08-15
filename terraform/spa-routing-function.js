@@ -23,6 +23,48 @@
 // 전제: 확장자 없는 오브젝트가 버킷에 없다. 2026-07-28에 전수 확인했다(0개).
 // 없는 자산(예: 옛 해시 .js)은 이제 HTML 대신 403이 그대로 나간다 — 그게 맞다.
 // JS를 기대한 자리에 HTML이 오는 것보다 낫고, 배포 사고가 조용히 묻히지 않는다.
+//
+// ── 2026-08-15 추가: 이 사이트가 서빙할 리 없는 확장자는 엣지에서 끊는다 ──────
+//
+// 실측(2026-08-15, 라이브): `/nope.bar`·`/wp-login.php` → **403 + S3의 원시 XML**
+//   <?xml …><Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>
+// 점이 있으니 위 규칙이 그대로 S3로 흘려보내고, OAC 뒤의 S3는 없는 키에 403을 준다.
+// 사람에겐 뜻 없는 XML이고, 봇에겐 "여기는 S3다"라는 대답이다.
+//
+// **distribution 전체 에러페이지(custom_error_response)로 고치지 않는다** — 위에 적힌
+// 이유 그대로다. 대신 viewer-request 함수가 **응답을 직접 만들어 돌려준다.** 이 함수는
+// 기본 동작에만 붙으므로 /api/*는 여전히 지나가지 않는다.
+//
+// 허용 목록으로 짠 이유: 엣지에서는 오브젝트의 존재를 알 수 없다. 그래서 '없는 것'이
+// 아니라 **'이 사이트가 낼 수 있는 종류인가'**로 가른다. 목록은 실제 산출물 기준이다
+// (dist: html·js·css·json·md·txt·xml·svg·png / 업로드: png·jpg뿐 — routers/uploads.py가
+// 매직바이트로 그 둘만 통과시킨다). 앞으로 쓸 수 있는 것 몇 개를 미리 넣어뒀다.
+//
+// ⚠️ **이걸로 다 막히지는 않는다.** 허용 목록에 있는 확장자인데 파일이 없으면
+// (예: `/devlog/2026-99-99.html`) 여전히 S3의 원시 XML이 나간다. 그건 존재를 알아야
+// 판단할 수 있는 자리라 엣지 함수로는 못 고친다 — 고치려면 오리진을 바꾸거나
+// Lambda@Edge가 필요하고, 지금 그 값은 비용을 못 한다. 여기서 닫는 것은
+// **봇 스캔과 오타 대부분**이다.
+var SERVABLE = /\.(html|js|css|json|md|txt|xml|svg|png|jpe?g|gif|webp|avif|ico|woff2?|map)$/i;
+
+// 엣지에서 만드는 404 페이지. 자기 완결이어야 한다(외부 파일을 못 부른다).
+// 인라인 <script>는 없다 — CSP가 script-src 'self'라 어차피 막힌다.
+var NOT_FOUND_HTML =
+    '<!doctype html><html lang="ko"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>없는 주소 — DEV 블로그</title><style>' +
+    ':root{color-scheme:light dark}' +
+    'body{margin:0;padding:4rem 1.25rem;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+    'color:#1d1d1f;background:#fff}' +
+    'main{max-width:34rem;margin:0 auto}h1{font-size:1.5rem;margin:0 0 .75rem;letter-spacing:-.02em}' +
+    'p{color:#515154;margin:0 0 1.5rem}a{color:#0071e3}' +
+    '@media(prefers-color-scheme:dark){body{color:#f5f5f7;background:#000}p{color:#a1a1a6}a{color:#0a84ff}}' +
+    '</style></head><body><main>' +
+    '<h1>그런 주소는 없어</h1>' +
+    '<p>주소를 잘못 눌렀거나, 옮겨진 페이지야.</p>' +
+    '<p><a href="/">첫 화면</a> · <a href="/devlog.html">개발일지 전체</a> · <a href="/rss.xml">RSS</a></p>' +
+    '</main></body></html>';
+
 function handler(event) {
     var request = event.request;
     var uri = request.uri;
@@ -30,6 +72,22 @@ function handler(event) {
 
     if (last.indexOf('.') === -1) {
         request.uri = '/index.html';
+        return request;
+    }
+
+    if (!SERVABLE.test(last)) {
+        return {
+            statusCode: 404,
+            statusDescription: 'Not Found',
+            headers: {
+                'content-type': { value: 'text/html; charset=utf-8' },
+                // 이 판정은 경로만 보고 내리므로 캐시해도 안전하고, 봇 스캔이
+                // 오리진까지 안 가게 된다.
+                'cache-control': { value: 'public, max-age=300' },
+                'x-content-type-options': { value: 'nosniff' }
+            },
+            body: NOT_FOUND_HTML
+        };
     }
 
     return request;
