@@ -7,9 +7,12 @@ export interface NotificationItem {
   id: number
   post_id: number
   title: string
+  /** 이 알림을 일으킨 사람 — 새 글이면 글쓴이, 새 댓글이면 댓글 쓴 사람. */
   author: string
   read: boolean
   created_at: string
+  /** 값이 있으면 '새 댓글' 알림, null이면 '새 글' 알림. */
+  comment_id?: number | null
 }
 export interface NotificationList {
   items: NotificationItem[]

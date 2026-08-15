@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.display import display_name_of
+from app.models.comment import Comment
 from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
@@ -20,9 +21,13 @@ class NotificationOut(BaseModel):
     id: int
     post_id: int
     title: str
+    # 이 알림을 일으킨 사람. 새 글이면 글쓴이, 새 댓글이면 댓글 쓴 사람이다.
     author: str
     read: bool
     created_at: datetime
+    # 값이 있으면 '새 댓글' 알림, None이면 '새 글' 알림.
+    # 종류를 따로 된 열로 두지 않는 이유는 models/notification.py 참고.
+    comment_id: int | None = None
 
 
 class NotificationList(BaseModel):
@@ -48,9 +53,16 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             User.display_name,
             Notification.read,
             Notification.created_at,
+            Notification.comment_id,
+            # 댓글 쓴 사람 이름. 익명이면 자유 입력값이고 회원이면 서버가 고정한
+            # 표시명이다(routers/comments.py). 어느 쪽이든 이미 화면에 나가는 값이다.
+            Comment.author.label("comment_author"),
         )
         .join(Post, Post.id == Notification.post_id)
         .join(User, User.id == Post.owner_id)
+        # 새 글 알림에는 댓글이 없다 — **outer join이어야 한다.** inner로 하면
+        # 지금까지의 알림이 목록에서 통째로 사라진다.
+        .outerjoin(Comment, Comment.id == Notification.comment_id)
         # 지금 이 사용자에게 '보이는' 글만 — 알림 생성 후 글이 private로 바뀌거나 구독이
         # 끊기면 본문은 404여도 알림 목록엔 제목이 남아 새던 것(목록·메타와 같은 조건 재사용).
         .where(Notification.user_id == user.id, visible)
@@ -62,9 +74,11 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             "id": r.id,
             "post_id": r.post_id,
             "title": r.title,
-            "author": display_name_of(r.author_id, r.display_name),
+            # 새 댓글이면 댓글 쓴 사람, 새 글이면 글쓴이.
+            "author": r.comment_author or display_name_of(r.author_id, r.display_name),
             "read": r.read,
             "created_at": r.created_at,
+            "comment_id": r.comment_id,
         }
         for r in rows
     ]

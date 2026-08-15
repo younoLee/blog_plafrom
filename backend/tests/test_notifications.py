@@ -117,3 +117,97 @@ def test_unread_badge_drops_when_post_becomes_invisible(client, make_user, auth_
     body = client.get("/api/notifications", headers=auth_headers(reader)).json()
     assert body["items"] == []
     assert body["unread"] == 0  # 수정 전: 목록은 비었는데 여기만 1이었다
+
+
+# ── 새 댓글 알림 (2026-08-14 격차검사 11번) ───────────────────────────────
+#
+# 익명 댓글이 열려 있는데 알림은 '새 글' 한 종류뿐이라, 누가 댓글을 달면 글쓴이가
+# 그 글에 다시 들어가 눈으로 보기 전까지 몰랐다.
+
+
+def _comment(client, post_id, headers=None, author="지나가던 사람", content="잘 읽었어"):
+    # author는 로그인 여부와 무관하게 **스키마 필수**다. 로그인 사용자면 서버가 그 값을
+    # 무시하고 표시명으로 덮어쓴다(사칭 방지) — 안 보내면 그냥 422다.
+    r = client.post(
+        f"/api/posts/{post_id}/comments",
+        json={"author": author, "content": content},
+        headers=headers or {},
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_anonymous_comment_notifies_post_owner(client, make_user, auth_headers):
+    owner = make_user(role="writer")
+    post = _create_post(client, auth_headers(owner))
+
+    _comment(client, post["id"], author="지나가던 사람")
+
+    body = client.get("/api/notifications", headers=auth_headers(owner)).json()
+    assert body["unread"] == 1
+    item = body["items"][0]
+    assert item["post_id"] == post["id"]
+    assert item["title"] == "새 글"
+    # 이 알림을 일으킨 사람 = 댓글 쓴 사람(글쓴이가 아니다)
+    assert item["author"] == "지나가던 사람"
+    # comment_id가 있다 = '새 댓글' 알림. 프론트가 이걸로 문구와 링크를 가른다.
+    assert item["comment_id"] is not None
+
+
+def test_owner_commenting_on_own_post_does_not_notify_self(client, make_user, auth_headers):
+    owner = make_user(role="writer")
+    post = _create_post(client, auth_headers(owner))
+
+    _comment(client, post["id"], headers=auth_headers(owner))
+
+    body = client.get("/api/notifications", headers=auth_headers(owner)).json()
+    assert body["unread"] == 0
+    assert body["items"] == []
+
+
+def test_comment_notification_goes_to_owner_only(client, make_user, auth_headers):
+    owner = make_user(role="writer")
+    other = make_user(role="writer")
+    post = _create_post(client, auth_headers(owner))
+
+    _comment(client, post["id"], headers=auth_headers(other))
+
+    assert client.get("/api/notifications", headers=auth_headers(other)).json()["unread"] == 0
+    owner_body = client.get("/api/notifications", headers=auth_headers(owner)).json()
+    assert owner_body["unread"] == 1
+    # 회원 댓글이면 서버가 고정한 표시명이 온다(자유 입력이 아니다).
+    assert owner_body["items"][0]["author"] == f"회원 #{other.id}"
+
+
+def test_new_post_notification_still_has_no_comment_id(client, make_user, auth_headers):
+    # outer join으로 바꾸면서 기존 알림이 통째로 사라질 수 있는 자리다.
+    # inner join이면 comment가 없는 '새 글' 알림이 전부 목록에서 빠진다.
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    _subscribe_approve_notify(client, auth_headers, reader, author)
+
+    _create_post(client, auth_headers(author))
+
+    body = client.get("/api/notifications", headers=auth_headers(reader)).json()
+    assert body["unread"] == 1
+    assert body["items"][0]["comment_id"] is None
+    assert body["items"][0]["author"] == f"회원 #{author.id}"
+
+
+def test_deleting_comment_removes_its_notification(client, make_user, auth_headers):
+    # 댓글을 지우면(모더레이션) 알림도 함께 사라져야 한다 — 안 그러면 종에는 남아
+    # 있는데 눌러도 아무 데도 안 가는 줄이 된다. FK ondelete=CASCADE로 잠갔다.
+    owner = make_user(role="writer")
+    post = _create_post(client, auth_headers(owner))
+    comment = _comment(client, post["id"])
+
+    assert client.get("/api/notifications", headers=auth_headers(owner)).json()["unread"] == 1
+
+    r = client.delete(
+        f"/api/posts/{post['id']}/comments/{comment['id']}", headers=auth_headers(owner)
+    )
+    assert r.status_code == 204
+
+    body = client.get("/api/notifications", headers=auth_headers(owner)).json()
+    assert body["unread"] == 0
+    assert body["items"] == []

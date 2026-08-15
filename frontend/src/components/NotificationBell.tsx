@@ -113,13 +113,17 @@ export function NotificationBell() {
               {data.items.map((n) => (
                 <li key={n.id}>
                   <Link
-                    to={`/blog/posts/${n.post_id}`}
+                    // 댓글 알림은 댓글 자리로 데려간다 — 글 맨 위에 떨어뜨리면
+                    // 긴 글에서는 뭐가 달렸는지 보려고 끝까지 스크롤해야 한다.
+                    to={n.comment_id ? `/blog/posts/${n.post_id}#comments` : `/blog/posts/${n.post_id}`}
                     onClick={() => setOpen(false)}
                     className="block px-3 py-2.5 text-sm hover:bg-black/[0.04] dark:hover:bg-white/5"
                   >
                     <div>
                       <span className="font-medium text-gray-800 dark:text-gray-100">{n.author}</span>
-                      <span className="text-gray-500 dark:text-gray-400">님의 새 글</span>
+                      <span className="text-gray-500 dark:text-gray-400">
+                        {n.comment_id ? '님의 새 댓글' : '님의 새 글'}
+                      </span>
                     </div>
                     <div className="truncate text-gray-600 dark:text-gray-300">{n.title}</div>
                   </Link>

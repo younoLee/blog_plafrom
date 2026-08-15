@@ -411,3 +411,71 @@ def test_vapid_uses_rfc8292_scheme(push_on):
 
     auth = _vapid_headers("https://web.push.apple.com/x")["Authorization"]
     assert auth.startswith("vapid t=") and ",k=" in auth
+
+
+# ── 알림 묶음 키(tag) — 종류가 다른 알림이 서로를 지우면 안 된다 ─────────────
+#
+# 2026-08-14에 `tag`만 있고 `renotify`가 없어 두 번째 알림부터 조용히 교체되는 걸
+# 겪었다. 2026-08-15에 댓글 알림을 붙이면서 **같은 실패의 다른 얼굴**이 드러났다:
+# sw.js의 tag가 'new-post' 고정이라, 댓글 알림이 새 글 알림을 갈아치웠다.
+# 화면에 아무 흔적이 없는 실패라 여기서 값으로 잠근다(짝인 sw.js 쪽은 프론트
+# swNotify.test.ts가 소스를 읽어 본다).
+#
+# ⚠️ **대상 조회는 여기서 검사할 수 없다.** 이 함수들은 자체 SessionLocal을 여는데
+#    테스트 db 픽스처는 롤백되는 트랜잭션이라, 테스트가 넣은 구독 행이 그 세션에는
+#    안 보인다. 그래서 subs는 항상 비고, 여기서 거는 건 **payload**뿐이다.
+#    (그 성질 자체는 conftest의 no_push 주석이 이미 경고하는 것과 같은 사정이다)
+
+
+def _capture_payload(monkeypatch, func, *args):
+    """_deliver를 가로채 payload만 꺼낸다. 실제 발송은 하지 않는다."""
+    from app.services import push as push_mod
+
+    seen = {}
+
+    def fake_deliver(subs, payload):
+        seen["payload"] = payload
+
+    monkeypatch.setattr(push_mod, "_deliver", fake_deliver)
+    func(*args)
+    return seen["payload"]
+
+
+def test_new_post_and_comment_push_use_different_tags(monkeypatch, push_on):
+    from app.services.push import notify_new_comment_push, notify_new_post_push
+
+    post = _capture_payload(monkeypatch, notify_new_post_push, 7, "제목", 1)
+    comment = _capture_payload(
+        monkeypatch, notify_new_comment_push, 7, "제목", "지나가던 사람", 1
+    )
+
+    assert post["tag"] == "new-post"
+    # 글 번호가 들어가야 다른 글의 댓글끼리도 안 겹친다.
+    assert comment["tag"] == "comment-7"
+    assert post["tag"] != comment["tag"]
+    # 댓글 알림은 댓글 자리로 데려간다(긴 글에서 맨 위에 떨어지면 뭘 봐야 할지 모른다).
+    assert comment["url"].endswith("#comments")
+
+
+def test_comment_push_does_not_carry_the_comment_body(monkeypatch, push_on):
+    """익명 입력이라 잠금화면에 그대로 띄우면 아무나 남의 잠금화면에 글자를 쓸 수 있다.
+
+    누가 어느 글에 달았는지만 알린다."""
+    from app.services.push import notify_new_comment_push
+
+    payload = _capture_payload(
+        monkeypatch, notify_new_comment_push, 7, "글 제목", "작성자", 1
+    )
+    assert payload["body"] == "글 제목"
+    assert "작성자" in payload["title"]
+
+
+def test_push_does_nothing_when_keys_are_missing(monkeypatch, push_off):
+    """키가 없으면 payload를 만들지도 않는다(기능 통째로 꺼짐)."""
+    from app.services import push as push_mod
+    from app.services.push import notify_new_comment_push
+
+    called = []
+    monkeypatch.setattr(push_mod, "_deliver", lambda s, p: called.append(p))
+    notify_new_comment_push(7, "제목", "작성자", 1)
+    assert called == []

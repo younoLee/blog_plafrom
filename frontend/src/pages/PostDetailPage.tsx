@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeSlug from 'rehype-slug'
 import type { Post, SeriesNav, Visibility } from '../types/post'
@@ -238,6 +238,26 @@ function PostDetailPage() {
     [archiveIndex, post?.title, post?.tags],
   )
 
+  // **해시로 들어오면 그 자리로 데려간다.** 이 앱엔 해시 처리가 아예 없었다:
+  //   - 브라우저의 기본 스크롤은 문서 로드 시점에 일어나는데, 이 화면은 본문이
+  //     /api에서 **나중에** 온다. 그때 #comments도 #소제목도 DOM에 없다.
+  //   - 앱 안에서의 이동은 라우터가 처리하므로 브라우저 스크롤이 아예 안 걸린다.
+  // 그래서 댓글 알림(종·푸시)이 `#comments`로 보내도 글 맨 위에 떨어졌고,
+  // 목차의 소제목 링크도 새로고침하면 안 먹었다. 본문이 붙은 뒤에 한 번 맞춘다.
+  const hash = useLocation().hash
+  const loadedId = post?.id
+  useEffect(() => {
+    if (!hash || !loadedId) return
+    // 이 프레임엔 아직 마크다운 서브트리가 안 붙었을 수 있다(useMemo로 만들어
+    // 같은 커밋에 들어가지만, 이미지·폰트로 높이가 더 자란다). 다음 프레임에 잰다.
+    const id = requestAnimationFrame(() => {
+      document
+        .getElementById(decodeURIComponent(hash.slice(1)))
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [hash, loadedId])
+
   // 검색엔진·미리보기용 head. **canonical은 정적 아카이브를 가리킨다** — 같은 글이 두
   // 주소에 있는데(여기와 /devlog/*.html) 표준을 안 정하면 서로의 중복이 되고, EC2가
   // 평소 꺼져 있어 방문자에게도 정적 쪽이 실제로 열리는 주소다. 아카이브가 없는 일반
@@ -435,7 +455,10 @@ function PostDetailPage() {
         </section>
       )}
 
-      <section className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">
+      <section
+        id="comments"
+        className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]"
+      >
         <h2 className="mb-4 text-lg font-semibold tracking-tight">
           댓글 <span className="text-gray-500 dark:text-gray-400">({comments.length})</span>
         </h2>

@@ -16,13 +16,14 @@ import json
 import logging
 import os
 import time
+from collections.abc import Sequence
 from urllib.parse import urlparse
 
 import http_ece
 import httpx
 from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
-from sqlalchemy import delete, select
+from sqlalchemy import Row, delete, select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
@@ -199,36 +200,92 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
         # 발송 전에 놓는다 — 아래 루프는 DB가 필요 없다.
         db.close()
 
-    if subs:
-        payload = {
+    _deliver(
+        subs,
+        {
             "title": "새 글이 올라왔어",
             "body": post_title,
             # 서비스워커가 알림 클릭 시 열 주소. 절대 경로 대신 앱 라우트를 준다.
             "url": f"/blog/posts/{post_id}",
-        }
-        dead: list[int] = []
-        for sub_id, endpoint, p256dh, auth in subs:
-            try:
-                send_push(endpoint, p256dh, auth, payload)
-            except PushGone:
-                dead.append(sub_id)
-            except Exception:
-                # 한 기기 실패가 나머지 발송을 막지 않게(email.py와 같은 방침)
-                logger.exception("푸시 발송 중 예외")
+            # 알림 묶음 키. 같은 tag끼리는 덮어쓴다 — 새 글은 하나로 합쳐도 된다.
+            # **종류가 다른 알림과 겹치면 안 된다**(sw.js 주석 참고).
+            "tag": "new-post",
+        },
+    )
 
-        # 죽은 구독은 그 자리에서 지운다. 안 지우면 매 발행마다 같은 곳에 던지고
-        # 실패하며, 사용자 목록의 '기기 수'도 영원히 틀린 값을 보여준다.
-        # 여기서만 세션을 다시 연다 — 발송이 끝난 뒤라 잡는 시간이 짧다.
-        if dead:
-            db2 = SessionLocal()
-            try:
-                db2.execute(
-                    delete(PushSubscription).where(PushSubscription.id.in_(dead))
-                )
-                db2.commit()
-                logger.info("만료된 푸시 구독 %d건 정리", len(dead))
-            finally:
-                db2.close()
+
+def _deliver(subs: Sequence[Row[tuple[int, str, str, str]]], payload: dict) -> None:
+    """구독 목록에 payload를 보내고, 죽은 구독을 정리한다.
+
+    **DB 세션을 안 들고 들어온다.** 호출부가 조회를 끝내고 세션을 닫은 뒤 부른다 —
+    발송은 기기 N대 × 최대 10초라, 세션을 쥔 채 돌면 풀 15칸 중 하나가 그동안
+    `idle in transaction`으로 묶인다(2026-08-11 병목검사에서 실제로 그랬다).
+    """
+    if not subs:
+        return
+    dead: list[int] = []
+    for sub_id, endpoint, p256dh, auth in subs:
+        try:
+            send_push(endpoint, p256dh, auth, payload)
+        except PushGone:
+            dead.append(sub_id)
+        except Exception:
+            # 한 기기 실패가 나머지 발송을 막지 않게(email.py와 같은 방침)
+            logger.exception("푸시 발송 중 예외")
+
+    # 죽은 구독은 그 자리에서 지운다. 안 지우면 매 발행마다 같은 곳에 던지고
+    # 실패하며, 사용자 목록의 '기기 수'도 영원히 틀린 값을 보여준다.
+    # 여기서만 세션을 다시 연다 — 발송이 끝난 뒤라 잡는 시간이 짧다.
+    if dead:
+        db2 = SessionLocal()
+        try:
+            db2.execute(delete(PushSubscription).where(PushSubscription.id.in_(dead)))
+            db2.commit()
+            logger.info("만료된 푸시 구독 %d건 정리", len(dead))
+        finally:
+            db2.close()
+
+
+def notify_new_comment_push(
+    post_id: int, post_title: str, commenter: str, owner_id: int
+) -> None:
+    """새 댓글을 **글쓴이 본인의 기기**로 알린다.
+
+    새 글 알림과 대상 조건이 다르다. 저쪽은 `author_subscriptions.notify`(남이 나를
+    구독하고 알림을 켰는가)를 보지만, 여기서 알릴 사람은 글쓴이 하나다. 자기 글에
+    달린 댓글을 받겠다고 자기를 구독할 수는 없으므로, 기기 등록(push_subscriptions)
+    자체를 의사표시로 본다. 기기를 등록하지 않았으면 인앱 종에만 남는다.
+
+    댓글 본문은 payload에 넣지 않는다 — 익명 입력이라 잠금화면에 그대로 띄우면
+    아무나 남의 잠금화면에 글자를 쓸 수 있게 된다. 누가 어느 글에 달았는지만 알린다.
+    """
+    if not settings.push_enabled:
+        return
+
+    db = SessionLocal()
+    try:
+        subs = db.execute(
+            select(
+                PushSubscription.id,
+                PushSubscription.endpoint,
+                PushSubscription.p256dh,
+                PushSubscription.auth,
+            ).where(PushSubscription.user_id == owner_id)
+        ).all()
+    finally:
+        db.close()
+
+    _deliver(
+        subs,
+        {
+            "title": f"{commenter}님이 댓글을 남겼어",
+            "body": post_title,
+            "url": f"/blog/posts/{post_id}#comments",
+            # 글마다 다른 tag. 'new-post'와 겹치면 새 글 알림을 지우고,
+            # 글 번호를 안 넣으면 다른 글의 댓글끼리 서로를 지운다.
+            "tag": f"comment-{post_id}",
+        },
+    )
 
 
 def _selftest_roundtrip() -> bool:

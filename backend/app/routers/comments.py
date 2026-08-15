@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,10 +9,12 @@ from app.core.deps import get_current_user, get_current_user_optional
 from app.core.display import display_name_of
 from app.core.ratelimit import limiter
 from app.models.comment import Comment
+from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
 from app.routers.posts import can_view, get_post_or_404, subscribed_author_ids
 from app.schemas.comment import CommentCreate, CommentRead
+from app.services.push import notify_new_comment_push
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +71,11 @@ def create_comment(
     request: Request,
     post_id: int,
     data: CommentCreate,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    _viewable_post_or_404(post_id, db, user)
+    post = _viewable_post_or_404(post_id, db, user)
     # 로그인 사용자는 작성자명을 서버가 고정한다(자유 입력을 안 받는다).
     #
     # ⚠️ **이 고정만으로는 사칭이 안 막힌다.** 예전 주석은 여기에 "남의 이름 사칭 방지"라고
@@ -100,6 +103,25 @@ def create_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
+
+    # 글쓴이에게 알린다. **이게 없어서 익명 댓글이 열려 있는데도 글쓴이는 그 글에
+    # 다시 들어가 눈으로 보기 전까지 몰랐다**(2026-08-14 격차검사 11번).
+    #
+    # 안 보내는 경우가 둘이다:
+    #   - 주인 없는 글(owner_id NULL — 로그인 이전에 쓴 글) → 받을 사람이 없다
+    #   - 글쓴이가 자기 글에 단 댓글 → 자기가 한 일을 자기에게 알리지 않는다
+    if post.owner_id is not None and (user is None or user.id != post.owner_id):
+        # 인앱 알림은 요청 트랜잭션에서 확실히 저장한다(새 글 알림과 같은 방침).
+        db.add(
+            Notification(user_id=post.owner_id, post_id=post_id, comment_id=comment.id)
+        )
+        db.commit()
+        # 푸시는 백그라운드 — 발송이 느리거나 실패해도 댓글 작성 응답을 막지 않는다.
+        # 이메일은 안 보낸다: 이 사이트의 발신 도메인이 없어 스팸함으로 가고(SES
+        # 샌드박스), 익명 댓글마다 메일을 쏘면 도배 경로가 하나 더 생긴다.
+        background.add_task(
+            notify_new_comment_push, post_id, post.title, author, post.owner_id
+        )
     return comment
 
 
