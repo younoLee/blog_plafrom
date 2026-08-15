@@ -14,8 +14,8 @@ import { IconArrowLeft, IconLock, IconCheck } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { Toc } from '../components/Toc'
 import { SeriesBox, SeriesPrevNext } from '../components/SeriesBox'
-import { readingTime, archiveUrlFor } from '../postUtils'
-import { useDocumentTitle } from '../useDocumentTitle'
+import { readingTime, archiveUrlFor, excerpt } from '../postUtils'
+import { useHead } from '../useDocumentTitle'
 import { CopyButton } from '../components/CopyButton'
 
 const { input, btnPrimary, btnGhost } = ui
@@ -61,8 +61,7 @@ function PostDetailPage() {
   const postId = Number(id)
   const { user } = useAuth()
   const [post, setPost] = useState<Post | null>(null)
-  // 브라우저 탭/북마크/검색결과에 글 제목이 뜨도록 (글 로딩 전엔 사이트 기본 제목)
-  useDocumentTitle(post?.title)
+  // 탭 제목·설명·canonical·OG는 archiveUrl이 정해진 **뒤에** 건다(아래 useHead).
   const [error, setError] = useState('')
   // 절전(서버 꺼짐)과 진짜 에러의 톤을 가른다. HomePage는 이미 그렇게 하는데
   // 여기만 절전도 빨간 "에러:"로 보여 고장처럼 읽혔다(2026-08-11 공백검사).
@@ -226,6 +225,21 @@ function PostDetailPage() {
       alive = false
     }
   }, [postTitle])
+
+  // 검색엔진·미리보기용 head. **canonical은 정적 아카이브를 가리킨다** — 같은 글이 두
+  // 주소에 있는데(여기와 /devlog/*.html) 표준을 안 정하면 서로의 중복이 되고, EC2가
+  // 평소 꺼져 있어 방문자에게도 정적 쪽이 실제로 열리는 주소다. 아카이브가 없는 일반
+  // 글이면 canonical은 현재 주소가 된다(head.ts 기본값).
+  //
+  // 설명은 **공개글만** 넣는다. 구독자공개·비공개 글의 본문 발췌를 메타 태그로
+  // 흘릴 이유가 없다(태그는 로그인 상태와 무관하게 DOM에 남는다).
+  useHead({
+    title: post?.title,
+    description:
+      post && post.visibility === 'public' ? excerpt(post.content, 160) : undefined,
+    canonical: archiveUrl ?? undefined,
+    type: post ? 'article' : 'website',
+  })
 
   const content = post?.content
   const body = useMemo(
