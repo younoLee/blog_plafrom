@@ -62,9 +62,32 @@
             안 고치면 매치 실패로 system-ui에 폴백해 **CSS만 받고 폰트는 안 쓰는 상태**가
             되는데, 화면은 그럭저럭 보여서 "고쳤다"고 기록된 채 넘어간다.
          `as="style"`은 뺐다 — rel="preload" 전용 속성이라 stylesheet에서는 무시되고,
-         우선순위를 준 것 같은 착각만 만든다. -->
+         우선순위를 준 것 같은 착각만 만든다.
+
+         🔴 **media="print"인 이유 — 이 한 줄이 첫 페인트의 단일 장애점이었다.**
+         stylesheet 링크는 기본이 렌더 블로킹이라, 남의 CDN(jsdelivr)이 느리거나 죽으면
+         우리 S3·CloudFront가 멀쩡해도 화면이 **아무것도 안 그려진 채** 대기한다.
+         이 사이트는 '서버가 꺼져 있어도 읽힌다'를 원칙으로 삼는데, 정작 첫 화면이
+         제3자 호스트에 인질로 잡혀 있었다.
+         media="print"면 브라우저가 "지금 화면에 안 쓰는 스타일"로 보고 **받되 막지 않는다.**
+         다 받은 뒤 media를 all로 되돌리면 그때 적용된다.
+
+         ⚠️ **그 되돌리기가 여기 없는 이유(중요).** 웹에 흔한 처방은
+         `onload="this.media='all'"`인데, **이 사이트에서는 절대 안 돈다** —
+         CSP(terraform/csp-function.js)가 `script-src 'self'`라 인라인 이벤트 핸들러가
+         차단되기 때문이다. 그러면 media가 print에 영원히 머물러 **CSS만 받고 폰트는
+         끝내 안 쓰는 상태**가 되는데, system-ui로 폴백돼 화면은 그럭저럭 보인다.
+         = 위 주석이 경고하는 그 함정("고쳤다고 기록된 채 넘어간다")의 재발.
+         그래서 스왑은 `src/main.tsx`(자기 출처 모듈)가 한다. 짝이 유지되는지는
+         `src/fontSwap.test.ts`가 두 파일을 실제로 읽어 감시한다. -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-    <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+    <link
+      rel="stylesheet"
+      crossorigin
+      media="print"
+      data-font-swap
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    />
   </head>
   <body>
     <!-- JS가 못 뜨면 이 페이지는 완전한 백지다(root가 비어 있으므로).
