@@ -41,8 +41,12 @@ class Post(Base):
     # 번호를 매기려면 글마다 손으로 붙여야 한다. 이름만 같으면 되게 두는 게 단순하다.
     series: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     # 작성자. 기존(로그인 전) 글은 owner 없음 → nullable
+    # ondelete=CASCADE: admin.delete_user가 이미 '사용자 삭제 = 그 사람 글도 삭제'로
+    # 동작한다(직접 DELETE를 돌린다). 그 규칙이 앱 코드에만 있고 DB에는 없어서,
+    # psql·복원 훈련처럼 앱을 안 거치는 경로는 규칙 밖으로 빠져나갈 수 있었다.
+    # users를 참조하는 FK 중 ondelete가 비어 있던 건 여기 하나뿐이었다(f2a3b4c5d6e7).
     owner_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id"), nullable=True, index=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     # 공개범위: 'public'(전체공개) | 'subscribers'(구독자공개) | 'private'(나만 보기)
     # 'subscribers'가 11자라 varchar(20)으로 둠. 기존 글은 public
