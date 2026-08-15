@@ -139,8 +139,15 @@ jobs:
       # 여태 아무도 검사하지 않았다 — terraform validate는 이 .js를 문자열로만 보고
       # (file()로 읽는다), 배포되면 그때부터 라이브다. 틀리면 증상이 '사이트 전체가
       # 404'라 조용하지도 않지만, 조용하지 않은 게 배포 뒤라는 게 문제다.
+      #
+      # ⚠️ **경로는 디렉터리가 아니라 파일이어야 한다.** 처음엔 `node --test terraform/`로
+      # 썼고 로컬(Node 20)에서는 7/7 초록이었는데 러너(Node 24)에서 빨간불이었다.
+      # Node 22부터 `--test`에 준 경로를 **테스트 파일 하나로 취급**해서, 디렉터리를 주면
+      # 파일 목록을 훑지 않고 그 디렉터리를 실행하려다 실패한다
+      # (증상: "test at terraform:1:1 ✖ terraform" — 내 단언은 하나도 안 돌았다).
+      # 세 버전(20·22·24)에서 파일 경로로 재확인했다: 전부 7/7.
       - name: CloudFront Function 동작(node --test)
-        run: node --test terraform/
+        run: node --test terraform/cf-functions.test.mjs
 
   runbook:
     runs-on: ubuntu-latest
