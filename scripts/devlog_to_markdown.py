@@ -246,6 +246,16 @@ def main() -> None:
         print(f"제목: {title}\n태그: {tags}\n글자수: {len(body):,}\n{'─' * 60}\n{body}")
         return
 
+    # ⚠️ **이 루프는 32편을 전부 다시 쓴다 — 손으로 고친 편도 덮는다.**
+    #
+    # 2026-08-15에 실제로 겪었다. 08-14에 1편·3편의 맨몸 URL과 폐지된 데모계정 주소를
+    # 백틱으로 감싸 고쳤는데, 그 수정이 **마크다운에만** 있었다(원본 docx는 그대로다).
+    # 새 편을 만들려고 이 스크립트를 돌리자 두 편이 원래대로 되돌아갔다.
+    #
+    # 지금은 gen-static.mjs의 GFM/autolink 가드가 그걸 잡아 **빌드를 세운다** — 그날도
+    # 그렇게 알았다. 즉 조용한 회귀는 아니다. 그래도 알고 돌리는 것과 모르고 돌리는 것은
+    # 다르니 여기 적어둔다: **돌린 뒤 `git status content/devlog`를 볼 것.**
+    # 오늘 편 말고 다른 편이 바뀌어 있으면 그건 되살아난 옛 원고다(`git checkout`으로 되돌린다).
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     for f in files:
         title, body, tags = convert(f)
