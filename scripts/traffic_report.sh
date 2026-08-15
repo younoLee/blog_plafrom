@@ -1,108 +1,107 @@
 #!/usr/bin/env bash
 # 방문 집계 — "아무도 안 오는지, 오는데 내가 모르는지"를 가른다.
 #
-# 재료는 CloudFront 액세스 로그다(terraform/cf-logs.tf). 왜 앱 카운터가 아니라
-# 여기인지는 그 파일 머리말에 적었다 — 한 줄로 줄이면, 이 사이트의 읽기 대부분은
-# 백엔드를 안 거치기 때문이다(EC2는 평소 꺼져 있고 정적 아카이브는 S3에서 나간다).
-#
 # 사용:
-#   scripts/traffic_report.sh          # 최근 7일
-#   scripts/traffic_report.sh 30       # 최근 30일 (보존 상한이 30일이다)
+#   scripts/traffic_report.sh          # 최근 14일
+#   scripts/traffic_report.sh 30       # 최근 30일 (CloudWatch 표준 지표는 15개월 보관)
 #
-# 필요한 것: aws CLI 자격증명(S3 읽기), gzip, awk.
+# 필요한 것: aws CLI 자격증명(cloudwatch:GetMetricStatistics).
 #
-# ⚠️ **로그가 비어 있는 것과 방문이 0인 것은 다르다.** 로깅을 켠 시각 이전은 기록이
-#    없고, 켠 직후에도 첫 파일이 도착하기까지 수십 분이 걸린다. 이 스크립트는 그 둘을
-#    구분해서 말한다 — 안 그러면 "0명"이라는 틀린 결론을 내리게 된다.
+# ── 왜 앱 카운터가 아닌가 ────────────────────────────────────────────────
+# 이 사이트의 실제 읽기 경로는 대부분 **서버를 안 거친다**: EC2는 평소 꺼져 있고,
+# 검색·RSS·공유로 들어오는 사람은 S3의 정적 아카이브를 본다. 백엔드에 카운터를 달면
+# 가장 많이 읽히는 경로가 통째로 안 세진다. 모든 요청이 지나가는 지점은 CloudFront뿐이다.
 #
-# ⚠️ **개인정보:** 로그에는 방문자 IP가 남는다. 여기서는 **세기만 하고 출력하지 않는다.**
-#    (보존은 30일 — 버킷 lifecycle이 자른다)
+# ── 🔴 왜 액세스 로그가 아니라 지표인가 (2026-08-15에 실제로 부딪혔다) ──────
+# 처음엔 CloudFront 표준 로깅을 S3로 켜려고 terraform까지 짰다. apply가 거부했다:
+#
+#   InvalidArgument: Distributions with the Free pricing plan can't have
+#   the following features: Standard logging
+#
+# 이 배포의 요금제가 CSP용 Response Headers Policy를 거부하는 것과 **같은 제약**이다.
+# 그때는 CloudFront Function으로 우회했지만 로깅은 우회로가 없다. 그래서 만들었던
+# 로그 버킷은 **지우고**(한 줄도 안 들어올 버킷을 남기는 게 이 저장소가 반복해서
+# 당한 "설정했는데 대상이 0개"다) CloudWatch 표준 지표로 갈아탔다.
+#
+# **이 스크립트가 답할 수 있는 것과 없는 것을 분명히 해둔다:**
+#   ✅ 요청이 있기는 한가 · 며칠에 몰리는가 · 추세가 오르는가 · 오류율
+#   ❌ **어느 글이 읽혔는가** · 어디서 왔는가(Referer) · 방문자 수
+#      → 그건 요청 단위 로그가 있어야 하고, 그러려면 요금제를 올려야 한다(돈 드는 결정).
+# 이 구분을 안 적으면 다음 사람이 "조회수 붙였는데 왜 글별로 안 보이지"에서 시간을 쓴다.
+#
+# ⚠️ 숫자는 **요청 수**지 방문자 수가 아니다. 한 사람이 한 페이지를 열면 HTML·JS·CSS·
+#    폰트로 요청이 여러 건 발생한다. 절대값보다 **날짜별 비교**로 읽을 것.
 set -uo pipefail
 
-BUCKET="blog-cf-logs-181568979775"
-PREFIX="cf/"
-DAYS="${1:-7}"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+DIST_ID="E1438IL9CSVBS4"
+DAYS="${1:-14}"
+# CloudFront 지표는 리전이 아니라 **us-east-1의 Global 차원**에 쌓인다.
+# ap-northeast-2로 조회하면 데이터가 0건인데 에러도 안 난다 — 조용히 '방문 0'이 된다.
+REGION="us-east-1"
 
-echo "── CloudFront 액세스 로그 최근 ${DAYS}일 ──"
-
-# 파일명이 `cf/<distribution-id>.YYYY-MM-DD-HH.<hash>.gz` 형식이라 접두사로 날짜를
-# 못 자른다(배포 ID가 앞에 온다). 목록을 받아 LastModified로 거른다.
-SINCE="$(date -u -d "${DAYS} days ago" +%Y-%m-%d 2>/dev/null)" || {
+command -v aws >/dev/null || { echo "❌ aws CLI가 필요합니다."; exit 1; }
+START="$(date -u -d "${DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || {
   echo "❌ date -d 를 못 씁니다(GNU date 필요)."; exit 1
 }
+END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-KEYS="$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$PREFIX" \
-  --query "Contents[?LastModified>='${SINCE}'].Key" --output text 2>/dev/null)" || {
-  echo "❌ 로그 버킷을 못 읽었습니다: s3://$BUCKET/$PREFIX"
-  echo "   (terraform apply로 cf-logs.tf가 올라갔는지, 자격증명이 있는지 확인)"
-  exit 1
+echo "── CloudFront 지표 최근 ${DAYS}일 (배포 ${DIST_ID}) ──"
+echo
+
+# metric_daily <MetricName> <Statistic>  → "날짜<TAB>값" 을 날짜순으로
+metric_daily() {
+  aws cloudwatch get-metric-statistics \
+    --region "$REGION" --namespace AWS/CloudFront --metric-name "$1" \
+    --dimensions Name=DistributionId,Value="$DIST_ID" Name=Region,Value=Global \
+    --start-time "$START" --end-time "$END" --period 86400 --statistics "$2" \
+    --query "Datapoints[].[Timestamp,$2]" --output text 2>/dev/null \
+    | awk '{split($1,d,"T"); printf "%s\t%s\n", d[1], $2}' | sort
 }
 
-if [ -z "$KEYS" ] || [ "$KEYS" = "None" ]; then
-  echo "로그 파일 0개."
+REQ="$(metric_daily Requests Sum)"
+if [ -z "$REQ" ]; then
+  echo "지표가 0건입니다."
   echo
-  echo "이건 '방문 0명'이 아니라 '기록이 없다'는 뜻일 수 있습니다. 셋 중 하나입니다:"
-  echo "  1) 로깅을 방금 켰다 — 첫 파일까지 수십 분 걸립니다."
-  echo "  2) terraform apply를 아직 안 했다 (cloudfront.tf의 logging_config)."
-  echo "  3) 버킷 ACL이 꺼져 있어 CloudFront가 조용히 못 쓰고 있다"
-  echo "     → aws_s3_bucket_ownership_controls(BucketOwnerPreferred)가 있는지 확인."
+  echo "이건 '방문 0'이 아니라 '아직 못 읽었다'일 수 있습니다:"
+  echo "  · 자격증명에 cloudwatch:GetMetricStatistics 권한이 있는지"
+  echo "  · 리전이 us-east-1인지 (CloudFront 지표는 Global 차원에만 쌓인다)"
+  echo "  · 배포 ID가 ${DIST_ID}가 맞는지"
   exit 0
 fi
 
-N=0
-for key in $KEYS; do
-  aws s3 cp "s3://$BUCKET/$key" "$WORK/" --quiet 2>/dev/null && N=$((N + 1))
-done
-echo "로그 파일 ${N}개"
+TOTAL="$(echo "$REQ" | awk '{s+=$2} END{printf "%d", s}')"
+PEAK="$(echo "$REQ" | awk '{if($2>m)m=$2} END{printf "%d", (m>0?m:1)}')"
+DAYS_SEEN="$(echo "$REQ" | wc -l)"
 
-# CloudFront 표준 로그(W3C 확장): 탭 구분, 앞 두 줄은 #Version/#Fields.
-# 쓰는 필드: 1=date 5=sc-status 8=cs-uri-stem 10=cs(User-Agent) 12=cs(Referer) 3=c-ip
-#   ⚠️ 필드 번호는 #Fields 줄에 실제로 적혀 있다. 여기서는 CloudFront가 2014년부터
-#      유지해온 표준 순서를 전제한다 — 어긋나면 아래 숫자가 통째로 헛돌므로,
-#      결과가 이상하면 `zcat <파일> | head -2`로 #Fields를 먼저 확인할 것.
-zcat "$WORK"/*.gz 2>/dev/null | grep -v '^#' > "$WORK/all.tsv"
-TOTAL="$(wc -l < "$WORK/all.tsv")"
+echo "총 요청 ${TOTAL}건 / ${DAYS_SEEN}일 (하루 평균 $((TOTAL / (DAYS_SEEN > 0 ? DAYS_SEEN : 1)))건)"
+echo "※ 방문자 수가 아니라 요청 수다. 한 페이지가 여러 요청을 만든다 — 날짜별 비교로 읽을 것."
+echo
+echo "── 날짜별 요청 ──"
+echo "$REQ" | awk -v peak="$PEAK" '{
+  n = int($2 / peak * 40); bar = "";
+  for (i = 0; i < n; i++) bar = bar "#";
+  printf "%s  %6d  %s\n", $1, $2, bar
+}'
 
-if [ "$TOTAL" -eq 0 ]; then
-  echo "요청 0건 (파일은 있는데 내용이 비었습니다)."
-  exit 0
+echo
+echo "── 전송량(하루) ──"
+metric_daily BytesDownloaded Sum | awk '{printf "%s  %.1f MB\n", $1, $2/1048576}'
+
+echo
+echo "── 오류율(%) ──"
+# 4xx가 갑자기 오르면 배포 사고(옛 해시 번들 404)이거나 봇 스캔이다.
+# 엣지 404 함수를 넣은 뒤로는 봇 스캔이 여기 4xx로 잡힌다 — 늘어도 정상일 수 있다.
+E4="$(metric_daily 4xxErrorRate Average)"
+E5="$(metric_daily 5xxErrorRate Average)"
+if [ -z "$E4" ] && [ -z "$E5" ]; then
+  echo "(데이터 없음)"
+else
+  join -a1 -a2 -e 0 -o 0,1.2,2.2 \
+    <(echo "$E4" | tr '\t' ' ' | sort) <(echo "$E5" | tr '\t' ' ' | sort) 2>/dev/null \
+    | awk '{printf "%s  4xx %5.2f%%  5xx %5.2f%%\n", $1, $2, $3}'
 fi
 
-# 사람 요청만 남긴다. 봇을 안 걸러내면 숫자가 대부분 크롤러라 '읽혔다'로 못 읽는다.
-# 자산(.js·.css·이미지)도 뺀다 — 한 번의 방문이 요청 수십 건이라 페이지뷰가 아니다.
-awk -F'\t' '
-  tolower($10) ~ /bot|crawler|spider|slurp|curl|wget|headless|monitor|python-|preview/ { next }
-  $5 ~ /^(2|3)/ { print }
-' "$WORK/all.tsv" > "$WORK/human.tsv"
-
-PAGES="$(awk -F'\t' '$8 ~ /(\.html|\/)$/ || $8 !~ /\./' "$WORK/human.tsv" | wc -l)"
-UNIQ_IP="$(awk -F'\t' '{print $3}' "$WORK/human.tsv" | sort -u | wc -l)"
-BOTS=$((TOTAL - $(wc -l < "$WORK/human.tsv")))
-
 echo
-echo "요청 ${TOTAL}건 (봇·실패 제외 후 ${PAGES} 페이지뷰) · 서로 다른 방문자 약 ${UNIQ_IP}명 · 걸러낸 요청 ${BOTS}건"
-echo "  ※ 방문자 수는 IP 기준 근사치입니다(같은 회선이면 여러 명이 하나로 셉니다)."
-
-echo
-echo "── 많이 본 페이지 ──"
-awk -F'\t' '$8 ~ /(\.html)$/ || $8 !~ /\./ {print $8}' "$WORK/human.tsv" \
-  | sort | uniq -c | sort -rn | head -15
-
-echo
-echo "── 유입 경로(Referer) ──"
-# '-'는 직접 방문(주소창·북마크·앱). 그것도 정보라 버리지 않고 라벨만 바꾼다.
-awk -F'\t' '{r=$12; if (r=="-") r="(직접/알수없음)"; print r}' "$WORK/human.tsv" \
-  | sed 's#\(https\?://[^/]*\).*#\1#' \
-  | sort | uniq -c | sort -rn | head -10
-
-echo
-echo "── 날짜별 페이지뷰 ──"
-awk -F'\t' '$8 ~ /(\.html)$/ || $8 !~ /\./ {print $1}' "$WORK/human.tsv" \
-  | sort | uniq -c
-
-echo
-echo "── 404·오류 ──"
-awk -F'\t' '$5 ~ /^(4|5)/ {print $5, $8}' "$WORK/all.tsv" \
-  | sort | uniq -c | sort -rn | head -10
+echo "── 못 보는 것 ──"
+echo "어느 글이 읽혔는지·어디서 왔는지는 이 경로로 알 수 없습니다(요청 단위 로그가 필요)."
+echo "표준 로깅은 이 배포의 요금제가 거부합니다 — 올리려면 돈이 드는 결정입니다."

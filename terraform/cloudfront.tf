@@ -148,14 +148,18 @@ resource "aws_cloudfront_distribution" "main" {
   # 라우팅은 aws_cloudfront_function.spa(기본 동작 viewer-request)가 대신한다.
   # 다시 넣지 말 것 — 넣는 순간 /api/*의 403이 또 200이 된다.
 
-  # 액세스 로그 → S3. **이 사이트에서 조회수를 셀 수 있는 유일한 지점이다** —
-  # 읽기의 대부분이 백엔드를 안 거치기 때문이다(이유·비용·개인정보는 cf-logs.tf에).
-  logging_config {
-    bucket = aws_s3_bucket.cf_logs.bucket_domain_name
-    prefix = "cf/"
-    # 쿠키는 안 받는다. 세션 토큰이 로그로 새면 그건 그 자체로 사고다.
-    include_cookies = false
-  }
+  # ⚠️ **표준 로깅(logging_config)은 이 배포에 못 켠다 — 요금제가 거부한다.**
+  # 2026-08-15에 실제로 apply 해보고 알았다:
+  #   InvalidArgument: Distributions with the Free pricing plan can't have
+  #   the following features: Standard logging
+  # 위쪽 CSP 주석이 말하는 "Free 요금제가 커스텀 Response Headers Policy를 거부한다"와
+  # **같은 제약**이다. 그때는 CloudFront Function으로 우회가 됐지만, 로깅은 우회로가 없다
+  # (Function은 어디에도 쓸 수 없다).
+  #
+  # 그래서 방문 집계는 **CloudWatch 지표**로 간다 — Free 요금제에서도 무료로 나오고
+  # 실제 값이 있다(scripts/traffic_report.sh). 대가는 글 단위를 못 본다는 것이다.
+  # 글별 조회수를 원하면 요금제를 올려야 하고, 그건 돈이 드는 결정이라 사람 몫이다.
+  # 다시 넣지 말 것 — 넣으면 apply가 400으로 실패한다.
 
   # 기본 CloudFront 인증서 (커스텀 도메인 없음)
   viewer_certificate {
