@@ -7,12 +7,15 @@ from sqlalchemy.orm import Session, aliased
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_admin
+from app.core.display import display_name_of
 from app.core.security import hash_invite_token, new_invite_token
+from app.models.ai_usage import AiUsage
 from app.models.invite import Invite
 from app.models.post import Post
 from app.models.user import User
 from app.schemas.invite import InviteCreate, InviteCreated, InviteOut
 from app.schemas.user import UserRead
+from app.services.ai_usage import count_today_all_users, today, tokens_today_all_users
 from app.services.infra import gather_infra
 from app.services.ses_status import recipient_status
 
@@ -33,6 +36,92 @@ def infra_status(db: Session = Depends(get_db)):
     except Exception:
         data["db"] = {"connections": None, "max_connections": None}
     return data
+
+
+@router.get("/ai-usage")
+def ai_usage_summary(db: Session = Depends(get_db)):
+    """AI 초안의 호출 수·토큰과 그 상한 — 관리자 화면용.
+
+    **왜 화면에 내놓는가.** 토큰 컬럼은 2026-08-11에 만들었지만(e1f2a3b4c5d6) 그 값을
+    **사람이 볼 수 있는 곳이 한 군데도 없었다.** 캡이 걸리면 429가 나가고 로그에 한 줄
+    남을 뿐이라, '오늘 얼마나 썼나'는 psql을 켜야만 알 수 있었다. 그런데 Anthropic
+    청구는 AWS 밖이라 watch.sh가 보는 AWS Budgets가 원리적으로 못 본다 — 즉 이 숫자를
+    안 보면 다음 명세서까지 아무도 모른다.
+
+    **비용(원/달러)으로 환산하지 않는다.** 모델별 단가를 코드에 박으면 단가가 바뀌는
+    날부터 조용히 틀린 금액을 보여주는데, 틀린 금액은 없는 것보다 나쁘다(믿고 결정을
+    내리게 된다). 여기서는 청구에 비례하는 **토큰 수**만 정직하게 보여준다.
+    """
+    day = today()
+    # 오늘 — 캡과 같은 값을 본다(services/ai_usage.py가 캡 판정에 쓰는 그 쿼리들).
+    calls_today = count_today_all_users(db)
+    tokens_today = tokens_today_all_users(db)
+
+    # 최근 14일 추이. 오늘 하루만 보면 '평소 대비 튀었는가'를 알 수 없다.
+    since = day - timedelta(days=13)
+    daily = db.execute(
+        select(
+            AiUsage.day,
+            func.sum(AiUsage.count).label("calls"),
+            func.sum(AiUsage.input_tokens).label("input_tokens"),
+            func.sum(AiUsage.output_tokens).label("output_tokens"),
+        )
+        .where(AiUsage.day >= since)
+        .group_by(AiUsage.day)
+        .order_by(AiUsage.day)
+    ).all()
+
+    # 이번 달 상위 사용자. 계정이 몇 개 안 되지만, 한 계정이 전체를 먹고 있는지가
+    # 캡을 어디에 걸지 정할 때 필요한 정보다. 이메일은 안 내보낸다(표시명 규칙).
+    month_start = day.replace(day=1)
+    top = db.execute(
+        select(
+            AiUsage.user_id,
+            User.display_name,
+            func.sum(AiUsage.count).label("calls"),
+            func.sum(AiUsage.input_tokens + AiUsage.output_tokens).label("tokens"),
+        )
+        .join(User, User.id == AiUsage.user_id)
+        .where(AiUsage.day >= month_start)
+        .group_by(AiUsage.user_id, User.display_name)
+        .order_by(func.sum(AiUsage.input_tokens + AiUsage.output_tokens).desc())
+        .limit(10)
+    ).all()
+
+    return {
+        "today": {
+            "day": day,
+            "calls": calls_today,
+            "tokens": tokens_today,
+            "calls_cap": settings.ai_daily_cap_global,
+            "tokens_cap": settings.ai_daily_token_cap_global,
+        },
+        "daily": [
+            {
+                "day": r.day,
+                "calls": int(r.calls or 0),
+                "input_tokens": int(r.input_tokens or 0),
+                "output_tokens": int(r.output_tokens or 0),
+            }
+            for r in daily
+        ],
+        "top_users_month": [
+            {
+                "user_id": r.user_id,
+                "name": display_name_of(r.user_id, r.display_name),
+                "calls": int(r.calls or 0),
+                "tokens": int(r.tokens or 0),
+            }
+            for r in top
+        ],
+        # per-user 캡도 같이 준다 — 화면에서 '이 숫자가 무엇에 대비되는지' 없이는
+        # 숫자만 봐서는 많은지 적은지 판단할 수 없다.
+        "caps": {
+            "per_user_hourly": settings.ai_hourly_cap,
+            "per_user_daily": settings.ai_daily_cap,
+            "per_user_monthly": settings.ai_monthly_cap,
+        },
+    }
 
 
 @router.get("/users", response_model=list[UserRead])
@@ -121,6 +210,9 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 삭제할 수 없어")
     # 이 사용자의 글 삭제 → 댓글은 posts FK CASCADE로 함께 삭제
+    # (2026-08-15부터 posts.owner_id도 ondelete=CASCADE라 이 줄이 없어도 지워진다.
+    #  그래도 남긴다 — '사용자 삭제가 글을 지운다'는 건 부수효과가 아니라 이 함수의
+    #  의도이고, 코드에 안 적혀 있으면 다음 사람이 FK를 보고서야 알게 된다.)
     db.execute(delete(Post).where(Post.owner_id == user_id))
     # author_subscriptions는 users FK ondelete CASCADE라 user 삭제 시 자동 정리
     db.delete(user)

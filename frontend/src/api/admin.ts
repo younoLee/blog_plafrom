@@ -148,3 +148,24 @@ export async function fetchInfra(): Promise<InfraStatus> {
   if (!res.ok) throw new Error('인프라 상태를 불러오지 못했어')
   return res.json()
 }
+
+// AI 초안 사용량 — 토큰 컬럼은 2026-08-11부터 있었지만 사람이 볼 수 있는 화면이
+// 한 곳도 없었다. Anthropic 청구는 AWS 밖이라 AWS Budgets가 원리적으로 못 본다.
+export interface AiUsageDay {
+  day: string
+  calls: number
+  input_tokens: number
+  output_tokens: number
+}
+export interface AiUsageSummary {
+  today: { day: string; calls: number; tokens: number; calls_cap: number; tokens_cap: number }
+  daily: AiUsageDay[]
+  top_users_month: { user_id: number; name: string; calls: number; tokens: number }[]
+  caps: { per_user_hourly: number; per_user_daily: number; per_user_monthly: number }
+}
+
+export async function fetchAiUsage(): Promise<AiUsageSummary> {
+  const res = await fetchWithTimeout(`${BASE}/admin/ai-usage`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('AI 사용량을 불러오지 못했어')
+  return res.json()
+}

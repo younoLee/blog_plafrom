@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser, fetchInfra, listInvites, createInvite, revokeInvite, type InfraStatus, type Invite, type InviteCreated } from '../api/admin'
+import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser, fetchInfra, fetchAiUsage, listInvites, createInvite, revokeInvite, type InfraStatus, type AiUsageSummary, type Invite, type InviteCreated } from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 
@@ -48,6 +48,119 @@ function inviteState(inv: Invite): { label: string; badge: string } {
   if (new Date(inv.expires_at) <= new Date())
     return { label: '만료', badge: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300' }
   return { label: '대기 중', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' }
+}
+
+const nf = new Intl.NumberFormat('ko-KR')
+
+/** AI 초안 사용량. **숫자를 돈으로 바꾸지 않는다** — 모델 단가를 프론트에 박으면
+ *  단가가 바뀌는 날부터 조용히 틀린 금액을 보여주는데, 틀린 금액은 없는 것보다 나쁘다.
+ *  청구에 비례하는 토큰 수와 **그 상한**만 보여준다(상한이 없으면 많은지 적은지 모른다).
+ *
+ *  왜 이 화면이 필요한가: Anthropic 청구는 AWS 밖이라 watch.sh가 보는 AWS Budgets가
+ *  원리적으로 못 본다. 이 숫자를 안 보면 다음 명세서까지 아무도 모른다. */
+function AiUsageSection() {
+  const [data, setData] = useState<AiUsageSummary | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    fetchAiUsage()
+      .then(setData)
+      .catch(() => setFailed(true))
+  }, [])
+
+  // 서버가 꺼져 있으면 못 가져온다. 인프라 카드와 달리 폴링하지 않으므로
+  // '마지막 성공값이 남아 초록으로 보이는' 문제는 없다 — 실패는 실패로 말한다.
+  if (failed) {
+    return (
+      <section className="mt-8">
+        <h2 className="mb-1 text-xl font-semibold tracking-tight">AI 사용량</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          지금은 못 불러왔어 (서버 정지 또는 장애).
+        </p>
+      </section>
+    )
+  }
+  if (!data) return null
+
+  const { today, daily, top_users_month: top, caps } = data
+  const peak = Math.max(1, ...daily.map((d) => d.input_tokens + d.output_tokens))
+
+  return (
+    <section className="mt-8">
+      <h2 className="mb-1 flex items-baseline gap-2 text-xl font-semibold tracking-tight">
+        AI 사용량
+        <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+          서버키(Claude) 호출만 · BYOK는 사용자 비용이라 안 셈
+        </span>
+      </h2>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Meter
+          label="오늘 호출"
+          percent={(today.calls / today.calls_cap) * 100}
+          detail={`${nf.format(today.calls)} / ${nf.format(today.calls_cap)}회 (서비스 전체 일일 캡)`}
+        />
+        <Meter
+          label="오늘 토큰"
+          percent={(today.tokens / today.tokens_cap) * 100}
+          detail={`${nf.format(today.tokens)} / ${nf.format(today.tokens_cap)} (입력+출력)`}
+        />
+      </div>
+
+      <h3 className="mb-2 mt-6 text-sm font-medium text-gray-600 dark:text-gray-300">
+        최근 14일 토큰
+      </h3>
+      {daily.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">아직 기록이 없어.</p>
+      ) : (
+        <ul className="space-y-1">
+          {daily.map((d) => {
+            const total = d.input_tokens + d.output_tokens
+            return (
+              <li key={d.day} className="flex items-center gap-3 text-xs">
+                <span className="w-20 shrink-0 tabular-nums text-gray-500 dark:text-gray-400">
+                  {d.day.slice(5)}
+                </span>
+                <span className="h-2 flex-1 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/10">
+                  <span
+                    className="block h-full rounded-full bg-indigo-500"
+                    style={{ width: `${(total / peak) * 100}%` }}
+                  />
+                </span>
+                <span className="w-28 shrink-0 text-right tabular-nums text-gray-600 dark:text-gray-300">
+                  {nf.format(total)} · {d.calls}회
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {top.length > 0 && (
+        <>
+          <h3 className="mb-2 mt-6 text-sm font-medium text-gray-600 dark:text-gray-300">
+            이번 달 사용자별
+          </h3>
+          <ul className="space-y-1 text-sm">
+            {top.map((u) => (
+              <li key={u.user_id} className="flex justify-between gap-3">
+                {/* 이메일은 안 보여준다 — 표시명 규칙(display_name_of)을 서버가 이미 적용했다 */}
+                <span className="truncate">{u.name}</span>
+                <span className="shrink-0 tabular-nums text-gray-500 dark:text-gray-400">
+                  {nf.format(u.tokens)} · {u.calls}회
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+        1인 캡: 시간당 {caps.per_user_hourly}회 · 하루 {caps.per_user_daily}회 · 한 달{' '}
+        {caps.per_user_monthly}회. 금액이 아니라 토큰으로 보여주는 이유는 단가가 바뀌면
+        박아둔 금액이 조용히 틀리기 때문이야.
+      </p>
+    </section>
+  )
 }
 
 // 초대 발급/취소. '초대제'라는 말에 실체를 주는 화면이다 — 그전까지 초대는
@@ -312,6 +425,8 @@ function AdminPage() {
       )}
 
       {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
+
+      <AiUsageSection />
 
       <InviteSection />
 
