@@ -14,7 +14,7 @@ import { IconArrowLeft, IconLock, IconCheck } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { Toc } from '../components/Toc'
 import { SeriesBox, SeriesPrevNext } from '../components/SeriesBox'
-import { readingTime, archiveUrlFor, excerpt } from '../postUtils'
+import { readingTime, archiveUrlFor, excerpt, relatedPosts, type ArchivePost } from '../postUtils'
 import { useHead } from '../useDocumentTitle'
 import { CopyButton } from '../components/CopyButton'
 
@@ -71,6 +71,8 @@ function PostDetailPage() {
   // 공유용 주소. **아래 리셋 블록보다 먼저 선언해야 한다** — 리셋은 렌더 중에 도는데
   // 선언이 그 아래 있으면 TDZ(초기화 전 접근)로 죽는다. 규칙은 postUtils.archiveUrlFor에.
   const [archiveUrl, setArchiveUrl] = useState<string | null>(null)
+  // 같은 파일에서 '관련 글'도 만든다(아래 relatedPosts). 정적 인덱스라 서버와 무관하다.
+  const [archiveIndex, setArchiveIndex] = useState<ArchivePost[] | null>(null)
 
   const [comments, setComments] = useState<Comment[]>([])
   const [author, setAuthor] = useState('')
@@ -215,16 +217,26 @@ function PostDetailPage() {
     let alive = true
     fetch('/devlog-index.json')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { posts?: { title: string; slug: string }[] } | null) => {
-        if (alive) setArchiveUrl(archiveUrlFor(d?.posts, postTitle, window.location.origin))
+      .then((d: { posts?: ArchivePost[] } | null) => {
+        if (!alive) return
+        setArchiveUrl(archiveUrlFor(d?.posts, postTitle, window.location.origin))
+        // 같은 재료로 '관련 글'도 만든다 — 이미 받은 파일이라 요청이 안 는다.
+        setArchiveIndex(d?.posts ?? null)
       })
       .catch(() => {
-        if (alive) setArchiveUrl(null)
+        if (!alive) return
+        setArchiveUrl(null)
+        setArchiveIndex(null)
       })
     return () => {
       alive = false
     }
   }, [postTitle])
+
+  const related = useMemo(
+    () => relatedPosts(archiveIndex, post?.title, post?.tags),
+    [archiveIndex, post?.title, post?.tags],
+  )
 
   // 검색엔진·미리보기용 head. **canonical은 정적 아카이브를 가리킨다** — 같은 글이 두
   // 주소에 있는데(여기와 /devlog/*.html) 표준을 안 정하면 서로의 중복이 되고, EC2가
@@ -397,6 +409,30 @@ function PostDetailPage() {
           <SeriesPrevNext nav={series} />
           <SeriesBox nav={series} currentId={postId} />
         </>
+      )}
+
+      {/* 같은 주제의 다른 편. 링크는 SPA 주소가 아니라 **정적 아카이브**로 건다 —
+          이 사이트는 EC2를 평소 꺼두므로 추천을 눌렀는데 안 열리면 추천이 아니다.
+          겹치는 태그가 없으면 relatedPosts가 빈 배열을 주고 블록 자체가 안 나온다. */}
+      {related.length > 0 && (
+        <section className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">
+          <h2 className="mb-4 text-lg font-semibold tracking-tight">비슷한 주제의 편</h2>
+          <ul className="space-y-3">
+            {related.map(({ post: r, shared }) => (
+              <li key={r.slug}>
+                <a
+                  href={`/${r.slug.replace(/^\//, '')}`}
+                  className="font-medium text-[#0071e3] hover:underline dark:text-[#0a84ff]"
+                >
+                  {r.title}
+                </a>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                  {r.date} · {shared.join(' · ')}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <section className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">

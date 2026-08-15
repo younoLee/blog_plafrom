@@ -5,7 +5,7 @@
 (빠뜨리면 글은 보이는데 연재 네비가 null이 된다 — 2026-07-20에 겪음)를 기억에
 의존했다. 기억은 두 번에 한 번 틀린다.
 
-제목·태그는 devlog_to_markdown.POSTS가 유일한 출처다. 마크다운의 H1을 파싱하지
+제목·태그는 devlog_posts.POSTS가 유일한 출처다. 마크다운의 H1을 파싱하지
 않는 이유: 같은 값이 두 군데 살면 언젠가 갈라지고, 그때 어느 쪽이 맞는지 알 수 없다.
 
 사용:
@@ -13,17 +13,16 @@
   python scripts/build_devlog_payload.py 2026-07-22 2026-07-24 2026-07-27
   python scripts/build_devlog_payload.py -o out.json 2026-07-27
 
-python-docx가 필요하다(devlog_to_markdown을 import하므로). 로컬 파이썬에 없으면
-변환할 때와 같은 컨테이너에서 돌린다:
-  docker run --rm -v "$PWD":/work -w /work python:3.12-slim \
-      sh -c "pip install -q python-docx && python scripts/build_devlog_payload.py"
+**의존성 없이 돈다(2026-08-15부터).** 전에는 python-docx가 필요했는데, 그건 이
+스크립트가 docx를 써서가 아니라 POSTS가 변환기 파일 안에 살아서였다. 표를
+devlog_posts.py로 떼면서 그 가짜 의존성이 사라졌다 — 로컬 파이썬으로 그냥 돌아간다.
 """
 
 import json
 import sys
 from pathlib import Path
 
-from devlog_to_markdown import OUT_DIR, POSTS
+from devlog_posts import OUT_DIR, POSTS
 
 SERIES = "블로그 만들기"
 
@@ -32,7 +31,7 @@ def build(dates: list[str]) -> list[dict]:
     items = []
     for date in dates:
         if date not in POSTS:
-            sys.exit(f"{date}: devlog_to_markdown.POSTS에 제목·태그가 없습니다.")
+            sys.exit(f"{date}: devlog_posts.POSTS에 제목·태그가 없습니다.")
         md = OUT_DIR / f"{date}.md"
         if not md.exists():
             sys.exit(f"{md} 가 없습니다. 먼저 devlog_to_markdown.py 를 돌리세요.")

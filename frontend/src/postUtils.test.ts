@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { excerpt, readingTime, archiveUrlFor } from './postUtils'
+import { excerpt, readingTime, archiveUrlFor, relatedPosts } from './postUtils'
 
 describe('excerpt', () => {
   it('마크다운 기호를 벗긴다(헤딩·불릿·강조·코드)', () => {
@@ -75,5 +75,51 @@ describe('archiveUrlFor — 공유 주소 고르기', () => {
   it('부분 일치로 엉뚱한 편을 주지 않는다', () => {
     // '#2'로 시작하는 제목이 여럿이라 startsWith/includes로 바꾸면 #28이 #29 자리에 온다
     expect(archiveUrlFor(posts, '블로그 만들기 #2', ORIGIN)).toBeNull()
+  })
+})
+
+describe('relatedPosts', () => {
+  // 실제 데이터 모양대로: '개발일지'가 **모든 편**에 붙어 있다.
+  const index = [
+    { title: '#31 알림', slug: 'devlog/2026-08-14.html', date: '2026-08-14', tags: ['개발일지', '알림', '테스트'] },
+    { title: '#30 검사', slug: 'devlog/2026-08-12.html', date: '2026-08-12', tags: ['개발일지', '보안', '테스트'] },
+    { title: '#29 초록', slug: 'devlog/2026-08-11.html', date: '2026-08-11', tags: ['개발일지', '테스트'] },
+    { title: '#28 입구', slug: 'devlog/2026-08-10.html', date: '2026-08-10', tags: ['개발일지', '보안'] },
+    { title: '#27 목록', slug: 'devlog/2026-08-09.html', date: '2026-08-09', tags: ['개발일지', '운영'] },
+  ]
+
+  it('모든 편에 붙은 태그는 셈에서 뺀다 — 안 빼면 그냥 최신 3편이 된다', () => {
+    // '#27 목록'은 '운영' 하나뿐이라 겹치는 게 없다. '개발일지'를 세면 여기 끼어든다.
+    const r = relatedPosts(index, '#31 알림', ['개발일지', '알림', '테스트'])
+    expect(r.map((x) => x.post.title)).not.toContain('#27 목록')
+    expect(r.every((x) => !x.shared.includes('개발일지'))).toBe(true)
+  })
+
+  it('겹치는 태그가 많은 순, 같으면 최신 순', () => {
+    const r = relatedPosts(index, '#31 알림', ['개발일지', '보안', '테스트'])
+    expect(r[0].post.title).toBe('#30 검사') // 보안+테스트 2개
+    expect(r[0].shared).toEqual(['보안', '테스트'])
+    expect(r[1].post.title).toBe('#29 초록') // 테스트 1개, 더 최신
+    expect(r[2].post.title).toBe('#28 입구') // 보안 1개
+  })
+
+  it('자기 자신은 빼고, 겹치는 게 없으면 빈 배열 (억지로 채우지 않는다)', () => {
+    expect(relatedPosts(index, '#31 알림', ['개발일지', '알림', '테스트']).map((x) => x.post.title))
+      .not.toContain('#31 알림')
+    expect(relatedPosts(index, '#27 목록', ['개발일지', '운영'])).toEqual([])
+  })
+
+  it('구별되는 태그가 하나도 없으면(공통 태그뿐) 빈 배열', () => {
+    expect(relatedPosts(index, '#31 알림', ['개발일지'])).toEqual([])
+  })
+
+  it('인덱스가 없거나(정적 산출물 미배포) 태그가 비면 빈 배열', () => {
+    expect(relatedPosts(undefined, '#31 알림', ['보안'])).toEqual([])
+    expect(relatedPosts([], '#31 알림', ['보안'])).toEqual([])
+    expect(relatedPosts(index, '#31 알림', [])).toEqual([])
+  })
+
+  it('max로 개수를 자른다', () => {
+    expect(relatedPosts(index, '#31 알림', ['보안', '테스트'], 2)).toHaveLength(2)
   })
 })

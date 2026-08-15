@@ -107,6 +107,22 @@ function summarize(body) {
   return ''
 }
 
+/** 날짜 → 태그. 원본 표는 scripts/devlog_posts.py의 POSTS이고, 그 파이썬이
+ *  content/devlog/tags.json으로 내보낸 것을 여기서 읽는다.
+ *
+ *  왜 이렇게까지 하나: 태그는 발행 스크립트가 DB에 넣는 값과 **같은 값이어야 한다.**
+ *  여기서 마크다운을 다시 파싱하거나 손으로 적으면 두 벌이 되고, 두 벌은 갈라진다.
+ *  Node가 파이썬 소스를 읽을 수는 없으니 json이 다리다(생성물이지만 커밋한다 —
+ *  CI·배포는 docx도 파이썬도 돌리지 않는다). */
+function readTagMap() {
+  const path = join(SRC, 'tags.json')
+  if (!existsSync(path)) {
+    console.error(`\n❌ ${path} 가 없다. \`python scripts/devlog_posts.py\`로 만들어라.\n`)
+    process.exit(1)
+  }
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
 /** 마크다운 한 편 읽기. 제목은 첫 H1, 날짜는 파일명 — 프론트매터가 없어서다. */
 function readPost(file) {
   const date = file.replace(/\.md$/, '')
@@ -127,7 +143,75 @@ function readPost(file) {
   }
 }
 
-const page = ({ title, description, url, body, article, published }) => `<!doctype html>
+/** /devlog.html의 검색·태그 필터. 별도 파일로 낸다(인라인은 CSP가 막는다).
+ *
+ *  의존성 없이 맨 DOM만 쓴다 — 이 페이지는 '서버도 번들도 없이 도는 곳'이고,
+ *  여기에 프레임워크를 끌어오면 그 성질을 잃는다.
+ *
+ *  목록은 이미 HTML에 다 있다. 이 스크립트는 **줄을 숨기고 보이는 일만** 한다.
+ *  그래서 스크립트가 실패하면 필터가 안 뜰 뿐, 31편은 그대로 읽힌다. */
+const FILTER_JS = `// 생성물 — frontend/scripts/gen-static.mjs가 만든다. 직접 고치지 말 것.
+(function () {
+  var filter = document.getElementById('filter')
+  var list = document.getElementById('posts')
+  if (!filter || !list) return
+
+  var items = Array.prototype.slice.call(list.children)
+  var input = document.getElementById('q')
+  var count = document.getElementById('count')
+  var empty = document.getElementById('empty')
+  var buttons = Array.prototype.slice.call(filter.querySelectorAll('[data-tag]'))
+  var active = ''
+
+  function apply() {
+    var q = input.value.trim().toLowerCase()
+    var shown = 0
+    items.forEach(function (li) {
+      var tags = (li.getAttribute('data-tags') || '').split('|')
+      var ok =
+        (!active || tags.indexOf(active) !== -1) &&
+        (!q || (li.getAttribute('data-text') || '').indexOf(q) !== -1)
+      li.hidden = !ok
+      if (ok) shown++
+    })
+    count.textContent =
+      active || q ? shown + '편 (전체 ' + items.length + '편 중)' : ''
+    empty.hidden = shown !== 0
+
+    // 주소에 태그를 남긴다 — 편별 페이지의 태그 칩이 ?tag=로 오고, 걸러진 상태를
+    // 그대로 공유·북마크할 수 있어야 한다. pushState가 아니라 replaceState인 이유:
+    // 글자를 칠 때마다 히스토리가 쌓이면 뒤로가기가 먹통이 된다.
+    var url = location.pathname + (active ? '?tag=' + encodeURIComponent(active) : '')
+    history.replaceState(null, '', url)
+  }
+
+  function select(tag) {
+    active = active === tag ? '' : tag
+    buttons.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-tag') === active))
+    })
+    apply()
+  }
+
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      select(b.getAttribute('data-tag'))
+    })
+  })
+  input.addEventListener('input', apply)
+
+  // 들어올 때 ?tag=가 있으면 그 상태로 시작한다.
+  var initial = new URLSearchParams(location.search).get('tag')
+  if (initial && buttons.some(function (b) { return b.getAttribute('data-tag') === initial })) {
+    select(initial)
+  }
+
+  filter.hidden = false // 여기까지 왔으면 필터가 실제로 동작한다 — 그때 보여준다
+  apply()
+})()
+`
+
+const page = ({ title, description, url, body, article, published, script }) => `<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
@@ -188,6 +272,24 @@ img{max-width:100%;height:auto}
 .seriesnav-title{display:block;font-weight:600;font-size:.95rem;line-height:1.4}
 .seriesnav-all{margin:0 0 1rem}
 @media(max-width:34rem){.seriesnav{flex-direction:column;gap:1.25rem}.seriesnav-item:last-child{text-align:left}}
+/* 태그 칩 · 필터 · 관련 글 */
+.tags{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 1.75rem}
+.tag{display:inline-block;padding:.2rem .6rem;border:1px solid #d2d2d7;border-radius:999px;
+  background:none;color:#515154;font:inherit;font-size:.82rem;text-decoration:none;cursor:pointer}
+.tag:hover{border-color:#0071e3;color:#0071e3}
+.tag[aria-pressed="true"]{background:#0071e3;border-color:#0071e3;color:#fff}
+.tag-n{opacity:.6;font-size:.9em}
+.filter{margin:0 0 1.5rem}
+.filter input{width:100%;padding:.6rem .8rem;font:inherit;font-size:.95rem;color:inherit;
+  background:none;border:1px solid #d2d2d7;border-radius:10px}
+.tagbar{display:flex;flex-wrap:wrap;gap:.4rem;margin:.75rem 0 0}
+.filter-count,.filter-empty{color:#6e6e73;font-size:.85rem;margin:.75rem 0 0}
+.related{margin:3rem 0 0;padding-top:1.5rem;border-top:1px solid #e8e8ed}
+.related-h{font-size:1rem;margin:0;color:#6e6e73;letter-spacing:0}
+.related .list li:last-child{border-bottom:none}
+/* 화면에선 안 보이되 스크린리더는 읽는다(검색칸 라벨). display:none이면 안 읽힌다. */
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
 /* #86868b는 흰 배경에서 3.7:1이라 WCAG AA(4.5:1)에 못 미쳤다 — 날짜·요약이
    본문 읽기 경로 위에 있어서 저시력 독자에게 바로 걸린다. #6e6e73은 5.1:1. */
 .meta{color:#6e6e73;font-size:.9rem}
@@ -205,13 +307,27 @@ th,td{border-color:#38383a}
 .meta,.list p{color:#a1a1a6}
 .seriesnav{border-color:#1c1c1e}
 .seriesnav-label{color:#a1a1a6}
+.tag{border-color:#38383a;color:#a1a1a6}
+.tag:hover{border-color:#0a84ff;color:#0a84ff}
+.tag[aria-pressed="true"]{background:#0a84ff;border-color:#0a84ff;color:#fff}
+.filter input{border-color:#38383a}
+.filter-count,.filter-empty{color:#a1a1a6}
+.related{border-color:#1c1c1e}
+.related-h{color:#a1a1a6}
 }
 </style>
 </head>
 <body><main>
 <p class="nav"><a href="/">← ${esc(TITLE)}</a> · <a href="/devlog.html">개발일지 전체</a> · <a href="/rss.xml">RSS</a></p>
 ${body}
-</main></body>
+</main>${
+  script
+    ? // ⚠️ **인라인 <script>를 쓰면 안 된다.** CSP가 script-src 'self'라
+      // (terraform/csp-function.js) 인라인은 차단되고, 차단돼도 목록은 그대로
+      // 보여서 "필터가 왜 안 뜨지" 말고는 아무 단서가 없다. 자기 출처 파일로 낸다.
+      `\n<script src="${script}" defer></script>`
+    : ''
+}</body>
 </html>
 `
 
@@ -234,6 +350,19 @@ function main() {
     .sort()
     .map(readPost)
     .reverse() // 최신순
+
+  // 태그를 붙인다. **없으면 멈춘다.** 조용히 빈 배열로 넘어가면 그 편만 필터·관련
+  // 글에서 사라지는데, 페이지는 멀쩡히 만들어져서 아무도 모른다 — 새 편을 쓰고
+  // tags.json 내보내기를 잊는 게 정확히 그 경로다(devlog_to_markdown.py가 이제
+  // 마크다운을 쓸 때 같이 내보낸다).
+  const tagMap = readTagMap()
+  const missing = posts.filter((p) => !tagMap[p.date]?.tags?.length).map((p) => p.date)
+  if (missing.length) {
+    console.error(`\n❌ content/devlog/tags.json에 태그가 없는 편: ${missing.join(', ')}`)
+    console.error('   → scripts/devlog_posts.py의 POSTS에 추가하고 `python scripts/devlog_posts.py`.\n')
+    process.exit(1)
+  }
+  for (const p of posts) p.tags = tagMap[p.date].tags
 
   // ── 두 렌더러가 같은 원문을 다르게 읽는 것을 막는 가드 ──────────────────
   // 이 파일은 marked(GFM 지원)로 정적 아카이브를 만들고, **같은 마크다운**이
@@ -332,6 +461,48 @@ function main() {
     )
   }
 
+  /** 모든 편에 붙는 태그는 관련도 계산에서 뺀다.
+   *  '개발일지'가 31편 전부에 있어서, 그대로 두면 아무 두 편이나 1점씩 겹쳐
+   *  "관련 글"이 사실상 최신 3편 고정이 된다 — 추천처럼 보이지만 정보가 0이다. */
+  const universal = new Set(posts[0].tags.filter((t) => posts.every((p) => p.tags.includes(t))))
+  const distinct = (p) => p.tags.filter((t) => !universal.has(t))
+
+  /**
+   * 같은 주제의 다른 편. **이전/다음 편은 뺀다** — 바로 위 seriesNav가 이미 보여준다.
+   * 겹치는 태그가 많은 순, 같으면 최신 순. 겹치는 게 없으면 아예 안 그린다
+   * (억지로 채우면 '관련'이라는 말이 거짓이 된다).
+   */
+  const relatedNav = (i) => {
+    const mine = new Set(distinct(posts[i]))
+    if (!mine.size) return ''
+    const hits = posts
+      .map((p, j) => ({ p, j, shared: distinct(p).filter((t) => mine.has(t)) }))
+      .filter(({ j, shared }) => j !== i && j !== i - 1 && j !== i + 1 && shared.length)
+      .sort((a, b) => b.shared.length - a.shared.length || (a.p.date < b.p.date ? 1 : -1))
+      .slice(0, 3)
+    if (!hits.length) return ''
+    return (
+      `<nav class="related" aria-labelledby="related-h">` +
+      `<h2 id="related-h" class="related-h">비슷한 주제의 편</h2><ul class="list">` +
+      hits
+        .map(
+          ({ p, shared }) =>
+            `<li><a href="/${p.slug}">${esc(p.title)}</a>` +
+            `<p>${p.date} · ${shared.map((t) => esc(t)).join(' · ')}</p></li>`,
+        )
+        .join('') +
+      `</ul></nav>`
+    )
+  }
+
+  /** 태그 칩. 누르면 아카이브 인덱스가 그 태그로 걸러진 채 열린다(?tag=). */
+  const tagChips = (p) =>
+    `<p class="tags">` +
+    p.tags
+      .map((t) => `<a class="tag" href="/devlog.html?tag=${encodeURIComponent(t)}">${esc(t)}</a>`)
+      .join('') +
+    `</p>`
+
   // 1) 편별 정적 페이지 — 크롤러와 사람 모두 서버 없이 전문을 읽는다.
   //    SPA 라우트(/blog/posts/{id})와 달리 여기엔 편마다 제 OG 태그가 붙는다.
   for (const [i, p] of posts.entries()) {
@@ -345,29 +516,68 @@ function main() {
         // 날짜만 있는 원고라 자정 기준으로 만든다. 타임존을 빼면 읽는 쪽이 UTC로 보고
         // 하루 앞당겨 표시하는 일이 생긴다(작성 시각은 애초에 날짜 단위로만 안다).
         published: `${p.date}T00:00:00+09:00`,
-        body: `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${p.html}${seriesNav(i)}`,
+        body:
+          `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${tagChips(p)}` +
+          `${p.html}${seriesNav(i)}${relatedNav(i)}`,
       }),
     )
   }
 
   // 2) 아카이브 인덱스. /devlog/ 가 아니라 /devlog.html 인 이유는 위 주석 참고.
+  //
+  //   31편이 한 줄씩 날짜순으로만 쌓여 있어서, "보안 얘기 어느 편이었지"를 찾으려면
+  //   제목 31개를 눈으로 훑는 수밖에 없었다. 검색·태그 필터를 붙인다.
+  //
+  //   **점진적 향상으로 짠다.** 목록 자체는 그대로 HTML에 다 들어 있고(크롤러도
+  //   JS 없는 브라우저도 전편을 본다), 필터 UI만 `hidden`으로 숨겨 두었다가
+  //   스크립트가 벗긴다. 반대로 짜면 — 필터로 목록을 그리면 — JS가 막히는 순간
+  //   이 페이지가 백지가 되는데, 그건 이 페이지의 존재 이유("서버도 스크립트도
+  //   없이 읽힌다")를 정면으로 부순다.
+  const tagCounts = new Map()
+  for (const p of posts) for (const t of p.tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+  const tagbar = [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko'))
+    .map(
+      ([t, n]) =>
+        `<button type="button" class="tag" data-tag="${esc(t)}" aria-pressed="false">` +
+        `${esc(t)} <span class="tag-n">${n}</span></button>`,
+    )
+    .join('')
+
   writeFileSync(
     join(OUT, 'devlog.html'),
     page({
       title: `개발일지 — ${TITLE}`,
       description: `개발일지 ${posts.length}편. 서버 없이도 읽을 수 있습니다.`,
       url: `${SITE}/devlog.html`,
+      script: '/devlog-filter.js',
       body:
-        `<h1>개발일지</h1><p class="meta">${posts.length}편 · 이 페이지는 서버 없이 동작합니다</p><ul class="list">` +
+        `<h1>개발일지</h1><p class="meta">${posts.length}편 · 이 페이지는 서버 없이 동작합니다</p>` +
+        `<div class="filter" id="filter" hidden>` +
+        `<label class="visually-hidden" for="q">제목·요약 검색</label>` +
+        `<input id="q" type="search" placeholder="제목·요약에서 찾기" autocomplete="off">` +
+        `<div class="tagbar">${tagbar}</div>` +
+        // role=status: 필터링 결과 건수가 스크린리더에도 읽히게 한다. 시각적으로는
+        // 목록이 줄어드는 게 보이지만, 안 보이는 사람에게는 아무 일도 안 일어난 것과 같다.
+        `<p class="filter-count" id="count" role="status"></p>` +
+        `</div>` +
+        `<ul class="list" id="posts">` +
         posts
           .map(
             (p) =>
-              `<li><a href="/${p.slug}">${esc(p.title)}</a><p>${p.date}${p.summary ? ` — ${esc(p.summary)}` : ''}</p></li>`,
+              `<li data-tags="${esc(p.tags.join('|'))}" ` +
+              `data-text="${esc(`${p.title} ${p.summary} ${p.date}`.toLowerCase())}">` +
+              `<a href="/${p.slug}">${esc(p.title)}</a>` +
+              `<p>${p.date}${p.summary ? ` — ${esc(p.summary)}` : ''}</p></li>`,
           )
           .join('') +
-        '</ul>',
+        '</ul>' +
+        `<p class="filter-empty" id="empty" hidden>찾는 편이 없다. 검색어나 태그를 지워봐.</p>`,
     }),
   )
+
+  // (2의 짝) 필터 스크립트. 인라인이 아니라 파일인 이유는 page() 안 주석 참고(CSP).
+  writeFileSync(join(OUT, 'devlog-filter.js'), FILTER_JS)
 
   // 2-B) 포털용 목록 JSON — **첫 화면이 빈 채로 뜨는 문제를 서버 없이 고친다.**
   //
@@ -389,7 +599,13 @@ function main() {
     JSON.stringify({
       total: posts.length,
       chars: posts.reduce((n, p) => n + p.body.length, 0),
-      posts: posts.map(({ date, title, slug, summary }) => ({ date, title, slug, summary })),
+      posts: posts.map(({ date, title, slug, summary, tags }) => ({
+        date,
+        title,
+        slug,
+        summary,
+        tags,
+      })),
     }),
   )
 

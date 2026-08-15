@@ -20,6 +20,47 @@ export function readingTime(md: string): number {
   return Math.max(1, Math.round(md.length / 500))
 }
 
+export interface ArchivePost {
+  title: string
+  slug: string
+  date?: string
+  tags?: string[]
+}
+
+/** 같은 주제의 다른 편 고르기 — 겹치는 태그가 많은 순, 같으면 최신 순.
+ *
+ *  **재료가 API가 아니라 정적 인덱스(devlog-index.json)다.** `/api/posts?tag=`가
+ *  있지만 이 사이트는 EC2를 평소 꺼두므로, 추천 블록 하나 때문에 잠든 서버를
+ *  기다리게 되고 링크를 눌러도 안 열린다. 정적 인덱스는 S3에서 오고 가리키는
+ *  아카이브 페이지도 서버 없이 열린다 — 추천이 실제로 닿는다.
+ *
+ *  `universal`(모든 편에 붙은 태그, 예: '개발일지')은 셈에서 뺀다. 안 빼면 아무
+ *  두 편이나 1점씩 겹쳐 사실상 최신 3편 고정이 된다 — 추천처럼 보이지만 정보가 0이다. */
+export function relatedPosts(
+  posts: ArchivePost[] | undefined | null,
+  title: string | undefined | null,
+  tags: string[] | undefined | null,
+  max = 3,
+): { post: ArchivePost; shared: string[] }[] {
+  if (!posts?.length || !tags?.length) return []
+  const universal = new Set(
+    (posts[0].tags ?? []).filter((t) => posts.every((p) => p.tags?.includes(t))),
+  )
+  const mine = new Set(tags.filter((t) => !universal.has(t)))
+  if (!mine.size) return []
+  return posts
+    .filter((p) => p.title !== title)
+    .map((p) => ({ post: p, shared: (p.tags ?? []).filter((t) => mine.has(t)) }))
+    .filter((r) => r.shared.length > 0)
+    .sort(
+      (a, b) =>
+        // 괄호 주의: `x || y ? 1 : -1`은 `(x||y) ? 1 : -1`로 묶여 겹침 수가 통째로 무시된다.
+        b.shared.length - a.shared.length ||
+        ((a.post.date ?? '') < (b.post.date ?? '') ? 1 : -1),
+    )
+    .slice(0, max)
+}
+
 /** 공유용 주소 고르기 — 같은 글의 **정적 아카이브** 주소가 있으면 그걸 준다.
  *
  *  SPA 주소(/blog/posts/41)를 공유하면 받는 쪽 미리보기 카드가 어느 글이든 똑같고
