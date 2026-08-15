@@ -39,8 +39,15 @@ export function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<'pre'
     //    이제 그 규칙들이 무는 건 `<pre>`가 아니라 이 div다. div의 마진을 0으로 만들어도
     //    안쪽 `<pre>`의 margin 1.71429em이 **마진 상쇄로 그대로 밖에 나온다**
     //    (`position:relative`는 BFC를 안 만들어 상쇄를 못 막는다). 그러면 소제목 바로 뒤
-    //    코드블록에 없던 여백 ~27px이 생긴다 — 이 블로그에서 가장 흔한 배치다.
+    //    코드블록에 없던 여백 ~27px이 생긴다.
     //    1.5em = pre의 1.71429em × pre의 font-size .875em (둘 다 typography 기본값).
+    //
+    //    📏 **여기 "이 블로그에서 가장 흔한 배치다"라고 적혀 있었는데 사실이 아니었다.**
+    //    2026-08-15에 세어보니 content/devlog의 여는 코드펜스 **193개 중 소제목 바로 뒤는
+    //    0개**다(99%가 보통 문단 뒤). 즉 이 wrapper가 실제로 막고 있는 건 `h2+*` 경로가
+    //    아니라 **모든 코드블록의 위아래 간격**이다 — 마진 상쇄는 앞 요소가 무엇이든 난다.
+    //    수정 자체는 옳다. 틀린 건 근거로 적어둔 문장이었고, 그 문장 때문에 "소제목 뒤를
+    //    눈으로 확인하라"는 없는 숙제가 하나 생겨 있었다.
     <div className="group relative my-[1.5em] [&>pre]:my-0">
       <pre ref={ref} {...props}>
         {children}
