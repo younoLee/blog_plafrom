@@ -64,6 +64,13 @@ function slugify(raw) {
   return n ? `${base}-${n}` : base
 }
 
+/** 방금 판 편의 소제목들 — 목차를 만드는 재료다.
+ *
+ *  **렌더러가 실제로 붙인 id를 그대로 모은다.** 목차용으로 slug를 다시 계산하면
+ *  중복 번호(`-1`)나 기호 처리가 어긋나 링크가 죽는 자리가 생긴다. 앱 쪽 Toc.tsx의
+ *  slug()도 규칙이 달라서 복사하면 안 된다 — 같은 값을 두 번 계산하지 않는 게 요점이다. */
+let headings = []
+
 const md = new Marked({
   renderer: {
     html({ text }) {
@@ -71,7 +78,9 @@ const md = new Marked({
     },
     heading({ tokens, depth, text }) {
       const inner = this.parser.parseInline(tokens)
-      return `<h${depth} id="${esc(slugify(text))}">${inner}</h${depth}>\n`
+      const id = esc(slugify(text))
+      if (depth <= 3) headings.push({ id, depth, text })
+      return `<h${depth} id="${id}">${inner}</h${depth}>\n`
     },
   },
 })
@@ -133,12 +142,16 @@ function readPost(file) {
   // 코드펜스 안의 `# 주석` 첫 줄이 조용히 사라진다(이 일지들은 쉘 주석이 많다).
   const body = (h1 ? raw.replace(h1[0], '') : raw).trim()
   slugCounts.clear() // id 중복 카운터는 **편마다** 초기화한다(안 하면 2편부터 -1이 붙는다)
+  headings = [] // 같은 이유로 목차 재료도 편마다 비운다
+  // ⚠️ `html`을 먼저 만들어야 headings가 찬다 — 렌더러가 도는 시점이 여기다.
+  const html = md.parse(body)
   return {
     date,
     slug: `devlog/${date}.html`,
     title: h1 ? h1[1].trim() : date,
     summary: summarize(body),
-    html: md.parse(body),
+    html,
+    headings: headings.slice(),
     body, // GFM 가드가 원문을 본다(아래 gfmOnly 참고)
   }
 }
@@ -163,14 +176,42 @@ const FILTER_JS = `// 생성물 — frontend/scripts/gen-static.mjs가 만든다
   var buttons = Array.prototype.slice.call(filter.querySelectorAll('[data-tag]'))
   var active = ''
 
+  // 본문 색인. data-text(제목+요약+날짜)는 본문의 2.4%뿐이라 "CSP"처럼 본문에만 있는
+  // 낱말이 0건으로 나왔다 — 있는 것을 없다고 답하는 검색이었다(2026-08-17 실측:
+  // CSP 5편→0건, CloudFront 22편→1건). 그래서 평문 본문을 따로 굽고 여기서 읽는다.
+  //
+  // **첫 타건 때 한 번만** 받는다: 목록만 보는 사람에겐 한 바이트도 더 안 받게.
+  // 도착 전이나 실패했을 땐 지금까지처럼 제목·요약으로만 거른다(fail-soft) —
+  // 이 페이지의 성질은 '서버도 번들도 없이 돈다'이고, 색인은 거기 얹는 덤이다.
+  var bodyText = null
+  var bodyLoading = false
+  function loadBody() {
+    if (bodyText || bodyLoading || !window.fetch) return
+    bodyLoading = true
+    fetch('/devlog-search.json')
+      .then(function (r) { return r.ok ? r.json() : null })
+      .then(function (d) {
+        if (!d) return
+        bodyText = {}
+        for (var i = 0; i < d.length; i++) bodyText[d[i].slug] = d[i].text
+        apply() // 도착한 뒤 한 번 더 — 그 사이에 친 검색어에 본문이 반영된다
+      })
+      .catch(function () {})
+  }
+
   function apply() {
     var q = input.value.trim().toLowerCase()
     var shown = 0
     items.forEach(function (li) {
       var tags = (li.getAttribute('data-tags') || '').split('|')
+      var hay = li.getAttribute('data-text') || ''
+      if (bodyText) {
+        var extra = bodyText[li.getAttribute('data-slug') || '']
+        if (extra) hay += ' ' + extra
+      }
       var ok =
         (!active || tags.indexOf(active) !== -1) &&
-        (!q || (li.getAttribute('data-text') || '').indexOf(q) !== -1)
+        (!q || hay.indexOf(q) !== -1)
       li.hidden = !ok
       if (ok) shown++
     })
@@ -198,7 +239,10 @@ const FILTER_JS = `// 생성물 — frontend/scripts/gen-static.mjs가 만든다
       select(b.getAttribute('data-tag'))
     })
   })
-  input.addEventListener('input', apply)
+  input.addEventListener('input', function () {
+    loadBody()
+    apply()
+  })
 
   // 들어올 때 ?tag=가 있으면 그 상태로 시작한다.
   var initial = new URLSearchParams(location.search).get('tag')
@@ -220,6 +264,15 @@ const page = ({ title, description, url, body, article, published, script }) => 
 <meta name="description" content="${esc(description)}">
 <link rel="canonical" href="${url}">
 <link rel="alternate" type="application/rss+xml" title="${esc(TITLE)}" href="${SITE}/rss.xml">
+<!-- 아이콘·manifest. **파일은 원래부터 다 있었는데(favicon.svg·icon-192·manifest.json 전부 200)
+     이 정적 판 34장에만 선언이 0개였다** — index.html엔 넷 다 있었다(2026-08-17 실측).
+     서버가 평소 꺼져 있어 실제로 읽히는 게 이 34장인데, 거기서만 탭·북마크 아이콘이
+     기본 회색이었다. start_url·scope가 둘 다 "/"라 manifest도 여기 넣는 쪽이 맞다. -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#863bff">
 <meta property="og:type" content="${article ? 'article' : 'website'}">
 <meta property="og:site_name" content="${esc(TITLE)}">
 <meta property="og:title" content="${esc(title)}">
@@ -272,6 +325,15 @@ img{max-width:100%;height:auto}
 .seriesnav-title{display:block;font-weight:600;font-size:.95rem;line-height:1.4}
 .seriesnav-all{margin:0 0 1rem}
 @media(max-width:34rem){.seriesnav{flex-direction:column;gap:1.25rem}.seriesnav-item:last-child{text-align:left}}
+/* 목차. <details>라 접고 펴는 데 스크립트가 필요 없다 — 이 집은 CSP가 인라인을 막아서
+   '스크립트 없이 되는 것'을 고르는 게 원칙이다. 기본은 열어둔다(open). */
+.toc{margin:0 0 2rem;padding:.9rem 1.1rem;border:1px solid #d2d2d7;border-radius:.75rem;background:#fbfbfd}
+.toc>summary{cursor:pointer;font-size:.9rem;font-weight:600;color:#6e6e73}
+.toc ul{list-style:none;margin:.75rem 0 0;padding:0}
+.toc li{margin:.35rem 0;line-height:1.45}
+.toc li.d3{padding-left:1rem;font-size:.9rem}
+.toc a{color:inherit;text-decoration:none}
+.toc a:hover{color:#0071e3;text-decoration:underline}
 /* 태그 칩 · 필터 · 관련 글 */
 .tags{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 1.75rem}
 /* 테두리가 #d2d2d7(표·인용구와 같은 값)이면 흰 배경에서 **1.51:1**이다. 본문 구분선은
@@ -322,6 +384,9 @@ th,td{border-color:#38383a}
 .filter-count,.filter-empty{color:#a1a1a6}
 .related{border-color:#1c1c1e}
 .related-h{color:#a1a1a6}
+.toc{border-color:#38383a;background:#151517}
+.toc>summary{color:#a1a1a6}
+.toc a:hover{color:#0a84ff}
 }
 </style>
 </head>
@@ -503,6 +568,23 @@ function main() {
     )
   }
 
+  /** 목차. 소제목 id는 **원래부터 붙어 있었는데**(절 단위 딥링크용) 그 id로 가는 링크가
+   *  한 개도 없었다 — 실측(2026-08-17) 2026-08-04편은 h2가 21개인데 `href="#`이 0개다.
+   *  절 20개·코드블록 35개짜리 편에서 "이 글에 뭐가 있나"를 알 방법이 없었고, 서버가
+   *  평소 꺼져 있어 **독자 전원이 보는 판이 이쪽**이다(SPA엔 Toc.tsx가 이미 있다).
+   *
+   *  소제목이 3개 미만이면 넣지 않는다 — 목차가 본문보다 길면 방해만 된다. */
+  const toc = (p) => {
+    if (p.headings.length < 3) return ''
+    return (
+      `<details class="toc" open><summary>목차 (${p.headings.length})</summary><ul>` +
+      p.headings
+        .map((h) => `<li class="d${h.depth}"><a href="#${h.id}">${esc(h.text)}</a></li>`)
+        .join('') +
+      `</ul></details>`
+    )
+  }
+
   /** 태그 칩. 누르면 아카이브 인덱스가 그 태그로 걸러진 채 열린다(?tag=). */
   const tagChips = (p) =>
     `<p class="tags">` +
@@ -525,7 +607,7 @@ function main() {
         // 하루 앞당겨 표시하는 일이 생긴다(작성 시각은 애초에 날짜 단위로만 안다).
         published: `${p.date}T00:00:00+09:00`,
         body:
-          `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${tagChips(p)}` +
+          `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${tagChips(p)}${toc(p)}` +
           `${p.html}${seriesNav(i)}${relatedNav(i)}`,
       }),
     )
@@ -562,8 +644,8 @@ function main() {
       body:
         `<h1>개발일지</h1><p class="meta">${posts.length}편 · 이 페이지는 서버 없이 동작합니다</p>` +
         `<div class="filter" id="filter" hidden>` +
-        `<label class="visually-hidden" for="q">제목·요약 검색</label>` +
-        `<input id="q" type="search" placeholder="제목·요약에서 찾기" autocomplete="off">` +
+        `<label class="visually-hidden" for="q">제목·본문 검색</label>` +
+        `<input id="q" type="search" placeholder="제목·본문에서 찾기" autocomplete="off">` +
         `<div class="tagbar">${tagbar}</div>` +
         // role=status: 필터링 결과 건수가 스크린리더에도 읽히게 한다. 시각적으로는
         // 목록이 줄어드는 게 보이지만, 안 보이는 사람에게는 아무 일도 안 일어난 것과 같다.
@@ -573,7 +655,8 @@ function main() {
         posts
           .map(
             (p) =>
-              `<li data-tags="${esc(p.tags.join('|'))}" ` +
+              // data-slug는 본문 색인(devlog-search.json)과 줄을 잇는 열쇠다.
+              `<li data-tags="${esc(p.tags.join('|'))}" data-slug="${esc(p.slug)}" ` +
               `data-text="${esc(`${p.title} ${p.summary} ${p.date}`.toLowerCase())}">` +
               `<a href="/${p.slug}">${esc(p.title)}</a>` +
               `<p>${p.date}${p.summary ? ` — ${esc(p.summary)}` : ''}</p></li>`,
@@ -586,6 +669,27 @@ function main() {
 
   // (2의 짝) 필터 스크립트. 인라인이 아니라 파일인 이유는 page() 안 주석 참고(CSP).
   writeFileSync(join(OUT, 'devlog-filter.js'), FILTER_JS)
+
+  // (2의 짝 2) **본문 색인.** 아카이브 검색이 보던 data-text는 제목+요약+날짜뿐이라
+  //   본문의 2.4%였다 — 제목이 서술형 한국어라 도구·에러 이름(CSP·pytest·CloudFront)이
+  //   거의 안 들어가는데, 독자가 치는 말은 정확히 그쪽이다. 그래서 평문 본문을 따로 낸다.
+  //
+  //   목록 HTML에 그냥 넣지 않는 이유: devlog.html이 43 KB에서 300 KB대로 불어나
+  //   **목록만 보는 사람에게도** 그 무게가 간다. 별도 파일이면 검색을 실제로 친 사람만 받고,
+  //   못 받아도 필터는 지금까지처럼 제목·요약으로 돈다(FILTER_JS의 fail-soft 주석 참고).
+  //
+  //   마크다운 기호만 걷어낸다 — 코드블록 안의 명령·에러 문구는 **남긴다**. 그게 이 연재에서
+  //   가장 자주 찾게 되는 말이고, 지우면 이 작업의 목적이 절반 사라진다.
+  const searchIndex = posts.map((p) => ({
+    slug: p.slug,
+    text: p.body
+      .replace(/```/g, ' ')
+      .replace(/[#*`>_[\]|]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase(),
+  }))
+  writeFileSync(join(OUT, 'devlog-search.json'), JSON.stringify(searchIndex))
 
   // 2-B) 정적 목록 JSON — **화면이 빈 채로 뜨는 문제를 서버 없이 고친다.**
   //

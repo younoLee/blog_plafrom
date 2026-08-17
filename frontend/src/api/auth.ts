@@ -68,7 +68,22 @@ export async function resetPassword(token: string, newPassword: string): Promise
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, new_password: newPassword }),
   })
-  if (!res.ok) throw new Error('유효하지 않거나 만료된 링크야')
+  // **422를 만료로 말하면 안 된다.** 422는 pydantic이 라우트에 들어가기도 전에 잡는 것이라
+  // 토큰은 **아직 소각되지 않았다** = 링크가 살아 있다. 그런데 예전엔 `!res.ok`를 전부
+  // "유효하지 않거나 만료된 링크야"로 뭉갰다: 8자 미만을 치면 멀쩡한 링크를 버리라는
+  // 안내가 나가고, /forgot으로 돌아가 새 링크를 받아도 같은 비밀번호를 다시 쳐서 또
+  // "만료"를 본다 — 사용자가 스스로 못 빠져나오는 닫힌 고리였다(2026-08-17 실측).
+  // 이 저장소는 RegisterPage에 "멀쩡한 초대를 만료됐다고 말하면 받은 사람이 진짜로
+  // 버린다"고 적어두고 초대 경로에서만 지키고 있었다. 같은 규칙을 여기에도 적용한다.
+  if (res.status === 422) throw new Error('비밀번호는 8~72자로 정해줘')
+  if (res.status === 429) throw new Error('요청이 너무 많아. 잠시 후 다시 해줘')
+  if (res.status === 400) {
+    // 400도 서버는 두 가지를 구분해 말한다(서명·만료 / 이미 사용한 링크).
+    // 하드코딩하면 그 구분이 사라져 원인을 알 유일한 단서가 없어진다.
+    const d = await res.json().catch(() => null)
+    throw new Error(d?.detail ?? '유효하지 않거나 만료된 링크야')
+  }
+  if (!res.ok) throw new Error('비밀번호를 바꾸지 못했어')
 }
 
 /**

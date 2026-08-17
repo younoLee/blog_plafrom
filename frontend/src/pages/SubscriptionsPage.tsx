@@ -45,7 +45,14 @@ function SubscriptionsPage() {
     setError('')
     setMsg('')
     try {
-      if (subs.some((s) => s.id === authorId)) {
+      const current = subs.find((s) => s.id === authorId)
+      if (current) {
+        // **승인된 구독 해지는 되돌릴 수 없다.** 서버가 소프트 삭제가 아니라 행을 지우고
+        // (subscriptions.py의 db.delete), 관리자에게도 복구 경로가 없다 — 재신청 + 재승인
+        // 2단계를 다시 밟아야 하고, 그건 운영자가 서버를 켠 날까지 미뤄진다.
+        // 그런데 이 버튼은 '✓ 구독 중'이라 **상태 라벨처럼 생겼고** 확인창이 없었다
+        // (2026-08-17 검사). 승인 전 '신청 취소'는 잃을 게 없으므로 그대로 즉시 처리한다.
+        if (current.approved && !window.confirm('구독을 취소하면 승인이 사라져서 다시 신청하고 승인을 받아야 해. 취소할까?')) return
         await unsubscribeAuthor(authorId)
       } else {
         await subscribeAuthor(authorId)
@@ -175,9 +182,12 @@ function SubscriptionsPage() {
                         {notifyOn ? '🔔 알림 켬' : '🔕 알림 꺼짐'}
                       </button>
                     )}
+                    {/* title은 옆의 🔔 버튼과 같은 형식이다 — 그 버튼엔 있고 이 버튼엔
+                        없어서, 되돌릴 수 없는 쪽만 무엇을 하는 버튼인지 안 알려줬다. */}
                     <button
                       type="button"
                       onClick={() => toggleAuthor(a.id)}
+                      title={on ? (approved ? '구독 중 (누르면 취소)' : '승인 대기중 (누르면 신청 취소)') : '구독 신청하기'}
                       className={`${on ? ui.btnGhost : ui.btnPrimary} text-sm`}
                       aria-label={`${a.name} ${on ? '구독 취소' : '구독 신청'}`}
                     >

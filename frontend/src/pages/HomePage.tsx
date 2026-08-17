@@ -288,12 +288,15 @@ function HomePage() {
           </h3>
           {q && (
             <p className="mb-4 rounded-lg bg-black/[0.03] px-4 py-3 text-sm text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
-              검색은 서버가 본문까지 봐야 해서 절전 중엔 못 해 — 아래는 검색어를 반영하지 않은
-              전체 목록이야. 본문까지 찾으려면{' '}
+              {/* 이 안내는 한때 거짓이었다 — 아카이브 검색이 제목·요약만 보던 때 "본문까지
+                  찾으려면 저기서"라고 보냈다(2026-08-17 검사에서 잡혔다). 같은 날 그 검색이
+                  본문을 읽게 고쳐서 지금은 사실이다. **한쪽만 되돌리면 다시 거짓이 된다.** */}
+              검색은 서버가 있어야 해서 절전 중엔 못 해 — 아래는 검색어를 반영하지 않은 전체
+              목록이야. 지금 찾고 싶으면{' '}
               <a href="/devlog.html" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
                 개발일지 아카이브
               </a>
-              에서 찾아줘(거기 검색은 서버 없이 돌아).
+              에서 찾아줘(제목·본문까지 뒤지고, 서버 없이 돌아).
             </p>
           )}
           <ul className="divide-y divide-black/[0.07] border-y border-black/[0.07] dark:divide-white/10 dark:border-white/10">

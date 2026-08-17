@@ -38,11 +38,15 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
           <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
             인프라를 직접 만들며 배운 것을 남깁니다.
           </p>
+          {/* 이미 구독 중인 사람에게도 '+ 이 블로그 구독'이라 말하고 있었다. 그걸 누르면
+              도착하는 화면의 다음 버튼이 **되돌릴 수 없는 해지**라, 신청하려던 사람이
+              해지 버튼 앞에 서게 되는 경로였다(2026-08-17). 여기서는 상태를 모르므로
+              (사이드바는 구독 정보를 안 받는다) 중립적인 이름으로 보낸다. */}
           <Link
             to="/subscriptions"
             className="mt-3 inline-flex items-center gap-1 rounded-full bg-[#0071e3] px-4 py-1.5 text-xs font-medium text-white transition hover:bg-[#0077ed] dark:bg-[#0a84ff]"
           >
-            + 이 블로그 구독
+            구독 관리
           </Link>
         </div>
         {/* **집계를 못 받았으면 숫자를 말하지 않는다.** `meta ?? 0`이라 절전(서버 꺼짐)

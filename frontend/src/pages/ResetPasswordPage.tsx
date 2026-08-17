@@ -44,7 +44,9 @@ function ResetPasswordPage() {
           <>
             <h1 className={`mb-6 text-3xl font-semibold tracking-tight ${ui.gradientText}`}>새 비밀번호</h1>
             <form onSubmit={handleSubmit} className="grid gap-3">
-              <input type="password" placeholder="새 비밀번호" value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
+              {/* 길이를 브라우저가 먼저 막는다 — 서버까지 갔다가 422를 받는 것보다 낫고,
+                  그 422가 "링크 만료"로 잘못 번역되던 자리이기도 하다(api/auth.ts 주석). */}
+              <input type="password" placeholder="새 비밀번호 (8자 이상)" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} maxLength={72} required className={input} />
               <button type="submit" className={btnPrimary}>비밀번호 변경</button>
               {error && <p className="text-sm text-red-600">{error}</p>}
             </form>
