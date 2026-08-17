@@ -746,9 +746,17 @@ function main() {
     const dead = lessons.filter((l) => !(htmlByDate.get(l.date) ?? '').includes(`id="${l.sectionId}"`))
     if (dead.length) problems.push(`가리키는 id가 그 편에 없는 항목 ${dead.length}건 (${dead[0]?.date}#${dead[0]?.sectionId})`)
     // 이중 이스케이프 — 첫 배포에서 라이브에 1,388곳 나갔다(`&#39;`가 글자로 보였다).
-    // 화면이 깨지지 않고 **글자만 이상해서** 눈으로는 지나치기 쉬운 종류라 여기서 센다.
-    const doubled = lessons.filter((l) => /&(amp|lt|gt|quot|#\d)/.test(l.text + l.sectionTitle))
-    if (doubled.length) problems.push(`실체참조가 안 풀린 항목 ${doubled.length}건 (${doubled[0].date}: ${doubled[0].sectionTitle.slice(0, 30)})`)
+    // 화면이 깨지지 않고 **글자만 이상해서** 눈으로는 지나치기 쉬운 종류다.
+    //
+    // ⚠️ **본문을 훑어서 잡으면 안 된다.** 처음엔 항목 텍스트에 `&#`이 있는지 봤는데,
+    // 그 가드가 **이 사고를 다룬 개발일지(#33)에서 곧바로 터졌다** — 그 편은 `&#39;`를
+    // 주제로 이야기하니 본문에 그 글자가 실제로 들어 있다. 내용으로 고장을 추측하면
+    // 안 되는 자리다(같은 날 '함정'이라는 낱말로 종류를 판정하다 틀린 것과 같은 모양).
+    // 그래서 **동작을 직접 확인한다** — 디코딩이 살아 있는지 표본 하나로 잰다.
+    const decodeProbe = stripTags('<p>&#39;a&#39; &amp;lt; b</p>')
+    if (decodeProbe !== "'a' &lt; b") {
+      problems.push(`stripTags 디코딩이 깨졌다: ${JSON.stringify(decodeProbe)}`)
+    }
     if (problems.length) {
       console.error('\n❌ 교훈 색인(lessons.html)을 만들 수 없다:')
       for (const p of problems) console.error(`     ${p}`)
