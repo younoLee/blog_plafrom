@@ -572,7 +572,16 @@ function main() {
   // **글 페이지보다 먼저 계산해야 한다** — 칩이 이 값을 쓴다.
   const tagCount = new Map()
   for (const p of posts) for (const t of p.tags) tagCount.set(t, (tagCount.get(t) ?? 0) + 1)
-  const hubTags = [...tagCount.entries()].filter(([, n]) => n >= 2).map(([t]) => t)
+  // 파일명에 못 쓰는 글자가 든 태그는 허브를 안 만든다(지금은 없지만, 태그는 사람이 적는 값이다).
+  const hubTags = [...tagCount.entries()]
+    .filter(([t, n]) => n >= 2 && !/[/\\.]|[\u0000-\u001f]/.test(t))
+    .map(([t]) => t)
+  // ⚠️ **파일명은 원문(UTF-8), 링크만 인코딩한다.** 처음엔 파일명도 인코딩해서 저장했는데,
+  // 그러면 S3 키에 `%EB…`가 **글자 그대로** 들어간다. 브라우저는 `/tag/보안.html`을
+  // `%EB%B3%B4…`로 인코딩해 보내고 S3가 그걸 디코딩해 `보안.html`을 찾으므로 서로 어긋난다
+  // — 라이브에서 한글 태그 18장이 전부 **403**이었다(영문 `AWS.html`만 200이라 더 헷갈렸다).
+  // 2026-08-17 배포 후 실측으로 잡았다.
+  const tagFile = (t) => `${t}.html`
   const tagHref = (t) => `/tag/${encodeURIComponent(t)}.html`
   const hasHub = (t) => hubTags.includes(t)
 
@@ -886,11 +895,20 @@ function main() {
   //
   //   ⚠️ 파일명은 **인코딩**한다(태그가 한글이다). 링크도 같은 함수로 만들어야
   //   파일과 링크가 어긋나지 않는다.
+  // 파일명에 %가 들어가면 위 함정을 다시 밟은 것이다(인코딩된 이름으로 저장한 상태).
+  // 화면상 아무 증상이 없고 **라이브에서만 403**이라 여기서 센다.
+  const encodedNames = hubTags.filter((t) => tagFile(t).includes('%'))
+  if (encodedNames.length) {
+    console.error(`\n❌ 태그 허브 파일명이 인코딩돼 있다: ${encodedNames[0]}`)
+    console.error('   → 파일명은 원문(UTF-8), 링크만 encodeURIComponent. 라이브에서 403이 된다.\n')
+    process.exit(1)
+  }
+
   mkdirSync(join(OUT, 'tag'), { recursive: true })
   for (const t of hubTags) {
     const inTag = posts.filter((p) => p.tags.includes(t))
     writeFileSync(
-      join(OUT, 'tag', `${encodeURIComponent(t)}.html`),
+      join(OUT, 'tag', tagFile(t)),
       page({
         title: `#${t} — ${TITLE}`,
         description: `'${t}' 태그가 붙은 개발일지 ${inTag.length}편.`,
