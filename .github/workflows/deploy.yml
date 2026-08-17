@@ -71,7 +71,7 @@ jobs:
           # og-image.png가 여기 없으면: 파일이 사라져도 초록불이 뜨고, `s3 sync --delete`가
           # S3에서 지운다. 그런데 index.html과 gen-static.mjs의 og:image는 계속 그 URL을
           # 가리키므로 **모든 공유 카드가 조용히 깨진다**(2026-08-12 검사).
-          for f in rss.xml sitemap.xml robots.txt devlog.html devlog-index.json og-image.png; do
+          for f in rss.xml sitemap.xml robots.txt devlog.html devlog-index.json og-image.png lessons.html lessons-filter.js devlog-search.json favicon.ico; do
             [ -s "dist/$f" ] || missing="$missing $f"
           done
           count=$(ls dist/devlog/*.html 2>/dev/null | wc -l)

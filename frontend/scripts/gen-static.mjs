@@ -156,6 +156,75 @@ function readPost(file) {
   }
 }
 
+/** 편 하나에서 **함정·전문가 노트 콜아웃**을 뽑아 절에 귀속시킨다.
+ *
+ *  왜 필요한가 (2026-08-17): 32편에 함정 73건·전문가 노트 166건이 쌓여 있는데,
+ *  접근 경로가 **날짜 하나**뿐이었다. "그 함정 어느 편이었지"를 찾으려면 27만 자를
+ *  훑는 수밖에 없다. 이 저장소가 반복해서 겪은 병이 '적어둔 교훈을 다시 안 읽는 것'이라
+ *  (같은 실수를 네 번 반복한 기록이 실제로 있다) 꺼내 보는 자리를 만든다.
+ *
+ *  ⚠️ **마크다운을 다시 파싱하지 않는다.** slugify의 slugCounts가 전역 카운터라
+ *  두 번째로 돌리면 중복 제목의 접미사(-1, -2)가 어긋나 앵커가 조용히 죽는다.
+ *  이미 렌더된 html을 훑어 `<h2 id>`로 현재 절을 따라간다 — 링크가 가리킬 id와
+ *  **같은 문자열**을 쓰는 게 요점이다.
+ *
+ *  지시어로 시작하는 항목(그·이·세 번째… 실측 73건 중 21건)은 혼자 두면 뜻이 안 선다.
+ *  그때만 앞 문단 한 줄을 같이 넣는다 — 전부에 붙이면 페이지가 두 배가 되고,
+ *  안 붙이면 그 21건이 미아가 된다. */
+const ANAPHORIC = /^(그|이|저|여기|거기|첫|두|세|네|다섯|또|게다가|그리고|그런데|그래서|반면|하지만)\S*\s/
+
+function extractLessons(post) {
+  const out = []
+  let sectionId = null
+  let sectionTitle = null
+  let prevText = ''
+  // 블록 단위로 훑는다. 제목이면 현재 절을 갱신하고, 콜아웃이면 그 절에 귀속시킨다.
+  const blocks = post.html.split(/\n(?=<)/)
+  for (const block of blocks) {
+    const h = block.match(/^<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/)
+    if (h) {
+      sectionId = h[2]
+      sectionTitle = stripTags(h[3])
+      prevText = ''
+      continue
+    }
+    const text = stripTags(block).trim()
+    if (!text) continue
+    const mark = text.match(/^(⚠️\s*함정|🛠\s*전문가 노트)\s*—?\s*/)
+    if (mark) {
+      // ⚠️ 종류는 **맨 앞 표식**으로 정한다. `text.includes('함정')`으로 했더니
+      // 본문에 '함정'이라는 낱말이 든 전문가 노트 3건이 함정으로 분류됐다
+      // (73/166이 76/163이 되어 처음 빌드에서 잡혔다). 이 연재는 '함정'이 주제어라
+      // 본문 어디에나 나온다 — 내용으로 종류를 추측하면 안 되는 자리다.
+      const kind = mark[1].includes('함정') ? 'trap' : 'note'
+      const body = text.slice(mark[0].length).trim()
+      out.push({
+        date: post.date,
+        slug: post.slug,
+        sectionId,
+        sectionTitle,
+        kind,
+        text: body,
+        // 앞 문장은 지시어로 시작할 때만. 없으면 빈 문자열이고 렌더가 알아서 뺀다.
+        lead: ANAPHORIC.test(body) ? prevText.slice(-160) : '',
+      })
+    } else {
+      prevText = text
+    }
+  }
+  return out
+}
+
+/** 태그를 걷어낸 평문. 콜아웃 본문에 <strong>·<code>가 섞여 있어서 필요하다. */
+const stripTags = (s) =>
+  s
+    .replace(/<[^>]*>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+
 /** /devlog.html의 검색·태그 필터. 별도 파일로 낸다(인라인은 CSP가 막는다).
  *
  *  의존성 없이 맨 DOM만 쓴다 — 이 페이지는 '서버도 번들도 없이 도는 곳'이고,
@@ -255,6 +324,41 @@ const FILTER_JS = `// 생성물 — frontend/scripts/gen-static.mjs가 만든다
 })()
 `
 
+/** /lessons.html의 검색 필터. devlog-filter.js와 같은 원칙이다 —
+ *  목록은 이미 HTML에 다 있고, 이 스크립트는 **줄을 숨기고 보이는 일만** 한다.
+ *  그래서 JS가 죽어도 239건은 그대로 읽힌다(필터 UI만 안 보인다).
+ *  별도 파일인 이유는 CSP: 인라인 <script>는 차단되고, 차단돼도 화면은 멀쩡해 보인다. */
+const LESSONS_FILTER_JS = `// 생성물 — frontend/scripts/gen-static.mjs가 만든다. 직접 고치지 말 것.
+(function () {
+  var filter = document.getElementById('filter')
+  var input = document.getElementById('q')
+  var count = document.getElementById('count')
+  var empty = document.getElementById('empty')
+  if (!filter || !input) return
+
+  var items = Array.prototype.slice.call(document.querySelectorAll('.lesson'))
+  var notes = document.querySelector('.notes')
+
+  function apply() {
+    var q = input.value.trim().toLowerCase()
+    var shown = 0
+    items.forEach(function (li) {
+      var ok = !q || (li.getAttribute('data-text') || '').indexOf(q) !== -1
+      li.hidden = !ok
+      if (ok) shown++
+    })
+    // 검색 중엔 접힌 노트도 펼친다 — 안 그러면 '0건'처럼 보이는데 실은 접혀 있는 것이다.
+    if (notes && q) notes.open = true
+    count.textContent = q ? shown + '건 (전체 ' + items.length + '건 중)' : ''
+    if (empty) empty.hidden = shown !== 0
+  }
+
+  input.addEventListener('input', apply)
+  filter.hidden = false // 여기까지 왔으면 실제로 동작한다 — 그때 보여준다
+  apply()
+})()
+`
+
 const page = ({ title, description, url, body, article, published, script }) => `<!doctype html>
 <html lang="ko">
 <head>
@@ -334,6 +438,15 @@ img{max-width:100%;height:auto}
 .toc li.d3{padding-left:1rem;font-size:.9rem}
 .toc a{color:inherit;text-decoration:none}
 .toc a:hover{color:#0071e3;text-decoration:underline}
+/* 교훈 색인 */
+.lessons{list-style:none;padding:0;margin:1.5rem 0}
+.lesson{padding:1rem 0;border-top:1px solid #e8e8ed}
+.lesson-src{display:block;font-size:.8rem;color:#6e6e73;text-decoration:none;margin-bottom:.4rem}
+.lesson-src:hover{color:#0071e3;text-decoration:underline}
+.lesson-lead{margin:0 0 .35rem;font-size:.85rem;color:#86868b;font-style:italic}
+.lesson-text{margin:0;line-height:1.65}
+.notes{margin:2.5rem 0 0}
+.notes>summary{cursor:pointer;font-weight:600;color:#6e6e73}
 /* 태그 칩 · 필터 · 관련 글 */
 .tags{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 1.75rem}
 /* 테두리가 #d2d2d7(표·인용구와 같은 값)이면 흰 배경에서 **1.51:1**이다. 본문 구분선은
@@ -385,13 +498,17 @@ th,td{border-color:#38383a}
 .related{border-color:#1c1c1e}
 .related-h{color:#a1a1a6}
 .toc{border-color:#38383a;background:#151517}
+.lesson{border-color:#1c1c1e}
+.lesson-src{color:#a1a1a6}
+.lesson-lead{color:#8e8e93}
+.notes>summary{color:#a1a1a6}
 .toc>summary{color:#a1a1a6}
 .toc a:hover{color:#0a84ff}
 }
 </style>
 </head>
 <body><main>
-<p class="nav"><a href="/">← ${esc(TITLE)}</a> · <a href="/devlog.html">개발일지 전체</a> · <a href="/rss.xml">RSS</a></p>
+<p class="nav"><a href="/">← ${esc(TITLE)}</a> · <a href="/devlog.html">개발일지 전체</a> · <a href="/lessons.html">함정과 교훈</a> · <a href="/rss.xml">RSS</a></p>
 ${body}
 </main>${
   script
@@ -499,6 +616,33 @@ function main() {
     for (const o of offenders) console.error(`     ${o}`)
     console.error('   → 그 문법을 안 쓰게 고치거나, frontend에 remark-gfm을 넣고 이 가드를 지워라.\n')
     process.exit(1)
+  }
+
+  // 교훈 색인의 재료를 **렌더보다 먼저** 뽑고 가드한다(GFM 가드와 같은 자리·같은 방식).
+  // 앵커가 죽으면 페이지는 멀쩡히 만들어지고 링크만 아무 데도 안 간다 — 조용한 실패다.
+  const lessons = posts.flatMap((p) => extractLessons(p))
+  const traps = lessons.filter((l) => l.kind === 'trap')
+  const notes = lessons.filter((l) => l.kind === 'note')
+  {
+    const problems = []
+    // ⚠️ **'편당 최소 1건'으로 걸면 안 된다.** 실측(2026-08-17) 함정을 가진 편은 32편 중
+    // 15편이고 17편은 0건이다 — 초기 편들이 이 표기 관례를 쓰기 전이라 그렇다.
+    // 그걸 실패로 세면 빌드가 영영 안 도는 가드가 된다. 그래서 **총량**으로 건다.
+    if (traps.length < 60) problems.push(`함정이 ${traps.length}건뿐이다(60 미만) — 추출이 깨졌을 가능성`)
+    if (notes.length < 140) problems.push(`전문가 노트가 ${notes.length}건뿐이다(140 미만)`)
+    // 절에 안 붙은 항목 = 링크가 갈 곳이 없다
+    const orphan = lessons.filter((l) => !l.sectionId)
+    if (orphan.length) problems.push(`절에 안 붙은 항목 ${orphan.length}건 (${orphan[0].date})`)
+    // 앵커가 그 편 HTML에 실제로 있는가 — 이게 두 번째 조용한 실패다
+    const htmlByDate = new Map(posts.map((p) => [p.date, p.html]))
+    const dead = lessons.filter((l) => !(htmlByDate.get(l.date) ?? '').includes(`id="${l.sectionId}"`))
+    if (dead.length) problems.push(`가리키는 id가 그 편에 없는 항목 ${dead.length}건 (${dead[0]?.date}#${dead[0]?.sectionId})`)
+    if (problems.length) {
+      console.error('\n❌ 교훈 색인(lessons.html)을 만들 수 없다:')
+      for (const p of problems) console.error(`     ${p}`)
+      console.error('   → 콜아웃 표기(**⚠️ 함정** / > **🛠 전문가 노트**)가 바뀌었는지 확인하라.\n')
+      process.exit(1)
+    }
   }
 
   mkdirSync(join(OUT, 'devlog'), { recursive: true })
@@ -670,6 +814,45 @@ function main() {
   // (2의 짝) 필터 스크립트. 인라인이 아니라 파일인 이유는 page() 안 주석 참고(CSP).
   writeFileSync(join(OUT, 'devlog-filter.js'), FILTER_JS)
 
+  // 2-C) **교훈 색인 /lessons.html** — 날짜가 아닌 축으로 27만 자를 한 번 꺼낸다.
+  //
+  //   32편에 함정 73건·전문가 노트 166건이 쌓여 있는데 접근 경로가 날짜뿐이었다.
+  //   이 저장소가 반복해서 겪은 병이 '적어둔 교훈을 다시 안 읽는 것'이고(같은 실수를
+  //   네 번 반복한 기록이 실제로 있다), 그건 기억력 문제가 아니라 **꺼내 보는 자리가
+  //   없어서**다. 링크는 편별 정적 페이지의 **절 앵커**로 건다 — 서버 없이 열린다.
+  //
+  //   함정이 본문, 전문가 노트는 <details>로 접는다. 239건을 한 번에 펼치면
+  //   '읽을 것'이 아니라 '스크롤할 것'이 된다.
+  const lessonItem = (l) =>
+    `<li class="lesson" data-text="${esc(`${l.text} ${l.sectionTitle} ${l.date}`.toLowerCase())}">` +
+    `<a class="lesson-src" href="/${l.slug}#${l.sectionId}">${l.date} · ${esc(l.sectionTitle)}</a>` +
+    (l.lead ? `<p class="lesson-lead">…${esc(l.lead)}</p>` : '') +
+    `<p class="lesson-text">${esc(l.text)}</p></li>`
+
+  writeFileSync(
+    join(OUT, 'lessons.html'),
+    page({
+      title: `함정과 교훈 — ${TITLE}`,
+      description: `개발일지 ${posts.length}편에서 뽑은 함정 ${traps.length}건과 전문가 노트 ${notes.length}건. 서버 없이 읽을 수 있습니다.`,
+      url: `${SITE}/lessons.html`,
+      script: '/lessons-filter.js',
+      body:
+        `<h1>함정과 교훈</h1>` +
+        `<p class="meta">개발일지 ${posts.length}편에서 뽑은 ${traps.length + notes.length}건 · 각 항목은 그 대목으로 바로 갑니다</p>` +
+        `<div class="filter" id="filter" hidden>` +
+        `<label class="visually-hidden" for="q">교훈 검색</label>` +
+        `<input id="q" type="search" placeholder="함정·교훈에서 찾기" autocomplete="off">` +
+        `<p class="filter-count" id="count" role="status"></p>` +
+        `</div>` +
+        `<h2 id="traps">함정 ${traps.length}건</h2>` +
+        `<ul class="lessons" id="traps-list">${traps.map(lessonItem).join('')}</ul>` +
+        `<details class="notes"><summary>전문가 노트 ${notes.length}건 — 펼치기</summary>` +
+        `<ul class="lessons" id="notes-list">${notes.map(lessonItem).join('')}</ul></details>` +
+        `<p class="filter-empty" id="empty" hidden>찾는 것이 없다. 검색어를 지워봐.</p>`,
+    }),
+  )
+  writeFileSync(join(OUT, 'lessons-filter.js'), LESSONS_FILTER_JS)
+
   // (2의 짝 2) **본문 색인.** 아카이브 검색이 보던 data-text는 제목+요약+날짜뿐이라
   //   본문의 2.4%였다 — 제목이 서술형 한국어라 도구·에러 이름(CSP·pytest·CloudFront)이
   //   거의 안 들어가는데, 독자가 치는 말은 정확히 그쪽이다. 그래서 평문 본문을 따로 낸다.
@@ -790,6 +973,9 @@ ${feedPosts
   const urls = [
     { loc: `${SITE}/`, pri: '1.0' },
     { loc: `${SITE}/devlog.html`, pri: '0.9' },
+    // 교훈 색인도 서버 없이 열리는 정적 페이지다. 32편에서 뽑은 239건이 한 장에 있어
+    // 색인 가치가 개별 편 못지않다.
+    { loc: `${SITE}/lessons.html`, pri: '0.9' },
     // about.html도 서버 없이 열리는 정적 페이지라 색인해도 빈 껍데기가 아니다.
     ...(aboutRaw ? [{ loc: `${SITE}/about.html`, pri: '0.5' }] : []),
     ...posts.map((p) => ({ loc: `${SITE}/${p.slug}`, pri: '0.8', lastmod: p.date })),
@@ -816,6 +1002,7 @@ ${urls
 
   console.log(
     `  정적 산출물: 개발일지 ${posts.length}편 + devlog.html + devlog-index.json + ` +
+      `lessons.html(함정 ${traps.length}·노트 ${notes.length}) + devlog-search.json + ` +
       `rss.xml(최근 ${feedPosts.length}편) + sitemap.xml + robots.txt`,
   )
 }

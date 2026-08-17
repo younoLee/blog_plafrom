@@ -140,6 +140,9 @@ function Layout() {
         <span className="mx-1.5">·</span>
         <a href="/devlog.html" className="hover:underline">개발일지 아카이브</a>
         <span className="mx-1.5">·</span>
+        {/* 32편에서 뽑은 함정·교훈 239건. 정적 페이지라 서버가 꺼져 있어도 열린다. */}
+        <a href="/lessons.html" className="hover:underline">함정과 교훈</a>
+        <span className="mx-1.5">·</span>
         <a href="/rss.xml" className="hover:underline">RSS</a>
       </footer>
     </div>
