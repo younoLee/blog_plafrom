@@ -1,40 +1,20 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { IconNote, IconActivity, IconArrowRight } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { ui } from '../ui'
-import { fetchDevlogIndex, type DevlogIndex } from '../api/devlogIndex'
 
-// 통합 랜딩(포털): 최근 개발일지 + 블로그/상태정보 두 입구
+// 통합 랜딩(포털): 블로그/상태정보 **두 입구만** 둔다.
 //
-// 목록의 출처와 성질(정적 파일이라 서버 없이 산다)은 api/devlogIndex.ts 주석에 있다.
-// 2026-08-17에 /blog도 절전 중 같은 목록을 쓰게 되면서 읽는 자리를 그리로 합쳤다.
-
-const PREVIEW = 5
+// 2026-08-12에 여기에 '최근 개발일지' 목록과 분량 배지를 넣었었다(정적 파일을 읽어
+// 서버 없이도 글이 보이게). 2026-08-17에 사용자 결정으로 걷어냈다 — 랜딩은 서비스
+// 입구만 보여주고, 글은 각 입구 안에서 본다. 첫 화면이 목록으로 지저분해지지 않게.
+//
+// **읽는 경로는 안 끊겼다**: 같은 날 /blog가 절전 중에 정적 목록을 그리게 됐고,
+// 푸터의 '개발일지 아카이브'(/devlog.html)도 그대로다. 즉 서버가 꺼져 있어도
+// 방문자가 글까지 가는 길은 남아 있다 — 그게 이 섹션을 지울 수 있었던 조건이다.
+// (그 성질은 pages/HomePage.test.tsx가 잠근다.)
 
 function PortalPage() {
-  const [index, setIndex] = useState<DevlogIndex | null>(null)
-  // 실패해도 포털은 그대로 뜬다(입구 카드는 이 데이터와 무관하다). 로컬 dev 서버에는
-  // 이 파일이 없어서 404가 정상이다 — 그때 콘솔을 더럽히지 않도록 조용히 접는다.
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    let alive = true
-    // 모양이 틀리거나 못 읽으면 null이 온다 → **접는다.** 예전엔 걸러내고 아무 상태로도
-    // 안 가서 스켈레톤이 영원히 남았다 — 뼈대는 '오는 중'이라는 뜻이라 그건 로딩이 아니라
-    // 고장이다 (2026-08-12 검사에서 7가지 응답을 렌더해 확인).
-    fetchDevlogIndex().then((d) => {
-      if (!alive) return
-      if (d) setIndex(d)
-      else setFailed(true)
-    })
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  const recent = index?.posts.slice(0, PREVIEW) ?? []
-
   return (
     <div className="relative py-12">
       {/* 히어로 뒤 오로라: 두 겹 색 번짐을 겹쳐 깊이감 */}
@@ -53,66 +33,7 @@ function PortalPage() {
         <p className="mx-auto mt-5 max-w-xl text-lg text-gray-500 dark:text-gray-400 sm:text-xl">
           인프라를 직접 만들며 배운 것을 남깁니다.
         </p>
-        {index && (
-          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-            개발일지 {index.total}편 · 약 {Math.round(index.chars / 10000)}만 자
-          </p>
-        )}
       </Reveal>
-
-      {/* 최근 개발일지 — **입구 카드보다 위에 둔다.** 방문자가 첫 화면에서 봐야 하는
-          것은 '어디로 갈까'가 아니라 '무엇이 있나'다.
-          링크는 SPA 라우트가 아니라 정적 아카이브다 — 서버가 꺼져 있어도 열린다.
-          위 목록에 Reveal(opacity-0 시작)을 씌우지 않은 것도 같은 이유다. */}
-      {!failed && (
-        <section className="mt-14" aria-labelledby="recent-devlog">
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 id="recent-devlog" className="text-xl font-semibold tracking-tight">
-              최근 개발일지
-            </h2>
-            <a
-              href="/devlog.html"
-              className="shrink-0 text-sm font-medium text-[#0071e3] hover:underline dark:text-[#0a84ff]"
-            >
-              전체 보기 →
-            </a>
-          </div>
-
-          <ul className="mt-4 divide-y divide-black/[0.07] border-y border-black/[0.07] dark:divide-white/10 dark:border-white/10">
-            {(index ? recent : Array.from({ length: PREVIEW }, () => null)).map((p, i) => (
-              <li key={p ? p.date : i}>
-                {p ? (
-                  <a href={`/${p.slug}`} className="group block py-4">
-                    <div className="flex items-baseline gap-3">
-                      <time className="shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">
-                        {p.date}
-                      </time>
-                      <h3 className="font-medium group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
-                        {p.title}
-                      </h3>
-                    </div>
-                    {p.summary && (
-                      <p className="mt-1.5 line-clamp-2 text-sm text-gray-500 dark:text-gray-400">
-                        {p.summary}
-                      </p>
-                    )}
-                  </a>
-                ) : (
-                  // 뼈대: 목록이 늦게 와도 아래 카드가 밀려 올라갔다 내려오지 않게 자리를 잡아둔다
-                  <div className="py-4" aria-hidden>
-                    <div className="h-4 w-2/3 rounded bg-black/[0.06] dark:bg-white/10" />
-                    <div className="mt-2.5 h-3 w-full rounded bg-black/[0.04] dark:bg-white/[0.06]" />
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-
-          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-            이 목록과 링크는 서버 없이 동작합니다 · <a href="/rss.xml" className="hover:underline">RSS</a>
-          </p>
-        </section>
-      )}
 
       <div className="mt-14 grid gap-5 sm:grid-cols-2">
         {/* 블로그 입구 */}
