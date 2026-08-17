@@ -51,7 +51,19 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 바탕화면의 개발일지 폴더. 컨테이너 안에서는 /desktop으로 마운트된다.
 # **바탕화면 루트에 흩뿌리지 않는다** — 폴더 안에만 둔다.
-HOST_DIRS = ("/desktop", "/mnt/c/Users/USER/Desktop/개발일지")
+# 바탕화면 사본을 둘 자리. **순서가 중요하다** — 첫 번째로 존재하는 곳 하나에만 복사한다.
+#
+# ⚠️ 이 컴퓨터의 바탕화면은 **OneDrive로 리디렉션돼 있다.** 사용자가 실제로 보는 폴더는
+# `OneDrive/바탕 화면/개발일지`이고, `C:\Users\USER\Desktop\개발일지`는 **다른 폴더**다.
+# 그런데 목록의 첫 자리가 후자였던 탓에 #32·#33이 사용자 눈에 안 보이는 곳으로 갔다
+# (2026-08-17에 "개발일지가 14일까지밖에 없다"고 해서 알았다 — 파일은 멀쩡히 만들어졌고
+# 복사 로그도 찍혔다. 만든 것과 닿은 것이 다른, 그날 하루 종일 나온 그 모양이다).
+# OneDrive 쪽을 앞에 둔다. `/desktop`은 컨테이너로 만들 때 마운트하는 자리라 최우선.
+HOST_DIRS = (
+    "/desktop",
+    "/mnt/c/Users/USER/OneDrive/바탕 화면/개발일지",
+    "/mnt/c/Users/USER/Desktop/개발일지",
+)
 
 
 class DevlogDoc:
