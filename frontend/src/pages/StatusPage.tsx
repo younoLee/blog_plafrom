@@ -6,6 +6,7 @@ import {
   type UptimeHistory,
   type ServiceUptime,
 } from '../api/status'
+import { ServerAsleepError } from '../api/http'
 import { ui } from '../ui'
 import { IconActivity, IconRefresh } from '../components/icons'
 
@@ -96,6 +97,10 @@ function StatusPage() {
   const [history, setHistory] = useState<UptimeHistory | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // 절전(서버를 일부러 꺼둠)과 진짜 고장을 가른다. HomePage가 쓰는 것과 같은 규약인데
+  // **이 화면만 안 지키고 있었다** — 랜딩의 두 입구 중 하나가 평상시에 빨간 고장으로
+  // 보였다는 뜻이다. 절전은 이 사이트의 정상 상태다(2026-08-17).
+  const [asleep, setAsleep] = useState(false)
 
   // 새로고침 버튼 전용 (이벤트 핸들러라 동기 setState 허용)
   async function load() {
@@ -105,8 +110,10 @@ function StatusPage() {
       const [s, h] = await Promise.all([fetchStatus(), fetchHistory(30)])
       setStatus(s)
       setHistory(h)
-    } catch {
-      setError('백엔드에 연결할 수 없어 (서버가 꺼져 있을 수 있음)')
+    } catch (e) {
+      const sleeping = e instanceof ServerAsleepError
+      setAsleep(sleeping)
+      setError(sleeping ? '' : '백엔드에 연결할 수 없어')
       setStatus(null)
     } finally {
       setLoading(false)
@@ -116,8 +123,15 @@ function StatusPage() {
   // 마운트 시 1회 자동 조회 (effect 안에서는 .then 패턴 — 코드베이스 규칙)
   useEffect(() => {
     fetchStatus()
-      .then(setStatus)
-      .catch(() => setError('백엔드에 연결할 수 없어 (서버가 꺼져 있을 수 있음)'))
+      .then((s) => {
+        setStatus(s)
+        setAsleep(false)
+      })
+      .catch((e) => {
+        const sleeping = e instanceof ServerAsleepError
+        setAsleep(sleeping)
+        setError(sleeping ? '' : '백엔드에 연결할 수 없어')
+      })
       .finally(() => setLoading(false))
     fetchHistory(30)
       .then(setHistory)
@@ -138,7 +152,18 @@ function StatusPage() {
         </button>
       </div>
 
-      {error && (
+      {/* 절전은 '고장'이 아니라 의도된 비용 절약이라 톤을 구분한다(HomePage와 같은 규약).
+          이 화면의 업타임 막대·통계는 서버에서 오는 값이라 절전 중엔 없는 게 정상이다 —
+          '데이터 없음'이 곧 이 사이트가 어떻게 사는지를 보여주는 값이기도 하다. */}
+      {asleep && (
+        <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 그래서 지금 상태와 통계는
+          깨어난 뒤에 보여. 글은 서버 없이도 읽을 수 있어:{' '}
+          <a href="/devlog.html" className="underline">개발일지 아카이브</a> ·{' '}
+          <a href="/lessons.html" className="underline">함정과 교훈</a>
+        </div>
+      )}
+      {error && !asleep && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {error}
         </div>

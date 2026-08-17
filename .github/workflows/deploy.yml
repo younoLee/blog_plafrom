@@ -75,12 +75,16 @@ jobs:
             [ -s "dist/$f" ] || missing="$missing $f"
           done
           count=$(ls dist/devlog/*.html 2>/dev/null | wc -l)
+          # 태그 허브(dist/tag/*.html)도 같은 이유로 센다 — 생성이 조용히 멈추면
+          # 태그 칩이 전부 404가 되는데, 페이지 자체는 멀쩡히 만들어져 초록불이 뜬다.
+          hubs=$(ls dist/tag/*.html 2>/dev/null | wc -l)
+          if [ "$hubs" -eq 0 ]; then missing="$missing tag/*.html"; fi
           if [ -n "$missing" ] || [ "$count" -eq 0 ]; then
             echo "::error::정적 산출물이 없습니다 —$missing (개발일지 페이지 $count개)"
             echo "content/devlog가 체크아웃됐는지, gen-static.mjs가 돌았는지 확인하세요."
             exit 1
           fi
-          echo "정적 산출물 OK — 개발일지 $count편 + rss/sitemap/robots"
+          echo "정적 산출물 OK — 개발일지 $count편 + 태그 허브 $hubs장 + rss/sitemap/robots"
 
       # devlog-index.json은 **랜딩(/)이 첫 화면에 그리는 목록**이다(2026-08-12 신설).
       # 존재 확인만으로는 부족하다 — 이 파일이 가리키는 slug가 실제 파일과 어긋나면

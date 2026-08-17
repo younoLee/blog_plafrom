@@ -447,6 +447,9 @@ img{max-width:100%;height:auto}
 .toc li.d3{padding-left:1rem;font-size:.9rem}
 .toc a{color:inherit;text-decoration:none}
 .toc a:hover{color:#0071e3;text-decoration:underline}
+.taghubs{font-size:.85rem;color:#6e6e73;margin:0 0 1.25rem;line-height:2}
+.taghubs a{color:#6e6e73;text-decoration:none;border-bottom:1px solid #d2d2d7}
+.taghubs a:hover{color:#0071e3;border-color:#0071e3}
 /* 교훈 색인 */
 .lessons{list-style:none;padding:0;margin:1.5rem 0}
 .lesson{padding:1rem 0;border-top:1px solid #e8e8ed}
@@ -507,6 +510,8 @@ th,td{border-color:#38383a}
 .related{border-color:#1c1c1e}
 .related-h{color:#a1a1a6}
 .toc{border-color:#38383a;background:#151517}
+.taghubs,.taghubs a{color:#a1a1a6}
+.taghubs a{border-color:#48484a}
 .lesson{border-color:#1c1c1e}
 .lesson-src{color:#a1a1a6}
 .lesson-lead{color:#8e8e93}
@@ -562,6 +567,34 @@ function main() {
     process.exit(1)
   }
   for (const p of posts) p.tags = tagMap[p.date].tags
+
+  // 태그별 편수 — 허브 페이지를 만들지(2편 이상), 칩을 어디로 걸지 여기서 정한다.
+  // **글 페이지보다 먼저 계산해야 한다** — 칩이 이 값을 쓴다.
+  const tagCount = new Map()
+  for (const p of posts) for (const t of p.tags) tagCount.set(t, (tagCount.get(t) ?? 0) + 1)
+  const hubTags = [...tagCount.entries()].filter(([, n]) => n >= 2).map(([t]) => t)
+  const tagHref = (t) => `/tag/${encodeURIComponent(t)}.html`
+  const hasHub = (t) => hubTags.includes(t)
+
+
+  // **제목이 두 곳에 산다 — 갈라지기 전에 잠근다.**
+  //   ① scripts/devlog_posts.py의 POSTS (발행 스크립트가 DB에 넣는 제목, tags.json으로 내보냄)
+  //   ② content/devlog/<날짜>.md의 H1 (정적 페이지·RSS·공유 카드가 쓰는 제목)
+  // 지금은 32편 전부 일치한다(2026-08-17 실측). 즉 이 가드는 깨진 것을 고치는 게 아니라
+  // **아직 안 갈라진 것을 갈라지기 전에 붙잡는다** — 이 저장소가 반복해서 당한 병이
+  // '같은 값이 두 벌 살다가 조용히 어긋나는 것'이고, 제목은 어긋나도 두 화면을 나란히
+  // 놓고 보기 전엔 아무도 모른다(DB의 글 제목과 아카이브의 제목이 다른 상태).
+  // 제목을 고칠 땐 마크다운과 POSTS를 **같이** 고치고 `python scripts/devlog_posts.py`를 돌려라.
+  const titleDrift = posts
+    .filter((p) => (tagMap[p.date].title ?? '').trim() !== p.title.trim())
+    .map((p) => `${p.date}\n       tags.json: ${tagMap[p.date].title}\n       마크다운 H1: ${p.title}`)
+  if (titleDrift.length) {
+    console.error(`\n❌ 제목이 두 곳에서 다르다 (${titleDrift.length}편):`)
+    for (const d of titleDrift) console.error(`     ${d}`)
+    console.error('   → 마크다운 H1과 scripts/devlog_posts.py의 POSTS를 맞추고')
+    console.error('     `python scripts/devlog_posts.py`로 tags.json을 다시 써라.\n')
+    process.exit(1)
+  }
 
   // ── 두 렌더러가 같은 원문을 다르게 읽는 것을 막는 가드 ──────────────────
   // 이 파일은 marked(GFM 지원)로 정적 아카이브를 만들고, **같은 마크다운**이
@@ -746,7 +779,12 @@ function main() {
   const tagChips = (p) =>
     `<p class="tags">` +
     p.tags
-      .map((t) => `<a class="tag" href="/devlog.html?tag=${encodeURIComponent(t)}">${esc(t)}</a>`)
+      // 허브가 있으면 **주소가 있는 쪽**으로 보낸다. 1편짜리 태그는 허브를 안 만들므로
+      // (그 편으로 가는 링크 하나가 전부인 페이지가 된다) 예전처럼 아카이브 필터로 간다.
+      .map(
+        (t) =>
+          `<a class="tag" href="${hasHub(t) ? tagHref(t) : `/devlog.html?tag=${encodeURIComponent(t)}`}">${esc(t)}</a>`,
+      )
       .join('') +
     `</p>`
 
@@ -808,6 +846,14 @@ function main() {
         // 목록이 줄어드는 게 보이지만, 안 보이는 사람에게는 아무 일도 안 일어난 것과 같다.
         `<p class="filter-count" id="count" role="status"></p>` +
         `</div>` +
+        // JS가 죽으면 위의 태그 버튼(필터)이 통째로 안 보인다. 그때도 주제별로
+        // 갈 수 있게 허브 링크를 **HTML에** 둔다 — 이 페이지의 성질이 '서버도 번들도
+        // 없이 돈다'인데 태그 탐색만 JS에 매여 있었다.
+        `<p class="taghubs">주제별: ` +
+        hubTags
+          .map((t) => `<a href="${tagHref(t)}">#${esc(t)}</a>`)
+          .join(' ') +
+        `</p>` +
         `<ul class="list" id="posts">` +
         posts
           .map(
@@ -826,6 +872,44 @@ function main() {
 
   // (2의 짝) 필터 스크립트. 인라인이 아니라 파일인 이유는 page() 안 주석 참고(CSP).
   writeFileSync(join(OUT, 'devlog-filter.js'), FILTER_JS)
+
+  // 2-B) **태그 허브 /tag/<이름>.html** — `?tag=`는 주소가 아니라 상태였다.
+  //
+  //   태그 칩은 `/devlog.html?tag=보안`으로 갔는데, 쿼리는 **정적 파일 하나를 가리키지
+  //   않는다**: 크롤러에겐 devlog.html 한 장이고(그래서 sitemap에도 못 올린다),
+  //   JS가 죽으면 필터가 안 걸려 전체 목록이 나온다. 즉 "보안 얘기 모아 보기"에
+  //   해당하는 **주소가 없었다.**
+  //
+  //   2편 이상인 태그만 만든다 — 실측(2026-08-17) 41종 중 19종이고, 나머지 22종은
+  //   1편짜리라 페이지를 만들어봐야 그 편으로 가는 링크 하나가 전부다(검색엔진에는
+  //   '내용 없는 페이지'가 늘어나는 쪽이 손해다). 1편짜리 칩은 `?tag=`로 그대로 둔다.
+  //
+  //   ⚠️ 파일명은 **인코딩**한다(태그가 한글이다). 링크도 같은 함수로 만들어야
+  //   파일과 링크가 어긋나지 않는다.
+  mkdirSync(join(OUT, 'tag'), { recursive: true })
+  for (const t of hubTags) {
+    const inTag = posts.filter((p) => p.tags.includes(t))
+    writeFileSync(
+      join(OUT, 'tag', `${encodeURIComponent(t)}.html`),
+      page({
+        title: `#${t} — ${TITLE}`,
+        description: `'${t}' 태그가 붙은 개발일지 ${inTag.length}편.`,
+        url: `${SITE}${tagHref(t)}`,
+        body:
+          `<h1>#${esc(t)}</h1><p class="meta">${inTag.length}편 · 이 페이지는 서버 없이 동작합니다</p>` +
+          `<ul class="list">` +
+          inTag
+            .map(
+              (p) =>
+                `<li><a href="/${p.slug}">${esc(p.title)}</a>` +
+                `<p>${p.date}${p.summary ? ` — ${esc(p.summary)}` : ''}</p></li>`,
+            )
+            .join('') +
+          `</ul>` +
+          `<p class="meta"><a href="/devlog.html">← 개발일지 전체 ${posts.length}편</a></p>`,
+      }),
+    )
+  }
 
   // 2-C) **교훈 색인 /lessons.html** — 날짜가 아닌 축으로 27만 자를 한 번 꺼낸다.
   //
@@ -989,6 +1073,8 @@ ${feedPosts
     // 교훈 색인도 서버 없이 열리는 정적 페이지다. 32편에서 뽑은 239건이 한 장에 있어
     // 색인 가치가 개별 편 못지않다.
     { loc: `${SITE}/lessons.html`, pri: '0.9' },
+    // 태그 허브. `?tag=`는 쿼리라 sitemap에 올릴 수 없었다 — 주소가 생기니 올린다.
+    ...hubTags.map((t) => ({ loc: `${SITE}${tagHref(t)}`, pri: '0.6' })),
     // about.html도 서버 없이 열리는 정적 페이지라 색인해도 빈 껍데기가 아니다.
     ...(aboutRaw ? [{ loc: `${SITE}/about.html`, pri: '0.5' }] : []),
     ...posts.map((p) => ({ loc: `${SITE}/${p.slug}`, pri: '0.8', lastmod: p.date })),
@@ -1016,6 +1102,7 @@ ${urls
   console.log(
     `  정적 산출물: 개발일지 ${posts.length}편 + devlog.html + devlog-index.json + ` +
       `lessons.html(함정 ${traps.length}·노트 ${notes.length}) + devlog-search.json + ` +
+      `태그 허브 ${hubTags.length}장 + ` +
       `rss.xml(최근 ${feedPosts.length}편) + sitemap.xml + robots.txt`,
   )
 }
