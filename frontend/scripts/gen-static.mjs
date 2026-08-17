@@ -215,14 +215,23 @@ function extractLessons(post) {
   return out
 }
 
-/** 태그를 걷어낸 평문. 콜아웃 본문에 <strong>·<code>가 섞여 있어서 필요하다. */
+/** 태그를 걷어낸 평문. 콜아웃 본문에 <strong>·<code>가 섞여 있어서 필요하다.
+ *
+ *  ⚠️ **숫자 실체참조(&#39;)도 풀어야 한다.** 안 풀면 그 글자가 다시 esc()를 지나
+ *  `&amp;#39;`가 되어 화면에 `&#39;`가 그대로 보인다 — 첫 배포에서 라이브에 **1,388곳**
+ *  나왔다. marked가 작은따옴표를 그렇게 내보내는데 이 연재는 제목에 '따옴표'를 자주 쓴다.
+ *
+ *  ⚠️ **&amp;를 마지막에 푼다.** 먼저 풀면 `&amp;lt;`가 `<`가 되어, 글자로 쓴 태그가
+ *  진짜 태그로 되살아난다(이 저장소가 원시 HTML을 글자로 취급하려고 애쓰는 이유와 같은 함정). */
 const stripTags = (s) =>
   s
     .replace(/<[^>]*>/g, '')
-    .replace(/&amp;/g, '&')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ')
 
 /** /devlog.html의 검색·태그 필터. 별도 파일로 낸다(인라인은 CSP가 막는다).
@@ -637,6 +646,10 @@ function main() {
     const htmlByDate = new Map(posts.map((p) => [p.date, p.html]))
     const dead = lessons.filter((l) => !(htmlByDate.get(l.date) ?? '').includes(`id="${l.sectionId}"`))
     if (dead.length) problems.push(`가리키는 id가 그 편에 없는 항목 ${dead.length}건 (${dead[0]?.date}#${dead[0]?.sectionId})`)
+    // 이중 이스케이프 — 첫 배포에서 라이브에 1,388곳 나갔다(`&#39;`가 글자로 보였다).
+    // 화면이 깨지지 않고 **글자만 이상해서** 눈으로는 지나치기 쉬운 종류라 여기서 센다.
+    const doubled = lessons.filter((l) => /&(amp|lt|gt|quot|#\d)/.test(l.text + l.sectionTitle))
+    if (doubled.length) problems.push(`실체참조가 안 풀린 항목 ${doubled.length}건 (${doubled[0].date}: ${doubled[0].sectionTitle.slice(0, 30)})`)
     if (problems.length) {
       console.error('\n❌ 교훈 색인(lessons.html)을 만들 수 없다:')
       for (const p of problems) console.error(`     ${p}`)
