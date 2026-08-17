@@ -3,18 +3,12 @@ import { Link } from 'react-router-dom'
 import { IconNote, IconActivity, IconArrowRight } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { ui } from '../ui'
+import { fetchDevlogIndex, type DevlogIndex } from '../api/devlogIndex'
 
 // 통합 랜딩(포털): 최근 개발일지 + 블로그/상태정보 두 입구
-
-/** 빌드가 만든 정적 목록(dist/devlog-index.json). **API가 아니다** —
- *  이 사이트는 EC2를 평소 꺼두므로, 첫 화면이 서버에 의존하면 방문자가 가장 흔하게
- *  보는 상태가 빈 화면이 된다. 그래서 S3에 정적으로 놓인 파일을 읽는다.
- *  생성 근거는 frontend/scripts/gen-static.mjs의 '2-B' 절 주석 참고. */
-type DevlogIndex = {
-  total: number
-  chars: number
-  posts: { date: string; title: string; slug: string; summary: string }[]
-}
+//
+// 목록의 출처와 성질(정적 파일이라 서버 없이 산다)은 api/devlogIndex.ts 주석에 있다.
+// 2026-08-17에 /blog도 절전 중 같은 목록을 쓰게 되면서 읽는 자리를 그리로 합쳤다.
 
 const PREVIEW = 5
 
@@ -26,19 +20,14 @@ function PortalPage() {
 
   useEffect(() => {
     let alive = true
-    fetch('/devlog-index.json')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: DevlogIndex) => {
-        if (!alive) return
-        // 모양이 틀리면 **접는다.** 예전엔 걸러내고 아무 상태로도 안 가서 스켈레톤이
-        // 영원히 남았다 — 뼈대는 '오는 중'이라는 뜻이라 그건 로딩이 아니라 고장이다
-        // (2026-08-12 검사에서 7가지 응답을 렌더해 확인).
-        if (Array.isArray(d?.posts)) setIndex(d)
-        else setFailed(true)
-      })
-      .catch(() => {
-        if (alive) setFailed(true)
-      })
+    // 모양이 틀리거나 못 읽으면 null이 온다 → **접는다.** 예전엔 걸러내고 아무 상태로도
+    // 안 가서 스켈레톤이 영원히 남았다 — 뼈대는 '오는 중'이라는 뜻이라 그건 로딩이 아니라
+    // 고장이다 (2026-08-12 검사에서 7가지 응답을 렌더해 확인).
+    fetchDevlogIndex().then((d) => {
+      if (!alive) return
+      if (d) setIndex(d)
+      else setFailed(true)
+    })
     return () => {
       alive = false
     }

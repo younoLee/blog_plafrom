@@ -9,6 +9,7 @@ import { IconLock } from '../components/icons'
 import { Reveal } from '../components/Reveal'
 import { Sidebar } from '../components/Sidebar'
 import { ServerAsleepError } from '../api/http'
+import { fetchDevlogIndex, type DevlogIndexPost } from '../api/devlogIndex'
 
 function HomePage() {
   const { user } = useAuth()
@@ -24,6 +25,11 @@ function HomePage() {
   const [error, setError] = useState('')
   // 서버 절전(꺼둠) 상태 — 에러와 톤을 구분해 안내한다.
   const [asleep, setAsleep] = useState(false)
+  // 절전 중에 보여줄 **정적** 목록(빌드 산출물). 랜딩(/)은 2026-08-12부터 이걸 써서
+  // 서버 없이도 글이 보였는데, 정작 '글 목록' 화면인 이 페이지는 안내문만 띄우고
+  // 비어 있었다 — 방문자가 '블로그' 입구로 들어오면 자산 32편이 0편으로 보였다.
+  // 절전은 이 사이트의 **평상시 상태**라 그게 첫인상이 된다 (2026-08-17).
+  const [staticPosts, setStaticPosts] = useState<DevlogIndexPost[] | null>(null)
   // 검색창 입력값. 제출(Enter)할 때만 URL에 반영한다 — 타이핑마다 부르면
   // 서버 레이트리밋(60/분)에 걸리고 검색은 일반 조회보다 비싸다.
   const [queryInput, setQueryInput] = useState(q ?? '')
@@ -63,8 +69,16 @@ function HomePage() {
     } catch (e) {
       if (seq !== reqSeq.current) return
       // 절전(서버 꺼짐)과 진짜 에러를 구분해 안내 톤을 다르게 한다.
-      setAsleep(e instanceof ServerAsleepError)
+      const sleeping = e instanceof ServerAsleepError
+      setAsleep(sleeping)
       setError((e as Error).message)
+      // 절전일 때만 정적 목록을 읽는다. 진짜 에러(500 등)엔 안 읽는다 — 그건 서버가
+      // 살아 있는데 뭔가 잘못된 것이라, 정적 목록을 깔면 고장을 정상처럼 덮는다.
+      // 한 번 받으면 다시 안 읽는다(태그·쪽 이동마다 같은 파일을 또 받지 않게).
+      if (sleeping && !staticPosts) {
+        const idx = await fetchDevlogIndex()
+        if (seq === reqSeq.current && idx) setStaticPosts(idx.posts)
+      }
     } finally {
       if (seq === reqSeq.current) setLoaded(true)
     }
@@ -134,6 +148,11 @@ function HomePage() {
     }
   }
 
+  // 절전 목록은 **태그만** 걸러낸다. 검색(q)은 서버가 본문까지 보고 판단하는데 정적
+  // 목록엔 본문이 없다 — 제목·요약으로 흉내내면 "조건에 맞는 글이 없어"가 거짓이 된다.
+  // 그래서 검색 중엔 거르지 않고, 본문까지 뒤지는 정적 아카이브로 안내한다.
+  const sleepList = (staticPosts ?? []).filter((p) => !tag || (p.tags ?? []).includes(tag))
+
   const lastPage = Math.max(1, Math.ceil(total / POSTS_PAGE_SIZE))
   const first = total === 0 ? 0 : (page - 1) * POSTS_PAGE_SIZE + 1
   const last = Math.min(page * POSTS_PAGE_SIZE, total)
@@ -163,7 +182,19 @@ function HomePage() {
       {/* 절전은 '고장'이 아니라 의도된 비용 절약이라 톤을 구분한다(빨강 에러 X). */}
       {asleep && (
         <p className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 글 목록은 깨어난 뒤에 보여.
+          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 댓글·로그인은 깨어난 뒤에
+          되고,{' '}
+          {sleepList.length > 0 ? (
+            '개발일지는 아래에서 지금 바로 읽을 수 있어.'
+          ) : (
+            <>
+              개발일지는{' '}
+              <a href="/devlog.html" className="underline">
+                정적 아카이브
+              </a>
+              에서 지금 바로 읽을 수 있어.
+            </>
+          )}
         </p>
       )}
       {error && !asleep && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
@@ -208,7 +239,17 @@ function HomePage() {
         </h2>
         {/* 로딩 중엔 개수를 단언하지 않는다 — '0개'는 사실 주장이다 */}
         <span className="text-sm text-gray-500 dark:text-gray-400">
-          {!loaded ? '불러오는 중…' : total > 0 ? `${total}개 중 ${first}–${last}` : '0개'}
+          {/* 절전 중엔 '0개'가 거짓이다 — 서버에서 못 받았을 뿐 글은 있고, 바로 아래에
+              그중 몇 편을 실제로 그리고 있다. 그럴 땐 그 수를 말한다. */}
+          {!loaded
+            ? '불러오는 중…'
+            : asleep
+              ? sleepList.length > 0
+                ? `정적 목록 ${sleepList.length}편`
+                : ''
+              : total > 0
+                ? `${total}개 중 ${first}–${last}`
+                : '0개'}
         </span>
       </div>
 
@@ -235,6 +276,58 @@ function HomePage() {
         <p className="rounded-2xl border border-dashed border-black/10 p-12 text-center text-gray-500 dark:border-white/15 dark:text-gray-400">
           {q || tag ? '조건에 맞는 글이 없어.' : '아직 글이 없어. 첫 글을 써봐!'}
         </p>
+      )}
+
+      {/* 절전 중 정적 목록. **링크는 SPA 라우트가 아니라 /devlog/*.html이다** —
+          <Link to="/blog/posts/:id">로 바꾸면 서버가 꺼진 날 클릭이 죽어서, 목록을
+          그린 의미가 사라진다(랜딩에서 같은 이유로 이미 한 번 잠가둔 성질이다). */}
+      {asleep && sleepList.length > 0 && (
+        <section aria-labelledby="static-devlog">
+          <h3 id="static-devlog" className="sr-only">
+            서버 없이 읽을 수 있는 개발일지
+          </h3>
+          {q && (
+            <p className="mb-4 rounded-lg bg-black/[0.03] px-4 py-3 text-sm text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+              검색은 서버가 본문까지 봐야 해서 절전 중엔 못 해 — 아래는 검색어를 반영하지 않은
+              전체 목록이야. 본문까지 찾으려면{' '}
+              <a href="/devlog.html" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+                개발일지 아카이브
+              </a>
+              에서 찾아줘(거기 검색은 서버 없이 돌아).
+            </p>
+          )}
+          <ul className="divide-y divide-black/[0.07] border-y border-black/[0.07] dark:divide-white/10 dark:border-white/10">
+            {sleepList.map((p) => (
+              <li key={p.date}>
+                <a href={`/${p.slug}`} className="group block py-4">
+                  <div className="flex items-baseline gap-3">
+                    <time className="shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">
+                      {p.date}
+                    </time>
+                    <h4 className="font-medium group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
+                      {p.title}
+                    </h4>
+                  </div>
+                  {p.summary && (
+                    <p className="mt-1.5 line-clamp-2 text-sm text-gray-500 dark:text-gray-400">
+                      {p.summary}
+                    </p>
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            이 목록과 링크는 서버 없이 동작해 ·{' '}
+            <a href="/devlog.html" className="hover:underline">
+              전체 아카이브
+            </a>{' '}
+            ·{' '}
+            <a href="/rss.xml" className="hover:underline">
+              RSS
+            </a>
+          </p>
+        </section>
       )}
 
       <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">

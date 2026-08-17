@@ -45,10 +45,16 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
             + 이 블로그 구독
           </Link>
         </div>
-        <div className="mt-4 border-t border-black/[0.06] pt-3 text-center dark:border-white/10">
-          <span className="text-lg font-semibold tracking-tight">{total}</span>
-          <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">개의 글</span>
-        </div>
+        {/* **집계를 못 받았으면 숫자를 말하지 않는다.** `meta ?? 0`이라 절전(서버 꺼짐)
+            중엔 "0개의 글"이 떴는데, 바로 옆 본문은 정적 목록 32편을 그리고 있었다 —
+            같은 화면이 서로 반대되는 말을 한 셈이다. 0은 '모름'이 아니라 사실 주장이다
+            (본문의 '불러오는 중…'·'0개' 처리와 같은 규칙, 2026-08-17). */}
+        {meta && (
+          <div className="mt-4 border-t border-black/[0.06] pt-3 text-center dark:border-white/10">
+            <span className="text-lg font-semibold tracking-tight">{total}</span>
+            <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">개의 글</span>
+          </div>
+        )}
       </div>
 
       {/* 최근 글 */}
