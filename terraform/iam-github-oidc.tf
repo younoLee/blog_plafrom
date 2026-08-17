@@ -55,12 +55,34 @@ resource "aws_iam_policy" "github_deploy" {
     Statement = [
       # 액션을 대상별로 쪼갠다. 예전엔 4개를 두 ARN에 통으로 묶어서 `ListBucket`이
       # `bucket/*`에, `DeleteObject`가 버킷 ARN에 걸려 있었다(무해하지만 의도가 안 읽힌다).
-      # `s3:GetObject`는 뺐다 — `aws s3 sync dist/ s3://...`는 올리기만 하고 내려받지 않는다.
+      # `s3:GetObject`는 뺐었다 — `aws s3 sync dist/ s3://...`는 올리기만 하고 내려받지 않는다.
+      # 2026-08-17에 **해시 자산에만** 다시 넣었다(아래 ReadHashedAssetsForMetadata).
       {
         Sid      = "ListForSync"
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
         Resource = aws_s3_bucket.frontend.arn
+      },
+      # 캐시 계층을 가르는 두 번째 패스가 **소스를 읽는다.**
+      #
+      # 배포는 sync 뒤에 `aws s3 cp <같은 버킷> --metadata-directive REPLACE`로 해시가 박힌
+      # 번들만 1년 immutable로 바꾼다(deploy.yml 참고). CopyObject는 소스에 `s3:GetObject`가
+      # 필요한데 그게 없어서 **2026-08-17 첫 배포에서 그 단계가 죽었다** — 사이트는 멀쩡하고
+      # 캐시 헤더만 안 바뀌어서, S3 원본을 head-object로 떠보고서야 알았다.
+      # 이 저장소가 08-11에 겪은 것과 같은 모양이다(권한 한 줄이 빠져 감시가 15회 조용히 실패).
+      #
+      # **범위를 파일명 모양으로 묶는다.** IAM 리소스 ARN도 `?`(한 글자) 와일드카드를 쓰므로,
+      # 배포 역할이 읽을 수 있는 것은 `이름-8글자해시.js|css`뿐이다 — 업로드 이미지·백업은
+      # 여전히 못 읽는다. 해시 자산은 공개 CDN으로 이미 누구나 받을 수 있는 파일이라
+      # 여기서 읽기를 주는 것이 새로 노출하는 것도 없다.
+      {
+        Sid    = "ReadHashedAssetsForMetadata"
+        Effect = "Allow"
+        Action = ["s3:GetObject"]
+        Resource = [
+          "${aws_s3_bucket.frontend.arn}/*-????????.js",
+          "${aws_s3_bucket.frontend.arn}/*-????????.css",
+        ]
       },
       {
         Sid    = "WriteSiteObjects"

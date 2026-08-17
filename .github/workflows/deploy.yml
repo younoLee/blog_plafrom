@@ -202,7 +202,19 @@ jobs:
         run: |
           aws s3 sync dist/ s3://blogplafromops --delete --exclude "uploads/*" \
             --cache-control "public,max-age=0,must-revalidate"
-          # 해시 자산만 1년 immutable로 (지우지 않는 메타데이터 갱신)
+
+      - name: CloudFront 캐시 무효화
+        run: aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"
+
+      # 해시 자산만 1년 immutable로 (지우지 않는 메타데이터 갱신).
+      #
+      # **무효화보다 뒤에 둔다.** 처음엔 sync와 같은 스텝에 붙였는데, 이 명령이 실패하자
+      # (배포 역할에 s3:GetObject가 없었다 — CopyObject는 소스를 읽는다) `set -e`로 스텝이
+      # 죽으면서 **무효화까지 건너뛰었다.** 부가 기능 하나가 배포의 마지막 단계를 인질로
+      # 잡은 셈이다. 갈라두면 여기서 실패해도 배포는 이미 끝나 있고, 빨간불은 그대로 뜬다
+      # (2026-08-17 — 사이트는 멀쩡하고 캐시 헤더만 안 바뀌어서 S3를 떠보고서야 알았다).
+      - name: 해시 자산 캐시 계층 (immutable)
+        run: |
           for spec in "js:application/javascript" "css:text/css"; do
             ext="${spec%%:*}"; ctype="${spec#*:}"
             aws s3 cp s3://blogplafromops s3://blogplafromops --recursive \
@@ -211,7 +223,9 @@ jobs:
               --cache-control "public,max-age=31536000,immutable" \
               --only-show-errors
           done
-          echo "해시 자산 캐시 계층 적용 완료"
-
-      - name: CloudFront 캐시 무효화
-        run: aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"
+          # 실제로 붙었는지 여기서 잰다 — 조용히 안 도는 것을 한 번 겪었다.
+          key=$(aws s3api list-objects-v2 --bucket blogplafromops \
+            --query "Contents[?ends_with(Key, '.js')] | [?contains(Key, '-')] | [0].Key" --output text)
+          cc=$(aws s3api head-object --bucket blogplafromops --key "$key" --query CacheControl --output text)
+          echo "$key → $cc"
+          case "$cc" in *immutable*) echo "캐시 계층 적용 확인" ;; *) echo "::error::캐시 계층이 안 붙었습니다 ($cc)"; exit 1 ;; esac
