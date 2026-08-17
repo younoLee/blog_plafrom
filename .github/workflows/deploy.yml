@@ -27,8 +27,12 @@ jobs:
     steps:
       - name: 코드 체크아웃
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        # 전체 이력은 없앤 게이트가 push 범위를 diff 하려고 요구하던 것이다.
-        # 빌드(gen-static.mjs 포함)는 git을 전혀 쓰지 않으므로 얕은 체크아웃으로 충분하다.
+        with:
+          # 2026-08-17부터 gen-static.mjs가 **git log를 읽는다**(/log.html과 편별 '그날의 커밋').
+          # 얕은 체크아웃이면 이력이 1커밋뿐이라 그 페이지가 **조용히 거의 빈 채로** 나간다.
+          # 예전 주석이 "빌드는 git을 전혀 쓰지 않는다"고 못박아뒀던 자리라, 그 전제가
+          # 바뀐 것을 여기에 적어둔다. 315커밋짜리 저장소라 비용은 무시할 만하다.
+          fetch-depth: 0
 
       # 여기 있던 '백엔드 동시 변경 게이트'는 2026-08-11에 **지웠다**(위 on: 주석 참고).
       # 남겨두면 `if: github.event_name == 'push'`라 수동 실행에서는 한 번도 안 도는,
@@ -71,7 +75,7 @@ jobs:
           # og-image.png가 여기 없으면: 파일이 사라져도 초록불이 뜨고, `s3 sync --delete`가
           # S3에서 지운다. 그런데 index.html과 gen-static.mjs의 og:image는 계속 그 URL을
           # 가리키므로 **모든 공유 카드가 조용히 깨진다**(2026-08-12 검사).
-          for f in rss.xml sitemap.xml robots.txt devlog.html devlog-index.json og-image.png lessons.html lessons-filter.js devlog-search.json favicon.ico; do
+          for f in rss.xml sitemap.xml robots.txt devlog.html devlog-index.json og-image.png lessons.html lessons-filter.js devlog-search.json favicon.ico log.html keywords.html map.html; do
             [ -s "dist/$f" ] || missing="$missing $f"
           done
           count=$(ls dist/devlog/*.html 2>/dev/null | wc -l)
@@ -79,12 +83,16 @@ jobs:
           # 태그 칩이 전부 404가 되는데, 페이지 자체는 멀쩡히 만들어져 초록불이 뜬다.
           hubs=$(ls dist/tag/*.html 2>/dev/null | wc -l)
           if [ "$hubs" -eq 0 ]; then missing="$missing tag/*.html"; fi
+          # 용어 색인(k/*.html)도 같은 이유로. log.html은 **얕은 체크아웃이면 안 만들어진다** —
+          # fetch-depth: 0을 지운 순간 조용히 사라지는 자리라 여기서 센다.
+          kws=$(ls dist/k/*.html 2>/dev/null | wc -l)
+          if [ "$kws" -eq 0 ]; then missing="$missing k/*.html"; fi
           if [ -n "$missing" ] || [ "$count" -eq 0 ]; then
             echo "::error::정적 산출물이 없습니다 —$missing (개발일지 페이지 $count개)"
             echo "content/devlog가 체크아웃됐는지, gen-static.mjs가 돌았는지 확인하세요."
             exit 1
           fi
-          echo "정적 산출물 OK — 개발일지 $count편 + 태그 허브 $hubs장 + rss/sitemap/robots"
+          echo "정적 산출물 OK — 개발일지 $count편 + 태그 허브 $hubs장 + 용어 $kws종 + rss/sitemap/robots"
 
       # devlog-index.json은 **랜딩(/)이 첫 화면에 그리는 목록**이다(2026-08-12 신설).
       # 존재 확인만으로는 부족하다 — 이 파일이 가리키는 slug가 실제 파일과 어긋나면
@@ -180,9 +188,30 @@ jobs:
         #  '확인할 것 없음'으로 찍어 12일간 아무도 몰랐다. 08-11에 버저닝으로 복구).
         # must-revalidate여도 엣지 캐시는 그대로 돌고 브라우저는 304 한 번이면 끝난다.
         # 방문자가 사실상 없는 블로그에서 그 차이보다 '배포가 반영되지 않는 위험'이 크다.
+        #
+        # 2026-08-17: 위 판단을 **뒤집지 않고** 위험한 부분만 뺐다. 문제였던 것은
+        # '2-pass' 자체가 아니라 `--delete`가 --include/--exclude에 따라 범위가 갈리는 것이다.
+        # 그래서 sync는 지금 그대로 한 번만 돌고(--delete 포함), 그 **뒤에** 해시가 박힌
+        # 번들만 골라 **메타데이터만 바꾼다**(cp --metadata-directive REPLACE, --delete 없음).
+        # 두 번째 패스는 무엇도 지울 수 없으므로 위 문단이 걱정한 사고가 구조적으로 안 난다.
+        # 이름이 안 바뀌는 파일(html·sw.js·rss.xml…)은 손대지 않으니 '배포해도 옛것이 뜨는'
+        # 위험도 그대로 없다 — 해시 파일은 내용이 바뀌면 **이름이 바뀐다**는 게 전제다.
+        # ⚠️ content-type을 확장자별로 명시한다. REPLACE는 기존 메타데이터를 통째로
+        # 갈아치우므로 안 주면 application/octet-stream이 되고, nosniff 때문에 스크립트가
+        # 아예 실행되지 않는다(사이트가 백지가 된다).
         run: |
           aws s3 sync dist/ s3://blogplafromops --delete --exclude "uploads/*" \
             --cache-control "public,max-age=0,must-revalidate"
+          # 해시 자산만 1년 immutable로 (지우지 않는 메타데이터 갱신)
+          for spec in "js:application/javascript" "css:text/css"; do
+            ext="${spec%%:*}"; ctype="${spec#*:}"
+            aws s3 cp s3://blogplafromops s3://blogplafromops --recursive \
+              --exclude "*" --include "*-????????.$ext" \
+              --metadata-directive REPLACE --content-type "$ctype" \
+              --cache-control "public,max-age=31536000,immutable" \
+              --only-show-errors
+          done
+          echo "해시 자산 캐시 계층 적용 완료"
 
       - name: CloudFront 캐시 무효화
         run: aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"

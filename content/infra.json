@@ -1,0 +1,29 @@
+{
+  "measured_at": "2026-08-17",
+  "region": "ap-northeast-2",
+  "ec2": [
+    {
+      "type": "t2.micro",
+      "state": "stopped",
+      "az": "ap-northeast-2c"
+    }
+  ],
+  "volumes": [
+    {
+      "size": 8,
+      "type": "gp3"
+    }
+  ],
+  "security_groups": "5",
+  "eips": "0",
+  "cloudfront": [
+    {
+      "status": "Deployed",
+      "price": "PriceClass_All",
+      "http": "HTTP2"
+    }
+  ],
+  "s3_buckets": "4",
+  "lambda": "0",
+  "alarms": "3"
+}

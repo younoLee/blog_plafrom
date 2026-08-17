@@ -114,6 +114,31 @@ fi
 DNS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
   --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
 
+# ── 0. 끄기 전 검문 — 지금 아니면 못 재는 것 ────────────────────────────────
+# 왜 여기인가: 저장소의 마크다운 편수와 DB의 연재 편수가 맞는지는 **서버가 켜져 있을 때만**
+# 잴 수 있다. 어긋난 채로 끄면 "발행했다고 생각했는데 라이브는 옛 편수"가 며칠씩 간다 —
+# 이 저장소는 실제로 그 상태를 여러 번 만들었고(#27은 마크다운이 아예 안 만들어진 채로
+# 며칠, #30·#32는 발행이 다음 서버 켜는 날까지 밀렸다), 그때마다 다음 세션이 기록을 뒤져
+# 알아냈다. 끄기 직전은 그걸 물어볼 마지막 순간이다.
+#
+# **막지는 않는다**(경고만). 일부러 안 발행하고 끄는 날이 있다 — 오늘 쓴 편을 내일 올리는
+# 경우다. 정지를 못 하게 막으면 그게 더 나쁘다(서버가 켜진 채 밤을 넘긴다).
+say "0/6 끄기 전 검문 — 마크다운 편수 vs DB 연재 편수"
+md_count=$(find "$(dirname "${BASH_SOURCE[0]}")/../content/devlog" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+db_count=$(ssh -n -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i "$SSH_KEY" \
+  "ec2-user@$DNS" 'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T db \
+    psql -U postgres -d postgres -tAc "select count(*) from posts where series = '"'"'블로그 만들기'"'"';"' \
+  2>/dev/null | tr -d '[:space:]' || true)
+if [[ -z "$db_count" ]]; then
+  echo "   --   DB를 못 읽었습니다 — 검문을 건너뜁니다(정지는 계속합니다)."
+elif [[ "$md_count" == "$db_count" ]]; then
+  echo "   OK   마크다운 $md_count편 = DB 연재 $db_count편"
+else
+  echo "   ⚠️   마크다운 ${md_count}편인데 DB 연재는 ${db_count}편입니다."
+  echo "        미발행이 있으면 지금 올리세요: scripts/publish_devlog.sh <날짜>"
+  echo "        (일부러 미룬 것이면 그대로 진행하면 됩니다)"
+fi
+
 # ── 1. 오리진 주차 (반드시 백업·정지보다 먼저) ──────────────────────────────
 say "1/6 오리진 주차 — terraform apply (기본값 → S3 주차 주소)"
 park_origin

@@ -20,6 +20,7 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 import { Marked } from 'marked'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -153,6 +154,37 @@ function readPost(file) {
     html,
     headings: headings.slice(),
     body, // GFM 가드가 원문을 본다(아래 gfmOnly 참고)
+  }
+}
+
+/** git 이력 — /log.html과 편별 '그날의 커밋'의 재료.
+ *
+ *  왜 git을 직접 읽나: 커밋 제목은 이 저장소의 **두 번째 연재**다. 315개가 쌓여 있고
+ *  개발일지가 '그날 무엇을 배웠나'라면 커밋은 '그날 무엇을 건드렸나'인데, 후자를
+ *  볼 수 있는 자리가 웹에 없었다. 스냅샷 파일로 커밋해두는 방법(tags.json 방식)도
+ *  있지만 그건 매 커밋마다 낡는다 — 자기를 갱신하는 커밋을 자기가 담을 수 없어서다.
+ *
+ *  ⚠️ **얕은 체크아웃이면 이력이 1개뿐이다.** deploy.yml에 `fetch-depth: 0`을 넣어뒀고
+ *  그 이유도 거기 적어뒀다. git이 아예 없으면(프론트 Docker 빌드 컨텍스트) 빈 배열을
+ *  주고 경고한다 — 배포 쪽은 산출물 존재를 따로 검사하므로 조용히 넘어가지 않는다. */
+function readCommits() {
+  try {
+    const out = execFileSync(
+      'git',
+      ['log', '--no-merges', '--date=short', '--format=%ad\u0001%h\u0001%s'],
+      { cwd: join(HERE, '..', '..'), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 },
+    )
+    return out
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [date, hash, subject] = line.split('\u0001')
+        return { date, hash, subject }
+      })
+  } catch {
+    console.warn('  (건너뜀) git 이력을 못 읽었다 — /log.html과 그날의 커밋을 만들지 않는다')
+    return []
   }
 }
 
@@ -447,6 +479,18 @@ img{max-width:100%;height:auto}
 .toc li.d3{padding-left:1rem;font-size:.9rem}
 .toc a{color:inherit;text-decoration:none}
 .toc a:hover{color:#0071e3;text-decoration:underline}
+.commits{margin:2.5rem 0 0;font-size:.9rem}
+.commits>summary{cursor:pointer;color:#6e6e73}
+.commits ul{list-style:none;padding:0;margin:.75rem 0 0}
+.commits li{padding:.3rem 0;line-height:1.5}
+.commit-date{color:#86868b;font-size:.8rem;margin-right:.25rem}
+.commits-all{margin:.75rem 0 0;font-size:.85rem}
+.logday{margin:2rem 0}
+.logday h2{font-size:1.05rem;margin:0 0 .5rem;letter-spacing:0}
+.logday-n{color:#86868b;font-weight:400;font-size:.85rem}
+.logday-post{margin:0 0 .5rem;font-size:.9rem}
+.loglist{list-style:none;padding:0;margin:0}
+.loglist li{padding:.25rem 0;line-height:1.5;font-size:.9rem}
 .taghubs{font-size:.85rem;color:#6e6e73;margin:0 0 1.25rem;line-height:2}
 .taghubs a{color:#6e6e73;text-decoration:none;border-bottom:1px solid #d2d2d7}
 .taghubs a:hover{color:#0071e3;border-color:#0071e3}
@@ -510,6 +554,7 @@ th,td{border-color:#38383a}
 .related{border-color:#1c1c1e}
 .related-h{color:#a1a1a6}
 .toc{border-color:#38383a;background:#151517}
+.commits>summary,.commit-date,.logday-n{color:#a1a1a6}
 .taghubs,.taghubs a{color:#a1a1a6}
 .taghubs a{border-color:#48484a}
 .lesson{border-color:#1c1c1e}
@@ -522,7 +567,7 @@ th,td{border-color:#38383a}
 </style>
 </head>
 <body><main>
-<p class="nav"><a href="/">← ${esc(TITLE)}</a> · <a href="/devlog.html">개발일지 전체</a> · <a href="/lessons.html">함정과 교훈</a> · <a href="/rss.xml">RSS</a></p>
+<p class="nav"><a href="/">← ${esc(TITLE)}</a> · <a href="/devlog.html">개발일지 전체</a> · <a href="/lessons.html">함정과 교훈</a> · <a href="/keywords.html">용어</a> · <a href="/log.html">커밋 로그</a> · <a href="/rss.xml">RSS</a></p>
 ${body}
 </main>${
   script
@@ -567,6 +612,18 @@ function main() {
     process.exit(1)
   }
   for (const p of posts) p.tags = tagMap[p.date].tags
+
+  // ── 커밋 이력 ────────────────────────────────────────────────────────────
+  // 편별 '그날의 커밋'은 **그 편의 날짜부터 다음 편 전날까지**를 묶는다. 하루로 자르면
+  // 대부분의 편이 빈 목록이 된다 — 이 연재는 작업한 날 밤에 쓰고 날짜를 소급해 붙이기
+  // 때문에, 커밋은 그 앞뒤로 흩어져 있다(실측: 08-11 하루에 20커밋, 08-12엔 5커밋).
+  const commits = readCommits()
+  const commitsFor = (i) => {
+    // posts는 최신순이다. i-1이 더 최신 편, i+1이 더 오래된 편.
+    const from = posts[i].date
+    const to = i > 0 ? posts[i - 1].date : '9999-99-99'
+    return commits.filter((c) => c.date >= from && c.date < to)
+  }
 
   // 태그별 편수 — 허브 페이지를 만들지(2편 이상), 칩을 어디로 걸지 여기서 정한다.
   // **글 페이지보다 먼저 계산해야 한다** — 칩이 이 값을 쓴다.
@@ -784,6 +841,26 @@ function main() {
     )
   }
 
+  /** 그날의 커밋. 개발일지가 '무엇을 배웠나'라면 이건 '무엇을 건드렸나'다.
+   *  둘을 한 화면에 두면 글이 실제 작업과 어떻게 이어지는지가 보인다.
+   *  접어둔다 — 20개가 펼쳐져 있으면 본문의 결론을 밀어낸다. */
+  const dayCommits = (i) => {
+    const cs = commitsFor(i)
+    if (!cs.length) return ''
+    return (
+      // 최신 편은 "그 뒤 지금까지"다 — 다음 편이 아직 없으니 범위의 끝이 열려 있다.
+      // 그걸 "이 편 기간"이라고 부르면 오늘 친 커밋이 지난 편의 것처럼 보인다.
+      `<details class="commits"><summary>${i === 0 ? `이 편 이후 지금까지의 커밋` : `이 편 기간의 커밋`} ${cs.length}개</summary><ul>` +
+      cs
+        .map(
+          (c) =>
+            `<li><code>${esc(c.hash)}</code> <span class="commit-date">${c.date}</span> ${esc(c.subject)}</li>`,
+        )
+        .join('') +
+      `</ul><p class="commits-all"><a href="/log.html">전체 커밋 ${commits.length}개 →</a></p></details>`
+    )
+  }
+
   /** 태그 칩. 누르면 아카이브 인덱스가 그 태그로 걸러진 채 열린다(?tag=). */
   const tagChips = (p) =>
     `<p class="tags">` +
@@ -812,7 +889,7 @@ function main() {
         published: `${p.date}T00:00:00+09:00`,
         body:
           `<h1>${esc(p.title)}</h1><p class="meta">${p.date}</p>${tagChips(p)}${toc(p)}` +
-          `${p.html}${seriesNav(i)}${relatedNav(i)}`,
+          `${p.html}${dayCommits(i)}${seriesNav(i)}${relatedNav(i)}`,
       }),
     )
   }
@@ -881,6 +958,248 @@ function main() {
 
   // (2의 짝) 필터 스크립트. 인라인이 아니라 파일인 이유는 page() 안 주석 참고(CSP).
   writeFileSync(join(OUT, 'devlog-filter.js'), FILTER_JS)
+
+  // 2-A-1) **/infra.html — 이 블로그가 실제로 무엇 위에 서 있나.**
+  //
+  //   개발일지가 인프라 얘기를 32편 하는데, 정작 "그래서 지금 뭐가 떠 있나"를 보여주는
+  //   자리가 없었다. 값은 **AWS에 직접 물어서** 잰다(scripts/infra_snapshot.sh) — 사람이
+  //   기억으로 적으면 그 순간부터 낡고, 이 저장소는 그 병을 여러 번 앓았다.
+  //
+  //   ⚠️ 스냅샷이라 **낡는다**. 빌드가 AWS를 부르지 않는 이유(배포 역할에 describe 권한을
+  //   주지 않으려고)는 그 스크립트 주석에 있다. 대신 **언제 잰 값인지 화면에 크게 적는다** —
+  //   낡을 수 있는 값을 낡지 않는 척 보여주는 게 이 저장소가 반복해서 만든 사고다.
+  const infraPath = join(HERE, '..', '..', 'content', 'infra.json')
+  if (existsSync(infraPath)) {
+    const inf = JSON.parse(readFileSync(infraPath, 'utf8'))
+    const rows = [
+      ['컴퓨트', inf.ec2.map((e) => `${e.type} (${e.state}) · ${e.az}`).join(', ') || '없음'],
+      ['디스크', inf.volumes.map((v) => `${v.size}GB ${v.type}`).join(', ') || '없음'],
+      ['고정 IP(EIP)', `${inf.eips}개 — 0이면 정지 중 과금이 없다는 뜻이다`],
+      ['보안 그룹', `${inf.security_groups}개`],
+      ['CDN', inf.cloudfront.map((c) => `CloudFront ${c.status} · ${c.http}`).join(', ') || '없음'],
+      ['S3 버킷', `${inf.s3_buckets}개 — 정적 사이트·백업·업로드·tfstate`],
+      ['Lambda', `${inf.lambda}개 — 엣지 로직은 Lambda@Edge가 아니라 CloudFront Function이다(더 싸다)`],
+      ['알람', `${inf.alarms}개 — EC2 상태검사·예산`],
+    ]
+    writeFileSync(
+      join(OUT, 'infra.html'),
+      page({
+        title: `인프라 실측 — ${TITLE}`,
+        description: `이 블로그가 실제로 올라가 있는 AWS 자원. ${inf.measured_at} 실측.`,
+        url: `${SITE}/infra.html`,
+        body:
+          `<h1>인프라 실측</h1>` +
+          `<p class="meta"><strong>${inf.measured_at}</strong>에 AWS에 직접 물어본 값 · ${inf.region} · 이 페이지는 서버 없이 동작합니다</p>` +
+          `<table><thead><tr><th>항목</th><th>실측</th></tr></thead><tbody>` +
+          rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('') +
+          `</tbody></table>` +
+          `<p>이 표는 사람이 적은 게 아니라 <code>scripts/infra_snapshot.sh</code>가 잰 것이다. ` +
+          `그래도 <strong>스냅샷이라 낡는다</strong> — 인프라를 바꾼 날 다시 재서 커밋한다. ` +
+          `무엇 때문에 이렇게 생겼는지는 <a href="/devlog.html">개발일지</a>와 ` +
+          `<a href="/lessons.html">함정과 교훈</a>에 있다.</p>` +
+          `<p class="meta"><a href="/map.html">사이트가 두 갈래로 사는 구조 →</a></p>`,
+      }),
+    )
+  }
+
+  // 2-A0) **/map.html — 이 사이트가 두 갈래로 산다는 것을 한 장으로.**
+  //
+  //   이 블로그의 가장 특이한 성질은 "서버가 평소 꺼져 있는데도 블로그로 기능한다"인데,
+  //   그걸 알려면 글 몇 편을 읽어야 했다. 방문자가 절전 안내를 보고 "고장인가?" 하는
+  //   자리이기도 하다(오늘 상태 페이지 톤을 고친 것과 같은 뿌리).
+  //
+  //   **인라인 SVG로 그린다** — 이미지 파일이면 다크모드에서 안 맞고, 스크립트를 쓰면
+  //   CSP가 막는다. currentColor를 쓰면 두 테마에서 그대로 산다.
+  const alwaysAlive = [
+    `개발일지 ${posts.length}편 (본문 전체)`,
+    '아카이브 · 제목/본문 검색 · 태그 허브',
+    '함정과 교훈 · 용어 색인 · 커밋 로그',
+    'RSS · sitemap · 소개',
+  ]
+  const serverOnly = ['로그인 · 계정', '댓글 쓰기/읽기', '글쓰기 · 이미지 업로드', '구독 · 새 글 알림', '관리자 · AI 초안']
+  const row = (t, i, x) =>
+    `<text x="${x}" y="${104 + i * 26}" font-size="13" fill="currentColor" opacity="0.85">· ${esc(t)}</text>`
+  writeFileSync(
+    join(OUT, 'map.html'),
+    page({
+      title: `사이트 구조 — ${TITLE}`,
+      description: '이 블로그는 두 갈래로 산다 — 서버 없이 항상 열리는 쪽과, 서버를 켠 날만 도는 쪽.',
+      url: `${SITE}/map.html`,
+      body:
+        `<h1>이 사이트는 두 갈래로 산다</h1>` +
+        `<p class="meta">비용을 아끼려고 서버(EC2)를 평소 꺼둔다. 그래서 기능이 두 층으로 갈린다.</p>` +
+        `<svg viewBox="0 0 720 300" role="img" aria-labelledby="map-t" style="width:100%;height:auto;color:inherit">` +
+        `<title id="map-t">서버 없이 항상 열리는 경로와, 서버를 켠 날만 도는 경로</title>` +
+        `<rect x="8" y="40" width="340" height="240" rx="14" fill="none" stroke="currentColor" opacity="0.25"/>` +
+        `<rect x="372" y="40" width="340" height="240" rx="14" fill="none" stroke="currentColor" opacity="0.25" stroke-dasharray="6 5"/>` +
+        `<text x="24" y="26" font-size="15" font-weight="600" fill="currentColor">항상 열린다 — S3 + CloudFront</text>` +
+        `<text x="388" y="26" font-size="15" font-weight="600" fill="currentColor" opacity="0.75">서버를 켠 날만 — EC2</text>` +
+        `<text x="24" y="66" font-size="12" fill="currentColor" opacity="0.6">빌드 때 미리 만들어 둔 정적 파일</text>` +
+        `<text x="388" y="66" font-size="12" fill="currentColor" opacity="0.6">FastAPI + PostgreSQL (평소 정지)</text>` +
+        alwaysAlive.map((t, i) => row(t, i, 24)).join('') +
+        serverOnly.map((t, i) => row(t, i, 388)).join('') +
+        `</svg>` +
+        `<p>왼쪽은 <strong>지금 이 순간에도</strong> 열린다 — 지금 읽고 있는 이 페이지가 그쪽이다. ` +
+        `오른쪽은 운영자가 서버를 켠 날에만 돈다. 꺼져 있을 때 그쪽 화면은 고장이 아니라 ` +
+        `<a href="/status">절전</a>이라고 말한다.</p>` +
+        `<p class="meta">읽는 데는 서버가 필요 없다: ` +
+        `<a href="/devlog.html">개발일지 ${posts.length}편</a> · ` +
+        `<a href="/lessons.html">함정과 교훈</a> · <a href="/keywords.html">용어</a> · <a href="/log.html">커밋</a></p>`,
+    }),
+  )
+
+  // 2-A1) **용어 색인 /k/<용어>.html — 도구 이름으로 들어오는 길.**
+  //
+  //   이 연재는 제목이 서술형 한국어라("…가 아니었다") 도구·개념 이름이 제목에 거의 없다.
+  //   그런데 사람이 찾을 때 치는 말은 정확히 그쪽이다(오늘 본문 검색을 붙인 것도 같은 이유).
+  //   검색은 '치는 사람'을 위한 것이고, 이 페이지들은 **검색엔진과 링크를 위한 것**이다 —
+  //   "이 블로그에서 CloudFront 얘기가 나온 편들"에 해당하는 주소가 생긴다.
+  //
+  //   용어는 **손으로 고른다.** 본문에서 자동 추출해봤더니 api/API/posts/env 같은 잡음이
+  //   섞였다(2026-08-17 실측 53종). 자동화가 값을 못 하는 자리는 표가 낫다.
+  //   ⚠️ 파일명은 ASCII 슬러그다 — 한글 파일명이 라이브에서 403이 됐던 그 함정을 아예 피한다.
+  const TERMS = [
+    { slug: 'cloudfront', name: 'CloudFront', alias: ['CloudFront'] },
+    { slug: 'ec2', name: 'EC2', alias: ['EC2'] },
+    { slug: 's3', name: 'S3', alias: ['S3'] },
+    { slug: 'rds', name: 'RDS', alias: ['RDS'] },
+    { slug: 'ecs', name: 'ECS', alias: ['ECS', 'Fargate'] },
+    { slug: 'terraform', name: 'Terraform', alias: ['terraform', 'Terraform'] },
+    { slug: 'docker', name: 'Docker', alias: ['Docker', 'docker compose', 'Dockerfile'] },
+    { slug: 'alembic', name: 'Alembic (마이그레이션)', alias: ['alembic', 'Alembic'] },
+    { slug: 'postgres', name: 'PostgreSQL', alias: ['PostgreSQL', 'postgres', 'psql'] },
+    { slug: 'fastapi', name: 'FastAPI', alias: ['FastAPI'] },
+    { slug: 'react', name: 'React', alias: ['React'] },
+    { slug: 'vite', name: 'Vite', alias: ['Vite', 'vite'] },
+    { slug: 'pytest', name: 'pytest', alias: ['pytest'] },
+    { slug: 'vitest', name: 'Vitest', alias: ['vitest', 'Vitest'] },
+    { slug: 'github-actions', name: 'GitHub Actions', alias: ['GitHub Actions', 'Actions', 'workflow_dispatch'] },
+    { slug: 'csp', name: 'CSP (콘텐츠 보안 정책)', alias: ['CSP'] },
+    { slug: 'ses', name: 'SES (메일)', alias: ['SES'] },
+    { slug: 'sns', name: 'SNS (알림)', alias: ['SNS'] },
+    { slug: 'cloudwatch', name: 'CloudWatch', alias: ['CloudWatch'] },
+    { slug: 'iam', name: 'IAM', alias: ['IAM'] },
+    { slug: 'waf', name: 'WAF', alias: ['WAF'] },
+    { slug: 'jwt', name: 'JWT (토큰)', alias: ['JWT'] },
+    { slug: 'byok', name: 'BYOK (내 키로 AI)', alias: ['BYOK'] },
+    { slug: 'web-push', name: 'Web Push', alias: ['Web Push', 'VAPID', '웹 푸시'] },
+    { slug: 'prompt-injection', name: '프롬프트 인젝션', alias: ['프롬프트 인젝션'] },
+    { slug: 'ssrf', name: 'SSRF', alias: ['SSRF'] },
+    { slug: 'xss', name: 'XSS', alias: ['XSS'] },
+    { slug: 'backup', name: '백업·복원', alias: ['pg_dump', '복원 훈련', '백업'] },
+    { slug: 'ratelimit', name: '레이트리밋', alias: ['레이트리밋', 'slowapi', '429'] },
+    { slug: 'oidc', name: 'OIDC (키 없는 배포)', alias: ['OIDC'] },
+  ]
+
+  // 용어가 나오는 편 + 그 편에서 처음 나온 문장 한 줄(맥락이 없으면 목록이 이름의 나열이다)
+  const stripCodeFences = (t) => t.replace(/```[\s\S]*?```/g, ' ')
+  const termHits = TERMS.map((t) => {
+    const hits = []
+    for (const p of posts) {
+      const prose = stripCodeFences(p.body)
+      if (!t.alias.some((a) => prose.includes(a))) continue
+      const sentence =
+        prose
+          .split(/\n+/)
+          .map((l) => l.trim())
+          .filter((l) => l && !l.startsWith('#') && !l.startsWith('|') && t.alias.some((a) => l.includes(a)))
+          .map((l) => l.replace(/[*`>#[\]]/g, '').replace(/\s+/g, ' ').trim())
+          .find((l) => l.length >= 30) ?? ''
+      hits.push({ post: p, sentence: sentence.slice(0, 180) })
+    }
+    return { ...t, hits }
+  }).filter((t) => t.hits.length >= 3) // 2편 이하는 페이지를 만들 값이 없다(태그 허브와 같은 규칙)
+
+  mkdirSync(join(OUT, 'k'), { recursive: true })
+  for (const t of termHits) {
+    writeFileSync(
+      join(OUT, 'k', `${t.slug}.html`),
+      page({
+        title: `${t.name} — ${TITLE}`,
+        description: `'${t.name}'이(가) 나오는 개발일지 ${t.hits.length}편.`,
+        url: `${SITE}/k/${t.slug}.html`,
+        body:
+          `<h1>${esc(t.name)}</h1>` +
+          `<p class="meta">개발일지 ${t.hits.length}편에 나옵니다 · 이 페이지는 서버 없이 동작합니다</p>` +
+          `<ul class="list">` +
+          t.hits
+            .map(
+              (h) =>
+                `<li><a href="/${h.post.slug}">${esc(h.post.title)}</a>` +
+                `<p>${h.post.date}${h.sentence ? ` — ${esc(h.sentence)}` : ''}</p></li>`,
+            )
+            .join('') +
+          `</ul>` +
+          `<p class="meta"><a href="/keywords.html">← 용어 전체</a> · <a href="/devlog.html">개발일지 전체</a></p>`,
+      }),
+    )
+  }
+
+  // 용어 색인 목차
+  if (termHits.length) {
+    writeFileSync(
+      join(OUT, 'keywords.html'),
+      page({
+        title: `용어 색인 — ${TITLE}`,
+        description: `이 블로그에 나오는 도구·개념 ${termHits.length}가지. 각 용어가 나오는 편으로 갑니다.`,
+        url: `${SITE}/keywords.html`,
+        body:
+          `<h1>용어 색인</h1><p class="meta">${termHits.length}가지 · 이 페이지는 서버 없이 동작합니다</p>` +
+          `<ul class="list">` +
+          termHits
+            .sort((a, b) => b.hits.length - a.hits.length)
+            .map(
+              (t) =>
+                `<li><a href="/k/${t.slug}.html">${esc(t.name)}</a> <span class="logday-n">${t.hits.length}편</span></li>`,
+            )
+            .join('') +
+          `</ul>`,
+      }),
+    )
+  }
+
+  // 2-A2) **/log.html — 커밋 315개를 두 번째 연재로 읽는다.**
+  //
+  //   개발일지가 '그날 무엇을 배웠나'라면 커밋 제목은 '그날 무엇을 건드렸나'다. 이 저장소는
+  //   커밋 제목을 문장으로 쓰는 관례라(“…가 아니었다”, “…에서만 빨간불이었다”) 그 자체로
+  //   읽힌다. 그런데 웹에서 볼 자리가 없었다 — GitHub에 가야 한다.
+  //
+  //   날짜별로 묶고, 개발일지가 있는 날은 그 편으로 링크를 건다(양방향: 편 → 커밋은
+  //   dayCommits, 커밋 → 편은 여기). 서버 없이 도는 정적 페이지다.
+  if (commits.length) {
+    const byDate = new Map()
+    for (const c of commits) {
+      if (!byDate.has(c.date)) byDate.set(c.date, [])
+      byDate.get(c.date).push(c)
+    }
+    const postByDate = new Map(posts.map((p) => [p.date, p]))
+    const days = [...byDate.entries()] // 이미 최신순(git log 순서)
+    writeFileSync(
+      join(OUT, 'log.html'),
+      page({
+        title: `커밋 로그 — ${TITLE}`,
+        description: `이 블로그를 만든 커밋 ${commits.length}개. 개발일지 ${posts.length}편과 날짜로 이어집니다.`,
+        url: `${SITE}/log.html`,
+        body:
+          `<h1>커밋 로그</h1>` +
+          `<p class="meta">${commits.length}개 · ${days[days.length - 1][0]} ~ ${days[0][0]} · 이 페이지는 서버 없이 동작합니다</p>` +
+          days
+            .map(([date, cs]) => {
+              const post = postByDate.get(date)
+              return (
+                `<div class="logday"><h2 id="d${date}">${date} <span class="logday-n">${cs.length}개</span></h2>` +
+                (post ? `<p class="logday-post">📝 <a href="/${post.slug}">${esc(post.title)}</a></p>` : '') +
+                `<ul class="loglist">` +
+                cs
+                  .map((c) => `<li><code>${esc(c.hash)}</code> ${esc(c.subject)}</li>`)
+                  .join('') +
+                `</ul></div>`
+              )
+            })
+            .join(''),
+      }),
+    )
+  }
 
   // 2-B) **태그 허브 /tag/<이름>.html** — `?tag=`는 주소가 아니라 상태였다.
   //
@@ -1092,6 +1411,11 @@ ${feedPosts
     // 색인 가치가 개별 편 못지않다.
     { loc: `${SITE}/lessons.html`, pri: '0.9' },
     // 태그 허브. `?tag=`는 쿼리라 sitemap에 올릴 수 없었다 — 주소가 생기니 올린다.
+    ...(commits.length ? [{ loc: `${SITE}/log.html`, pri: '0.6' }] : []),
+    { loc: `${SITE}/map.html`, pri: '0.7' },
+    ...(existsSync(infraPath) ? [{ loc: `${SITE}/infra.html`, pri: '0.5' }] : []),
+    ...(termHits.length ? [{ loc: `${SITE}/keywords.html`, pri: '0.7' }] : []),
+    ...termHits.map((t) => ({ loc: `${SITE}/k/${t.slug}.html`, pri: '0.6' })),
     ...hubTags.map((t) => ({ loc: `${SITE}${tagHref(t)}`, pri: '0.6' })),
     // about.html도 서버 없이 열리는 정적 페이지라 색인해도 빈 껍데기가 아니다.
     ...(aboutRaw ? [{ loc: `${SITE}/about.html`, pri: '0.5' }] : []),
@@ -1120,7 +1444,7 @@ ${urls
   console.log(
     `  정적 산출물: 개발일지 ${posts.length}편 + devlog.html + devlog-index.json + ` +
       `lessons.html(함정 ${traps.length}·노트 ${notes.length}) + devlog-search.json + ` +
-      `태그 허브 ${hubTags.length}장 + ` +
+      `태그 허브 ${hubTags.length}장 + 용어 ${termHits.length}종 + log.html(커밋 ${commits.length}) + ` +
       `rss.xml(최근 ${feedPosts.length}편) + sitemap.xml + robots.txt`,
   )
 }
