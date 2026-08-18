@@ -11,36 +11,33 @@
 
   scripts/gen_pwa_icons.py          # frontend/public/ 에 icon-192.png, icon-512.png
 
-디자인은 favicon.svg의 색과 모양(번개)을 따라간 최소한이다. 제대로 된 아이콘이
+디자인은 favicon.svg와 같은 모양(막대 셋)이다. 제대로 된 아이콘이
 생기면 이 파일을 지우고 그걸 넣으면 된다.
 """
 import pathlib
 import struct
 import zlib
 
-BG = (134, 59, 255)  # #863bff — favicon.svg의 브랜드 보라
+# 2026-08-18에 색과 모양을 갈았다. 전에는 보라(#863bff) 바탕에 번개였는데,
+# 그 조합이 favicon.svg(흐린 타원 16개를 겹친 그라데이션 번개)에서 온 것이고
+# 번개는 '자동으로 만들어진 표식'으로 읽힌다. 사이트 이름이 「블로그 만들기」로
+# 정해지면서 색은 본문 강조색으로, 모양은 **글 목록**으로 바꿨다.
+BG = (33, 91, 166)  # #215ba6 — index.css의 --color-accent
 FG = (255, 255, 255)
 
-# 번개 모양을 0~1 정규 좌표의 다각형으로. favicon의 형태를 단순화한 것.
-BOLT = [
-    (0.56, 0.06), (0.22, 0.54), (0.44, 0.54),
-    (0.38, 0.94), (0.76, 0.44), (0.53, 0.44),
+# 길이가 줄어드는 가로 막대 셋 = 글 목록. 0~1 정규 좌표의 (x, y, w, h) 사각형이다.
+# 번개 같은 다각형보다 이쪽이 작은 크기(16px 탭 아이콘)에서 안 뭉개진다.
+BARS = [
+    (0.22, 0.30, 0.56, 0.085),
+    (0.22, 0.4575, 0.40, 0.085),
+    (0.22, 0.615, 0.28, 0.085),
 ]
 
 
-def _inside(px: float, py: float, poly: list[tuple[float, float]]) -> bool:
-    """광선 투사(ray casting) — 점에서 오른쪽으로 반직선을 쏴 변과 만난 횟수가
-    홀수면 안쪽이다. 다각형 하나 채우자고 라이브러리를 들일 이유가 없다."""
-    hit = False
-    n = len(poly)
-    for i in range(n):
-        x1, y1 = poly[i]
-        x2, y2 = poly[(i + 1) % n]
-        if (y1 > py) != (y2 > py):
-            xx = x1 + (py - y1) * (x2 - x1) / (y2 - y1)
-            if px < xx:
-                hit = not hit
-    return hit
+def _inside(px: float, py: float, bars: list[tuple[float, float, float, float]]) -> bool:
+    """점이 막대 중 하나 안에 있는가. 사각형이라 좌표 비교면 끝난다
+    (전에는 번개 다각형이라 광선 투사가 필요했다)."""
+    return any(x <= px <= x + w and y <= py <= y + h for x, y, w, h in bars)
 
 
 def _chunk(tag: bytes, data: bytes) -> bytes:
@@ -54,7 +51,7 @@ def _chunk(tag: bytes, data: bytes) -> bytes:
 
 
 def render(size: int) -> bytes:
-    """모서리를 둥글린 사각형 배경 위에 번개. 알파는 모서리 바깥만 0."""
+    """모서리를 둥글린 사각형 배경 위에 막대 셋. 알파는 모서리 바깥만 0."""
     radius = size * 0.22
     rows = bytearray()
     for y in range(size):
@@ -67,7 +64,7 @@ def render(size: int) -> bytes:
             if dx * dx + dy * dy > radius * radius:
                 rows.extend((0, 0, 0, 0))  # 모서리 바깥 = 투명
                 continue
-            color = FG if _inside(x / size, y / size, BOLT) else BG
+            color = FG if _inside(x / size, y / size, BARS) else BG
             rows.extend((*color, 255))
 
     ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)  # 8bit RGBA

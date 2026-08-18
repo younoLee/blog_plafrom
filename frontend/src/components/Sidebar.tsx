@@ -20,7 +20,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
       .catch(() => {})
   }, [])
 
-  const name = owner.name ?? 'DEV 블로그'
+  const name = owner.name ?? '블로그 만들기'
   const initial = (name[0] ?? 'D').toUpperCase()
   const recent = meta?.recent ?? []
   const topTags = meta?.tags ?? []

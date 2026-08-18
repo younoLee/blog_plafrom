@@ -52,7 +52,7 @@ var SERVABLE = /\.(html|js|css|json|md|txt|xml|svg|png|jpe?g|gif|webp|avif|ico|w
 var NOT_FOUND_HTML =
     '<!doctype html><html lang="ko"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<title>없는 주소 — DEV 블로그</title>' +
+    '<title>없는 주소 — 블로그 만들기</title>' +
     // 아이콘 선언. 이 페이지도 탭에 뜨는 화면이고, 파일은 이미 S3에 있다
     // (favicon.svg·icon-192 둘 다 200). 정적 페이지들과 같은 이유로 붙인다.
     '<link rel="icon" type="image/svg+xml" href="/favicon.svg">' +

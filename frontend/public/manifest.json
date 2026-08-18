@@ -1,16 +1,31 @@
 {
-  "name": "DEV 블로그",
-  "short_name": "DEV 블로그",
-  "description": "개발과 인프라를 기록하는 블로그. 글 작성·구독·AI 초안까지 직접 만든 풀스택 사이트.",
+  "name": "블로그 만들기",
+  "short_name": "블로그 만들기",
+  "description": "빈 폴더에서 시작해 서버까지 직접 굴리며 겪은 것을 적는다.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#863bff",
+  "theme_color": "#215ba6",
   "lang": "ko",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

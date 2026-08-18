@@ -8,12 +8,16 @@
 왜 라이브러리 없이 그리나 — 이 환경엔 PIL도 imagemagick도 없다(로컬 파이썬은 pip가
 죽어 있다). 그리고 바이너리를 어디선가 받아 커밋하면 "이 그림이 어디서 왔는지"
 아무도 답할 수 없게 된다. gen_pwa_icons.py가 같은 이유로 zlib만 쓰고 있으므로
-그 PNG 작성기·번개 모양·브랜드 색을 그대로 빌려 쓴다(사본을 만들면 색이 갈라진다).
+그 PNG 작성기·모양·색을 그대로 빌려 쓴다(사본을 만들면 색이 갈라진다).
 
-왜 글자를 도형으로 그리나 — 폰트 파일이 저장소에 없고(본문 폰트는 CDN에서 온다)
-폰트 렌더러도 없다. 한글은 이 방식으로 그릴 수 없어서 **'DEV'만** 넣는다.
-제목·설명은 어차피 카드에서 og:title/og:description으로 따로 보인다 —
-이 그림이 할 일은 '어느 사이트인지'를 한눈에 주는 것까지다.
+**2026-08-18에 그림을 갈았다.** 전에는 보라 그라데이션 위에 번개와 'DEV' 워드마크를
+획 단위로 그렸다(letterform 60여 줄). 사이트 이름이 「블로그 만들기」가 되면서 그
+워드마크는 틀린 글자가 됐고, 한글은 이 방식으로 그릴 수 없다 — 저장소에 폰트 파일도
+렌더러도 없다. 그래서 **표식 하나만** 남긴다.
+
+글자를 포기해도 되는 이유: 카드에는 og:title과 og:description이 **글자로 따로** 뜬다.
+이 그림이 할 일은 거기까지 가기 전에 '어느 사이트인지'를 한눈에 주는 것이고, 그건
+아이콘과 같은 표식이면 된다. 오히려 탭·홈화면·공유카드가 같은 모양이 되어 붙는다.
 
   scripts/gen_og_image.py       # frontend/public/og-image.png
 """
@@ -23,80 +27,40 @@ import sys
 import zlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from gen_pwa_icons import BG, FG, BOLT, _chunk, _inside  # noqa: E402
+from gen_pwa_icons import BARS, BG, FG, _chunk, _inside  # noqa: E402
 
 W, H = 1200, 630
-BG2 = (75, 31, 214)  # 왼쪽 위 #863bff → 오른쪽 아래로 어두워지는 대각 그라데이션
 
-# 번개: 정사각 영역에 그린다(BOLT가 0~1 정규 좌표라서).
-BOLT_X, BOLT_Y, BOLT_S = 150, 165, 300
+# 표식을 놓을 정사각 영역(BARS가 0~1 정규 좌표라서).
+#
+# **잉크의 실제 경계로 가운데를 맞춘다.** BARS는 0~1 사각형 안에서 왼쪽 위에 치우쳐
+# 있어서(x는 0.22~0.78, y는 0.30~0.70), 정사각형만 가운데 놓으면 그림이 왼쪽 위로
+# 쏠려 보인다. 처음에 그렇게 뒀다가 화면에서 바로 티가 났다.
+MARK_S = 420
+_INK_X0, _INK_X1 = min(b[0] for b in BARS), max(b[0] + b[2] for b in BARS)
+_INK_Y0, _INK_Y1 = min(b[1] for b in BARS), max(b[1] + b[3] for b in BARS)
+MARK_X = round(W / 2 - MARK_S * (_INK_X0 + _INK_X1) / 2)
+MARK_Y = round(H / 2 - MARK_S * (_INK_Y0 + _INK_Y1) / 2)
 
-# 워드마크 'DEV' — 획 두께 44, 높이 200. 좌표는 전부 캔버스 픽셀 기준이다.
-TOP, BOT, STROKE = 215, 415, 44
-MID = (TOP + BOT) / 2
-
-D_X = 520  # D: 세로획 + 반달(바깥 타원 - 안쪽 타원)
-D_RX, D_RY = 126, 100
-E_X = 730  # E: 세로획 + 가로획 셋
-E_W = 140
-V_L, V_R = 910, 1080  # V: 아래에서 만나는 빗금 둘
-V_MID_L, V_MID_R = V_L + 63, V_R - 63
-
-V_LEFT = [(V_L, TOP), (V_L + STROKE, TOP), (V_MID_R, BOT), (V_MID_L, BOT)]
-V_RIGHT = [(V_R - STROKE, TOP), (V_R, TOP), (V_MID_R, BOT), (V_MID_L, BOT)]
-
-
-def _rect(x, y, x0, y0, x1, y1) -> bool:
-    return x0 <= x < x1 and y0 <= y < y1
-
-
-def _is_ink(x: float, y: float) -> bool:
-    """이 픽셀이 흰색(전경)인가. 바운딩 박스로 먼저 걸러야 1200x630이 느려지지 않는다."""
-    # 번개
-    if BOLT_X <= x < BOLT_X + BOLT_S and BOLT_Y <= y < BOLT_Y + BOLT_S:
-        if _inside((x - BOLT_X) / BOLT_S, (y - BOLT_Y) / BOLT_S, BOLT):
-            return True
-    if not (TOP <= y < BOT):
-        return False
-
-    # D
-    if D_X <= x < D_X + 2 * D_RX:
-        if _rect(x, y, D_X, TOP, D_X + STROKE, BOT):
-            return True
-        cx, cy = D_X + STROKE, MID
-        dx, dy = (x - cx) / D_RX, (y - cy) / D_RY
-        ix, iy = (x - cx) / (D_RX - STROKE), (y - cy) / (D_RY - STROKE)
-        if x >= cx and dx * dx + dy * dy <= 1 and ix * ix + iy * iy > 1:
-            return True
-    # E
-    if E_X <= x < E_X + E_W:
-        if _rect(x, y, E_X, TOP, E_X + STROKE, BOT):
-            return True
-        if _rect(x, y, E_X, TOP, E_X + E_W, TOP + STROKE):
-            return True
-        if _rect(x, y, E_X, MID - STROKE / 2, E_X + E_W - 25, MID + STROKE / 2):
-            return True
-        if _rect(x, y, E_X, BOT - STROKE, E_X + E_W, BOT):
-            return True
-    # V
-    if V_L <= x < V_R:
-        if _inside(x, y, V_LEFT) or _inside(x, y, V_RIGHT):
-            return True
-    return False
+# 바탕은 단색이다. 전에는 대각 그라데이션이었는데, 화면에서 그라데이션을 걷어낸
+# 것과 같은 이유로 여기서도 뺐다 — 공유 카드는 작게 뜨고, 거기서 그라데이션은
+# 그냥 얼룩으로 보인다.
 
 
 def render() -> bytes:
     rows = bytearray()
     for y in range(H):
         rows.append(0)  # 스캔라인 필터 바이트(0 = None)
-        ty = y / (H - 1)
         for x in range(W):
-            if _is_ink(x + 0.5, y + 0.5):
+            px, py = x + 0.5, y + 0.5
+            if (
+                MARK_X <= px < MARK_X + MARK_S
+                and MARK_Y <= py < MARK_Y + MARK_S
+                and _inside((px - MARK_X) / MARK_S, (py - MARK_Y) / MARK_S, BARS)
+            ):
                 rows.extend(FG)
-                continue
-            # 대각 그라데이션. 알파는 안 쓴다(공유 카드는 항상 불투명하게 합성된다)
-            t = (x / (W - 1) + ty) / 2
-            rows.extend(round(a + (b - a) * t) for a, b in zip(BG, BG2))
+            else:
+                rows.extend(BG)
 
     ihdr = struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)  # 8bit RGB(알파 없음)
     return (

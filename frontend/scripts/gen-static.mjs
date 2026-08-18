@@ -27,7 +27,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const SRC = join(HERE, '..', '..', 'content', 'devlog')
 const OUT = join(HERE, '..', 'dist')
 const SITE = process.env.VITE_SITE_URL ?? 'https://d2j66m9udyg9yq.cloudfront.net'
-const TITLE = 'DEV 블로그'
+const TITLE = '블로그 만들기'
 const DESC = '개발과 인프라를 기록하는 블로그. 글 작성·구독·AI 초안까지 직접 만든 풀스택 사이트.'
 
 const esc = (s) =>
@@ -417,7 +417,7 @@ const page = ({ title, description, url, body, article, published, script }) => 
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#863bff">
+<meta name="theme-color" content="#215ba6">
 <meta property="og:type" content="${article ? 'article' : 'website'}">
 <meta property="og:site_name" content="${esc(TITLE)}">
 <meta property="og:title" content="${esc(title)}">

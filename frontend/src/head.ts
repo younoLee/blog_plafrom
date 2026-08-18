@@ -16,7 +16,7 @@
 // canonical은 정적 아카이브가 있으면 **그쪽**을 가리킨다. 서버(EC2)가 평소 꺼져 있어
 // SPA 주소는 눌러도 글이 안 뜰 확률이 높은 반면 정적 페이지는 항상 열리기 때문이다.
 
-const SITE_NAME = 'DEV 블로그'
+const SITE_NAME = '블로그 만들기'
 
 export interface HeadMeta {
   /** 글 제목. 비면 사이트 기본값으로 되돌린다. */
@@ -87,7 +87,7 @@ export function applyHead(meta: HeadMeta, doc: Document = document): () => void 
   const url = meta.canonical || (loc ? `${loc.origin}${loc.pathname}` : null)
   const values: Record<string, string | null> = {
     // og:title은 사이트 이름을 덧붙이지 않는다 — 카드에 og:site_name이 따로 뜨므로
-    // 붙이면 "제목 — DEV 블로그 · DEV 블로그"가 된다. 탭 제목(document.title)만 붙인다.
+    // 붙이면 "제목 — 블로그 만들기 · 블로그 만들기"가 된다. 탭 제목(document.title)만 붙인다.
     title: meta.title || SITE_NAME,
     description: meta.description || baseline?.get('meta[name="description"]') || null,
     url,

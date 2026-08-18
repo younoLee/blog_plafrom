@@ -31,7 +31,7 @@ function Layout() {
               탭 아이콘(favicon)과 PWA 아이콘은 그대로 둔다. 그건 이름을 정한 뒤에
               같이 만드는 게 맞고, 지금 지우면 탭에 빈 칸이 남는다. */}
           <Link to="/" className="flex shrink-0 items-center font-semibold tracking-tight">
-            DEV 블로그
+            블로그 만들기
           </Link>
           {/* 버튼이 많아 좁은 화면에선 넘침 → flex-wrap으로 다음 줄로 자연스럽게 줄바꿈 */}
           <nav className="flex flex-wrap items-center justify-end gap-1.5">
@@ -135,7 +135,7 @@ function Layout() {
       </main>
 
       <footer className="mx-auto max-w-7xl px-4 py-12 text-center text-xs text-gray-500 dark:text-gray-400">
-        © 2026 DEV 블로그 · FastAPI · React · Tailwind
+        © 2026 블로그 만들기 · FastAPI · React · Tailwind
         {/* 정적 아카이브와 피드. 서버(EC2)가 꺼져 있어도 열리는 경로라, 절전 중에
             글 목록이 안 뜰 때 여기로 빠져나갈 수 있다. React Router가 가로채면
             안 되므로(SPA 라우트가 아니라 S3의 실제 파일이다) <a>를 쓴다. */}

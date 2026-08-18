@@ -15,12 +15,12 @@ beforeEach(() => {
   document.head.innerHTML = `
     <meta name="description" content="${BASE_DESC}">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="DEV 블로그">
+    <meta property="og:title" content="블로그 만들기">
     <meta property="og:description" content="${BASE_DESC}">
     <meta property="og:url" content="https://example.test/">
-    <meta name="twitter:title" content="DEV 블로그">
+    <meta name="twitter:title" content="블로그 만들기">
     <meta name="twitter:description" content="${BASE_DESC}">`
-  document.title = 'DEV 블로그'
+  document.title = '블로그 만들기'
 })
 
 const get = (sel: string, attr = 'content') => document.querySelector(sel)?.getAttribute(attr)
@@ -44,7 +44,7 @@ describe('applyHead', () => {
 
   it('탭 제목엔 사이트명을 붙이고 og:title엔 안 붙인다', () => {
     applyHead({ title: '제목' })
-    expect(document.title).toBe('제목 — DEV 블로그')
+    expect(document.title).toBe('제목 — 블로그 만들기')
     // og:site_name이 카드에 따로 뜨므로 여기 붙이면 이름이 두 번 나온다.
     expect(get('meta[property="og:title"]')).toBe('제목')
     expect(get('meta[name="twitter:title"]')).toBe('제목')
@@ -61,9 +61,9 @@ describe('applyHead', () => {
 
     undo()
 
-    expect(document.title).toBe('DEV 블로그')
+    expect(document.title).toBe('블로그 만들기')
     expect(get('meta[name="description"]')).toBe(BASE_DESC)
-    expect(get('meta[property="og:title"]')).toBe('DEV 블로그')
+    expect(get('meta[property="og:title"]')).toBe('블로그 만들기')
     expect(get('meta[property="og:type"]')).toBe('website')
     expect(document.querySelector('link[rel="canonical"]')).toBeNull()
   })
@@ -76,7 +76,7 @@ describe('applyHead', () => {
     const undoB = applyHead({ title: 'B', description: 'B 발췌' })
     undoB()
     expect(get('meta[name="description"]')).toBe(BASE_DESC)
-    expect(document.title).toBe('DEV 블로그')
+    expect(document.title).toBe('블로그 만들기')
   })
 
   it('되돌리기 없이 A 위에 B를 겹쳐 걸어도 마찬가지다', () => {
