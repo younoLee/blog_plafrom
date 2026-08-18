@@ -140,6 +140,12 @@ def list_posts(
     # 6,000자 태그가 200으로 인덱스 조회까지 갔다). 고친 자리 옆의 안 쓸린 입구다.
     # 태그는 작성 시 스키마가 이미 짧게 제한하므로 조회 쪽도 같은 크기로 맞춘다.
     tag: str | None = Query(None, max_length=50),
+    # 글쓴이로 거르기 — `/@handle` 화면이 쓴다. 값은 **핸들**이지 id가 아니다.
+    # id를 받으면 화면이 주소(handle)를 id로 바꾸려고 조회를 한 번 더 해야 하고,
+    # 그 조회가 실패하는 경우(없는 사람)를 두 곳에서 처리하게 된다.
+    # 상한은 handle 컬럼과 같은 20자. 없는 핸들이면 빈 목록이다(404가 아니다 —
+    # 목록은 '조건에 맞는 게 없다'를 표현할 수 있고, 화면이 그걸 이미 그린다).
+    author: str | None = Query(None, max_length=20),
     limit: int = Query(10, ge=1, le=50),  # 상한 필수: ?limit=999999로 전체를 뽑아가는 걸 막는다
     # ⚠️ **`limit`엔 상한이 있는데 `offset`엔 없었다** — `q`↔`tag`와 글자 그대로 같은
     # "짝지어진 파라미터 중 한쪽만 안 쓸린" 모양이 여기 한 번 더 있었다(2026-08-12 검사).
@@ -159,6 +165,14 @@ def list_posts(
 
     # 필터는 전부 공개범위 조건과 AND — 하나라도 OR로 새면 검색으로 비공개 글이 샌다(IDOR).
     filters = [visible_condition(user, db)]
+    if author:
+        # 대소문자를 구분하지 않는다 — 주소는 그게 상식이고, 유니크 인덱스도
+        # lower(handle)에 걸려 있어 두 값이 동시에 존재할 수 없다.
+        filters.append(
+            Post.owner_id.in_(
+                select(User.id).where(func.lower(User.handle) == author.strip().lower())
+            )
+        )
     if tag:
         # 태그 필터: tags 배열에 이 태그가 포함된 글만 (Postgres 배열 contains)
         filters.append(Post.tags.contains([tag]))

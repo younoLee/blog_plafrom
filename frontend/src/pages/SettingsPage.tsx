@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { updateDisplayName } from '../api/auth'
+import { updateDisplayName, updateHandle } from '../api/auth'
 import { canWrite } from '../api/auth'
 import { fetchKeys, saveKey, deleteKey, type KeyStatus } from '../api/ai'
 import { ui } from '../ui'
@@ -44,6 +44,9 @@ function SettingsPage() {
   // 복사하면 effect로 동기화해야 하고(이 저장소가 금지하는 패턴), 저장 후 되돌리기도 번거롭다.
   const [nameDraft, setNameDraft] = useState<string | null>(null)
   const [savingName, setSavingName] = useState(false)
+  // 표시명과 같은 방식 — null이면 '아직 안 건드림'이라 서버 값을 그대로 보여준다
+  const [handleDraft, setHandleDraft] = useState<string | null>(null)
+  const [savingHandle, setSavingHandle] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
@@ -59,6 +62,7 @@ function SettingsPage() {
   if (!user) return <Navigate to="/login" replace />
 
   const name = nameDraft ?? user?.display_name ?? ''
+  const handle = handleDraft ?? user?.handle ?? ''
 
   async function handleSaveName() {
     setError(''); setMsg('')
@@ -72,6 +76,21 @@ function SettingsPage() {
       setError(e instanceof Error ? e.message : '표시명 변경 실패')
     } finally {
       setSavingName(false)
+    }
+  }
+
+  async function handleSaveHandle() {
+    setError(''); setMsg('')
+    setSavingHandle(true)
+    try {
+      const updated = await updateHandle(handle.trim())
+      setHandleDraft(null)
+      await refreshUser()
+      setMsg(updated.handle ? `주소를 /@${updated.handle} 로 정했어` : '블로그 주소를 없앴어')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '주소 변경 실패')
+    } finally {
+      setSavingHandle(false)
     }
   }
 
@@ -136,12 +155,47 @@ function SettingsPage() {
         </div>
       </section>
 
-      {/* 블로그 스킨 — **주인(admin)만** 보인다.
-          이 사이트는 블로그 주소가 /blog 하나뿐이라 적용되는 스킨도 하나다. 글쓴이에게
-          편집기를 열어주면 '저장은 되는데 화면엔 안 나오는' 칸이 되는데, 그건 이 저장소가
-          여러 번 밟은 모양이라(만들어져 있는데 연결이 없다) 아예 안 보여준다.
-          글쓴이마다 자기 블로그 주소가 생기면 그때 이 조건을 canWrite로 넓히면 된다. */}
-      {user.role === 'admin' && <SkinEditor />}
+      {/* 블로그 주소 — 이게 있어야 `/@handle` 화면이 열린다.
+          표시명과 나눠 둔 이유: 이건 주소라 형식·중복 검사가 붙고 실패 사유가 다르다.
+          한 칸에 묶으면 이름을 바꾸려다 주소 검증에 걸려 둘 다 못 바꾸게 된다. */}
+      {canWrite(user) && (
+        <section className={`${ui.card} mt-6`}>
+          <h2 className="text-lg font-semibold tracking-tight">블로그 주소</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            정하면 <span className="font-medium">내 글만 모아 보는 주소</span>가 생겨. 스킨도 여기에 걸려.
+            <br />
+            <span className="text-xs">
+              영소문자·숫자·하이픈·밑줄 2~20자. 비워서 저장하면 주소를 없애.
+            </span>
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-400">/@</span>
+            <input
+              className={`${ui.input} max-w-xs`}
+              value={handle}
+              maxLength={20}
+              placeholder="yuno"
+              autoComplete="off"
+              onChange={(e) => setHandleDraft(e.target.value)}
+            />
+            <button type="button" className={ui.btnPrimary} onClick={handleSaveHandle} disabled={savingHandle}>
+              {savingHandle ? '저장 중…' : '저장'}
+            </button>
+            {user.handle && (
+              <a href={`/@${user.handle}`} className="text-sm text-accent hover:underline">
+                열어보기 →
+              </a>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* 블로그 스킨 — 글쓰기 권한자 전체에게 연다.
+          08-18 오전엔 admin만이었다. 그땐 블로그 주소가 /blog 하나뿐이라 글쓴이에게
+          열어주면 '저장은 되는데 화면엔 안 나오는' 칸이 됐기 때문이다. 같은 날 오후에
+          `/@handle`이 생기면서 저장한 값이 실제로 보일 자리가 생겼다 — 그래서 넓혔다.
+          주인이 저장한 것은 사이트 스킨(`/blog`)이 되고, 글쓴이 것은 자기 블로그에 걸린다. */}
+      {canWrite(user) && <SkinEditor />}
 
       <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
         내 API 키를 등록하면 글쓰기에서 GPT·Gemini·Grok 등 다른 모델로도 초안을 만들 수 있어.

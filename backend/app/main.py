@@ -3,14 +3,14 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 # PoolTimeoutError = 풀 고갈. 파이썬 빌트인 TimeoutError(=OSError 하위)와 **이름만 같고
 # 계통이 완전히 다르다**(issubclass → False). 별칭 없이 들여오면 모듈 전역에서 빌트인을
@@ -23,6 +23,7 @@ from starlette.datastructures import Headers
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.ratelimit import limiter
+from app.models.post import Post
 from app.models.user import User
 from app.routers import (
     admin,
@@ -437,6 +438,32 @@ def blog_owner(db: Session = Depends(get_db)):
     if owner is None:
         return {"id": None, "name": None}
     return {"id": owner.id, "name": owner.display_name}
+
+
+@app.get("/api/authors/{handle}")
+def author_profile(handle: str, db: Session = Depends(get_db)):
+    """`/@handle` 화면이 그릴 사람 정보. **무인증**이다(공개 블로그니까).
+
+    돌려주는 것은 화면에 이미 보이는 것뿐이다 — 표시명·핸들·공개 글 수. 이메일은
+    절대 안 나간다(2026-08-10 보안검사에서 끊은 경로다). display_name이 없으면 핸들을
+    이름으로 쓴다. 이메일로 되돌아가는 폴백은 두지 않는다.
+
+    핸들이 없으면 404다. 스킨(GET /api/skin?handle=)이 없는 핸들에 빈 값을 주는 것과
+    다른 이유: 저건 장식이라 없어도 화면이 그려지지만, 이건 **그 화면이 존재하는가**에
+    대한 답이라 없으면 없다고 해야 한다. 아니면 아무 주소나 빈 블로그로 열린다.
+
+    글 수는 공개 글만 센다. 로그인 여부에 따라 숫자가 달라지면 '몇 편 있는 블로그인가'가
+    보는 사람마다 달라지고, 비공개 글의 존재가 숫자로 새어 나간다.
+    """
+    u = db.scalar(select(User).where(func.lower(User.handle) == handle.strip().lower()))
+    if u is None:
+        raise HTTPException(status_code=404, detail="그런 블로그가 없어")
+    n = db.scalar(
+        select(func.count())
+        .select_from(Post)
+        .where(Post.owner_id == u.id, Post.visibility == "public")
+    )
+    return {"handle": u.handle, "name": u.display_name or u.handle, "posts": n or 0}
 
 
 @app.get("/api/status")

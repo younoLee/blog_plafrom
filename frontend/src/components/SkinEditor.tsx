@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchSkin, saveSkin, previewSkin } from '../api/skin'
+import { fetchMySkin, saveSkin, previewSkin } from '../api/skin'
 import { ui } from '../ui'
 import { IconCheck } from './icons'
 
@@ -87,7 +87,7 @@ function SkinEditor() {
   const savedRef = useRef('')
 
   useEffect(() => {
-    fetchSkin()
+    fetchMySkin()
       .then((css) => {
         setDraft(css)
         setSaved(css)

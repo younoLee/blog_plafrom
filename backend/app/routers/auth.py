@@ -23,6 +23,7 @@ from app.schemas.invite import InvitePreview, InviteRedeem, InviteToken
 from app.schemas.user import (
     DisplayNameUpdate,
     ForgotPasswordRequest,
+    HandleUpdate,
     RegisterRequest,
     ResetPasswordRequest,
     Token,
@@ -344,6 +345,35 @@ def update_me(
     name = data.display_name.strip()
     current.display_name = name or None
     db.commit()
+    db.refresh(current)
+    return current
+
+
+@router.patch("/me/handle", response_model=UserRead)
+def update_my_handle(
+    data: HandleUpdate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """내 블로그 주소(`/@handle`)를 정한다.
+
+    표시명과 따로 둔 이유: 표시명은 아무 값이나 되지만 이건 **주소**라 형식·예약어·중복을
+    다 검사해야 하고, 실패 사유도 다르다. 한 엔드포인트에 묶으면 이름을 바꾸려다
+    주소 검증에 걸려 둘 다 못 바꾸는 일이 생긴다.
+
+    빈 값이면 NULL로 되돌린다 = 개인 블로그 주소를 없앤다. 그때 `/@옛주소`는 404가 된다.
+
+    ⚠️ **중복은 DB가 막는다.** 여기서 미리 조회해 확인해도, 그 사이에 다른 요청이 같은
+    값을 넣을 수 있다(확인과 저장 사이의 틈). 유니크 인덱스가 진짜 방어선이고 여기서는
+    그 오류를 사람이 읽을 문장으로 바꿔주기만 한다.
+    """
+    handle = data.handle
+    current.handle = handle or None
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"'{handle}'는 이미 다른 사람이 쓰고 있어") from None
     db.refresh(current)
     return current
 

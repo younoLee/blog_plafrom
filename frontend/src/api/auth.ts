@@ -12,6 +12,8 @@ export interface User {
   role: Role
   // 화면에 보일 이름. 안 정했으면 null → 서버가 "회원 #id"로 폴백한다
   display_name?: string | null
+  // 내 블로그 주소(`/@handle`). null이면 개인 블로그가 없다.
+  handle?: string | null
   is_pro: boolean // 유료(고급 AI 모델 해금) 여부
   pro_until?: string | null // 구독 만료 시각(ISO). 없으면 null
   created_at: string
@@ -210,6 +212,31 @@ export async function fetchMe(): Promise<User | null> {
  *
  * 빈 문자열을 보내면 '안 정함'으로 되돌아간다(서버가 NULL로 저장).
  */
+/**
+ * 내 블로그 주소(`/@handle`)를 정한다. 빈 문자열이면 주소를 없앤다.
+ *
+ * 422와 409를 갈라 안내한다 — 형식이 틀린 것과 남이 이미 쓰는 것은 사용자가 할 일이
+ * 다르다(고쳐 쓰기 vs 다른 이름 고르기). 서버가 이유를 문장으로 주므로 그대로 보여준다.
+ */
+export async function updateHandle(handle: string): Promise<User> {
+  const res = await fetchWithTimeout(
+    `${BASE}/auth/me/handle`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ handle }),
+    },
+    QUICK_TIMEOUT_MS,
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const detail = body?.detail
+    const msg = Array.isArray(detail) ? detail[0]?.msg : detail
+    throw new Error(msg || '주소를 바꾸지 못했어')
+  }
+  return res.json()
+}
+
 export async function updateDisplayName(displayName: string): Promise<User> {
   const res = await fetchWithTimeout(
     `${BASE}/auth/me`,

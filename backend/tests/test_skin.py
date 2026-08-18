@@ -44,13 +44,21 @@ def test_빈_값이면_기본_스킨으로_되돌아간다(client, make_user, au
     assert client.get("/api/skin").json()["css"] == ""
 
 
-def test_글쓴이는_스킨을_못_바꾼다(client, make_user, auth_headers):
+def test_글쓴이가_저장해도_사이트_스킨은_안_바뀐다(client, make_user, auth_headers):
+    """2026-08-18 오후에 규칙이 바뀐 자리다.
+
+    그전엔 글쓴이가 아예 못 바꿨다(403). 계정별 블로그(`/@handle`)가 생기면서
+    자기 것은 바꿀 수 있게 넓혔는데, **그때 저장 대상도 '주인 행'에서 '자기 행'으로**
+    같이 바꿔야 했다. 하나만 바꿨으면 글쓴이가 저장한 CSS가 사이트 스킨이 됐을 것이다.
+    그래서 여기서 잠근다: 글쓴이가 저장해도 핸들 없는 조회(= 사이트 스킨)는 안 변한다.
+    """
     make_user(role="admin")
     writer = make_user(role="writer")
     r = client.put(
         "/api/skin", json={"custom_css": "body{display:none}"}, headers=auth_headers(writer)
     )
-    assert r.status_code == 403
+    assert r.status_code == 200  # 자기 것은 바꿀 수 있다
+    assert client.get("/api/skin").json()["css"] == ""  # 사이트 스킨은 그대로
 
 
 def test_로그인하지_않으면_못_바꾼다(client, make_user):

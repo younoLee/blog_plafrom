@@ -67,12 +67,47 @@ export async function refreshSkin(): Promise<void> {
   }
 }
 
-/** 지금 적용 중인 스킨 CSS(설정 화면이 편집기에 채울 값). */
-export async function fetchSkin(): Promise<string> {
-  const res = await fetchWithTimeout(`${BASE}/skin`)
+/**
+ * **내** 스킨(편집기가 채울 값).
+ *
+ * 사이트 스킨(`GET /skin`)이 아니라 내 것이다. 글쓴이가 편집기를 열었을 때 주인의
+ * CSS가 채워지면, 저장하는 순간 자기 스킨이 남의 것 사본이 된다.
+ */
+export async function fetchMySkin(): Promise<string> {
+  const res = await fetchWithTimeout(`${BASE}/skin/me`, { headers: authHeaders() })
   if (!res.ok) throw new Error('스킨을 못 불러왔어')
   const { css } = (await res.json()) as { css: string }
   return css
+}
+
+/**
+ * 어떤 사람의 블로그(`/@handle`)를 여는 동안 그 사람 스킨을 바른다.
+ *
+ * **캐시에 저장하지 않는다.** localStorage 캐시는 '이 사이트의 기본 외형' 한 벌이다.
+ * 남의 블로그를 구경하고 나왔는데 그 색이 남아 있으면 안 되고, 방문한 블로그 수만큼
+ * 캐시가 갈라지면 어느 게 사이트 스킨인지 알 수 없게 된다.
+ *
+ * 돌려주는 함수를 부르면 사이트 스킨으로 되돌아간다(화면을 떠날 때 쓴다).
+ * 되돌릴 값은 **캐시**에서 읽는다 — 서버가 꺼져 있어도 되돌아가야 하기 때문이다.
+ */
+export async function applySkinFor(handle: string): Promise<() => void> {
+  const restore = () => {
+    try {
+      paint(localStorage.getItem(CACHE_KEY) ?? '')
+    } catch {
+      paint('')
+    }
+  }
+  try {
+    const res = await fetchWithTimeout(`${BASE}/skin?handle=${encodeURIComponent(handle)}`)
+    if (res.ok) {
+      const { css } = (await res.json()) as { css: string }
+      paint(css)
+    }
+  } catch {
+    // 절전·네트워크 실패. 사이트 스킨이 그대로 남는다.
+  }
+  return restore
 }
 
 /** 스킨을 저장한다(주인만). 빈 문자열을 보내면 기본 스킨으로 되돌아간다. */

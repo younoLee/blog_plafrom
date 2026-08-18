@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -34,6 +35,10 @@ class UserRead(BaseModel):
     # 2026-08-14까지 이 필드가 응답에 **아예 없어서** 설정 화면이 현재값을 못 보여줬고,
     # 그래서 바꿀 방법도 없었다 — 유일한 경로가 create_user.py였는데 그건 비번을 덮어쓴다.
     display_name: str | None = None
+    # 블로그 주소(`/@handle`). NULL이면 이 계정엔 개인 블로그가 없다.
+    # 설정 화면이 '지금 값'을 보여주려면 응답에 있어야 한다 — display_name이 응답에
+    # 없어서 바꿀 방법이 없던 2026-08-14의 일을 되풀이하지 않는다.
+    handle: str | None = None
     # **입력은 EmailStr, 출력은 str.** 여기가 EmailStr이면 DB에 형식이 어긋난 행이
     # 하나만 있어도 `GET /admin/users`가 **응답 검증에서 터져 목록 전체가 500**이 된다.
     # 그리고 그 계정을 지울 유일한 화면이 바로 그 목록이라 복구 경로가 psql뿐이다.
@@ -116,4 +121,46 @@ class SkinUpdate(SafeModel):
         for bad in _CSS_FORBIDDEN:
             if bad in low:
                 raise ValueError(f"CSS에 쓸 수 없는 것이 있어: {bad}")
+        return v
+
+# 블로그 주소(handle) 정하기 — 주소에 그대로 박히는 값이라 입구에서 좁게 받는다.
+#
+# 허용: 영소문자·숫자·하이픈·밑줄, 2~20자. 대문자는 받아서 **소문자로 내린다**
+# (거절하지 않는다 — 사람은 대문자로 쓰고 주소는 소문자인 게 자연스럽다).
+#
+# 막는 것과 이유:
+#   · 한글·공백 — 주소에 들어가면 인코딩해야 하고, 인코딩한 파일명이 라이브에서 403이던
+#     2026-08-17의 그 문제를 주소에서 다시 만든다.
+#   · 하이픈·밑줄로 시작하거나 끝나기 — 보기에도 이상하고 `-`만으로 된 주소가 생긴다.
+#   · 예약어 — `/@blog` 같은 걸 허용하면 나중에 그 이름의 진짜 경로를 못 만든다.
+#     지금 존재하는 경로 이름과 흔히 쓸 이름을 미리 잠근다.
+#
+# 빈 문자열은 '주소를 없앤다'는 뜻으로 받는다(NULL로 저장). 한 번 정하면 못 지우는
+# 상태를 만들지 않는다 — display_name과 같은 방침이다.
+HANDLE_MIN, HANDLE_MAX = 2, 20
+_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,18}[a-z0-9])?$")
+_HANDLE_RESERVED = {
+    "admin", "api", "blog", "about", "login", "logout", "register", "settings",
+    "status", "search", "new", "edit", "posts", "post", "tag", "tags", "rss",
+    "feed", "sitemap", "static", "assets", "uploads", "devlog", "lessons",
+    "pricing", "payment", "subscriptions", "verify", "forgot", "reset", "me",
+    "null", "undefined", "www",
+}
+
+
+class HandleUpdate(SafeModel):
+    handle: str = Field(max_length=HANDLE_MAX)
+
+    @field_validator("handle")
+    @classmethod
+    def _shape(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not v:
+            return ""  # 빈 값 = 주소 없앰
+        if len(v) < HANDLE_MIN:
+            raise ValueError(f"주소는 {HANDLE_MIN}자 이상이어야 해")
+        if not _HANDLE_RE.match(v):
+            raise ValueError("영소문자·숫자·하이픈·밑줄만 쓸 수 있고, 하이픈/밑줄로 시작하거나 끝날 수 없어")
+        if v in _HANDLE_RESERVED:
+            raise ValueError(f"'{v}'는 사이트가 쓰는 이름이라 못 써")
         return v

@@ -18,11 +18,13 @@ export type PostListResult = {
 // 글 목록 (로그인했으면 내 비공개글도 포함되도록 토큰 첨부)
 // q=검색어, tag=태그 필터, limit/offset=페이지
 export async function fetchPosts(
-  opts: { q?: string; tag?: string; limit?: number; offset?: number } = {},
+  opts: { q?: string; tag?: string; author?: string; limit?: number; offset?: number } = {},
 ): Promise<PostListResult> {
   const params = new URLSearchParams()
   if (opts.q) params.set('q', opts.q)
   if (opts.tag) params.set('tag', opts.tag)
+  // 글쓴이 핸들. `/@handle` 화면이 준다. 없으면 전체 모아보기(/blog)다.
+  if (opts.author) params.set('author', opts.author)
   params.set('limit', String(opts.limit ?? POSTS_PAGE_SIZE))
   params.set('offset', String(opts.offset ?? 0))
 

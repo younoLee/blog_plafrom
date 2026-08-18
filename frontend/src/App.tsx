@@ -30,6 +30,7 @@ import SubscriptionsPage from './pages/SubscriptionsPage'
 import VerifyPage from './pages/VerifyPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import NotFoundPage from './pages/NotFoundPage'
+import AuthorPage from './pages/AuthorPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import './App.css'
 
@@ -78,6 +79,12 @@ function App() {
                 옛 확인 메일 링크는 이제 없는 경로다 — 그 메일 자체를 더 이상 보내지 않는다. */}
             <Route path="/forgot" element={<ForgotPasswordPage />} />
             <Route path="/reset" element={<ResetPasswordPage />} />
+            {/* 계정별 블로그 — `/@handle`.
+                **패턴이 `/:handle`인 이유**: React Router는 `/@:handle` 같은 **부분 세그먼트**를
+                안 받는다(2026-08-18에 matchPath로 확인 — 매칭 자체가 안 된다). 그래서 한 세그먼트를
+                통째로 받고 화면 안에서 `@`로 시작하는지 본다. 아니면 없는 주소로 넘긴다.
+                위의 정적 경로들(/blog·/about·/login…)이 우선순위가 더 높아 여기로 안 온다. */}
+            <Route path="/:handle" element={<AuthorPage />} />
             {/* 없는 주소. 이게 없으면 오타 URL이 **아무것도 없는 흰 화면**이 됐다 —
                 CloudFront가 어떤 경로든 index.html을 돌려주므로 SPA가 라우트를 못 찾아도
                 200이 뜨고, 매칭되는 Route가 없으면 Layout만 렌더된다.

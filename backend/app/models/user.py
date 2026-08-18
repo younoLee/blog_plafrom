@@ -24,8 +24,12 @@ class User(Base):
     # **`text()`로 쓰는 이유**: 클래스 본문에서는 아직 `User.email`이 없어서
     # `func.lower(User.email)`을 못 쓴다. 이름으로 쓰면 create_all과 마이그레이션이
     # 같은 DDL을 낸다 — 모델과 마이그레이션이 갈라지는 게 2026-08-07 CI 빨간불의 원인이었다.
+    # handle도 같은 처방을 쓴다 — 주소는 대소문자를 구분하지 않는 게 상식이라
+    # `Yuno`와 `yuno`가 둘 다 만들어지면 어느 쪽이 열리는지가 행 순서에 달린다.
+    # (이메일에서 이미 겪은 함정이다. 마이그레이션 c5d6e7f8a9b0 주석 참고)
     __table_args__ = (
         Index("uq_users_email_lower", text("lower(email)"), unique=True),
+        Index("uq_users_handle_lower", text("lower(handle)"), unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -55,6 +59,15 @@ class User(Base):
     pro_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 이 사람의 블로그 주소. `/@handle` 로 열린다. NULL = 아직 안 정함 = 개인 블로그 없음.
+    #
+    # **이메일에서 유도하지 않는다.** display_name이 생긴 이유와 같고(2026-08-10 보안검사),
+    # 핸들은 주소에 그대로 박히므로 노출이 더 크다. 사람이 직접 정한 값만 쓴다.
+    # display_name을 안 쓰는 이유: 유니크가 아니고 한글·공백이 들어가 주소에서 인코딩
+    # 문제를 만든다(한글 태그 허브가 403이던 2026-08-17의 그 문제다).
+    #
+    # 형식 강제(2~20자, [a-z0-9_-])는 입력 층(schemas의 HandleUpdate)이 한다.
+    handle: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # 이 사람의 블로그 스킨(CSS). NULL = 기본 스킨.
     #
     # 프론트가 색·모서리를 CSS 변수로 노출하므로(index.css의 @theme), 여기 담기는 건
