@@ -48,3 +48,9 @@ terraform/.build/
 # 커버리지 산출물 (pytest-cov)
 .coverage
 htmlcov/
+
+# 사람 글/UI 참고 원본은 커밋하지 않는다 (docs/voice/README.md 참고)
+docs/voice/samples/*
+docs/voice/ui-refs/*
+!docs/voice/samples/.gitkeep
+!docs/voice/ui-refs/.gitkeep
