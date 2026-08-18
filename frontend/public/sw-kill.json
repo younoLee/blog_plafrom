@@ -1,0 +1,6 @@
+{
+  "disabled": false,
+  "_설명": "이 값을 true로 바꿔 S3에 올리면, 모든 기기가 다음 이동에서 캐시를 비우고 서비스워커를 스스로 등록해제한다. 앱 배포 없이 파일 하나로 회수하는 경로다.",
+  "_왜 닿는가": "배포가 모든 파일에 public,max-age=0,must-revalidate 를 붙인다(해시 자산만 immutable). 그래서 CloudFront가 매번 원본에 되물어 새 값을 집는다. 워커도 cache:'no-store'로 읽는다.",
+  "_쓰는 법": "aws s3 cp sw-kill.json s3://blogplafromops/sw-kill.json --cache-control 'public,max-age=0,must-revalidate' --content-type application/json"
+}
