@@ -313,7 +313,14 @@ function PostDetailPage() {
   )
 
   return (
-    <div className="mx-auto max-w-3xl">
+    /* 넓은 화면(xl↑)에서만 왼쪽에 목차 칸을 낸다.
+       왜 xl인가 — 본문 폭(max-w-3xl ≈ 48rem)을 줄이지 않고 목차를 붙이려면 그만큼
+       더 필요하다. 좁은 화면에서 억지로 2단을 만들면 본문 줄이 짧아져 읽기가 나빠지고,
+       그건 목차가 주는 이득보다 크다. 그 아래에서는 지금까지처럼 본문 위에 한 덩어리로
+       둔다(아래 Toc variant="inline").
+       가운데 정렬: 목차 칸(13rem+간격)만큼 왼쪽으로 밀리지 않게 grid를 통째로 가운데 둔다. */
+    <div className="mx-auto max-w-3xl xl:grid xl:max-w-[calc(48rem+16rem)] xl:grid-cols-[13rem_minmax(0,1fr)] xl:gap-x-12">
+      <div className="xl:col-start-2">
       <Link to="/blog" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
         <IconArrowLeft className="h-4 w-4" />목록으로
       </Link>
@@ -420,8 +427,12 @@ function PostDetailPage() {
               ))}
             </div>
           )}
-          {/* 목차: 본문 앞. 소제목이 2개 미만이면 Toc이 알아서 안 그린다 */}
-          <Toc content={post.content} />
+          {/* 목차(좁은 화면) — 본문 앞 한 덩어리. 넓은 화면에서는 왼쪽 고정본이 대신하므로
+              숨긴다. 둘을 같이 그리면 같은 목차가 두 번 보인다.
+              소제목이 2개 미만이면 Toc이 알아서 안 그린다. */}
+          <div className="xl:hidden">
+            <Toc content={post.content} />
+          </div>
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}
           <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert">
             {body}
@@ -515,6 +526,17 @@ function PostDetailPage() {
           <button type="submit" className={`${btnPrimary} justify-self-start`}>댓글 작성</button>
         </form>
       </section>
+      </div>
+
+      {/* 왼쪽 고정 목차 — 넓은 화면에서만. **DOM에서는 본문 뒤에 둔다.**
+          화면에서는 왼쪽(col-start-1)이지만, 읽는 순서와 탭 순서는 '본문 → 목차'가 맞다.
+          목차를 앞에 두면 키보드 사용자가 글에 닿기 전에 목차 링크를 전부 지나야 한다
+          (Layout이 '본문 바로가기'를 둔 것과 같은 이유다). */}
+      {post && (
+        <aside className="hidden xl:col-start-1 xl:row-start-1 xl:block">
+          <Toc content={post.content} variant="aside" />
+        </aside>
+      )}
     </div>
   )
 }
