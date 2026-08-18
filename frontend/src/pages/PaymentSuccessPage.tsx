@@ -47,7 +47,7 @@ function PaymentSuccessPage() {
       )}
       {state === 'ok' && (
         <>
-          <h1 className={`text-3xl font-bold tracking-tight ${ui.gradientText}`}>결제 완료 🎉</h1>
+          <h1 className={`text-3xl font-bold tracking-tight ${ui.pageTitle}`}>결제 완료 🎉</h1>
           <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
             Pro 구독이 켜졌어. 이제 글쓰기에서 <b>Opus 4.8·Fable 5</b>를 선택할 수 있어.
           </p>

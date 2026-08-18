@@ -249,7 +249,7 @@ function WritePostPage() {
         <IconArrowLeft className="h-4 w-4" />홈으로
       </Link>
       <div className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
-      <h1 className={`mb-6 text-3xl font-semibold tracking-tight ${ui.gradientText}`}>
+      <h1 className={`mb-6 text-3xl font-semibold tracking-tight ${ui.pageTitle}`}>
         {editingId === null ? '새 글 쓰기' : '글 수정'}
       </h1>
 

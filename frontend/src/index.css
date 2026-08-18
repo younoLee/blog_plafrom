@@ -16,20 +16,29 @@
 
    투명도(bg-accent/10)와 그라데이션(from-accent)도 변수를 타므로 같이 바뀐다. */
 @theme {
-  --color-accent: #0071e3; /* 강조색: 링크·기본 버튼·포커스 링 */
-  --color-accent-hi: #0077ed; /* 그 위 hover */
+  /* 강조색. 애플 블루(#0071e3)에서 내렸다 — 그 색과 알약 버튼의 조합이
+     'iOS 화면 같다'는 인상의 절반이었다. 지금 값은 링크에 쓰는 잉크빛 파랑이라
+     버튼처럼 튀지 않고 글 옆에 있어도 본문을 안 잡아먹는다. */
+  --color-accent: #215ba6; /* 강조색: 링크·기본 버튼·포커스 링 */
+  --color-accent-hi: #1a4a89; /* 그 위 hover (밝게가 아니라 어둡게 — 잉크는 눌리면 진해진다) */
   /* 장식 그라데이션의 나머지 두 색(강조색 → 2 → 3). 제목 글자·히어로 번짐·
      커버 없는 카드의 자리표시가 이 셋으로 그려진다. 강조색만 바꾸고 이 둘을
      두면 초록 블로그에 보라·분홍이 남아 스킨이 반쯤만 먹은 것처럼 보인다. */
-  --color-accent-2: #7c3aed;
-  --color-accent-3: #ec4899;
-  --color-canvas: #f5f5f7; /* 페이지 바탕 */
-  --color-ink: #1d1d1f; /* 기본 글자 */
+  /* 보라·분홍이었다. 커버 자리와 제목에 그 둘이 깔리면 어느 사이트든 같은 얼굴이 된다.
+     이제 강조색 계열 안에서만 움직인다 — 장식이 아니라 같은 색의 옅은 쪽이다. */
+  --color-accent-2: #3f7bc4;
+  --color-accent-3: #7aa8d8;
+  /* 바탕은 회색이 아니라 아주 옅은 종이색이다. #f5f5f7은 애플이 쓰는 중성 회색이고
+     그 자체가 티가 난다. 따뜻한 쪽으로 반 발짝만 옮기면 '글 읽는 곳'처럼 보인다. */
+  --color-canvas: #fbfaf8; /* 페이지 바탕 */
+  --color-ink: #1a1a1a; /* 기본 글자 */
 
   /* 모서리. velog처럼 둥글게 갈지 D2처럼 각지게 갈지가 갈리는 자리라 변수로 뺀다. */
-  --radius-card: 1rem; /* 카드 (기존 rounded-2xl) */
-  --radius-field: 0.75rem; /* 입력창·드롭다운 (기존 rounded-xl) */
-  --radius-btn: 9999px; /* 버튼 (기존 rounded-full = 알약) */
+  /* 모서리를 줄였다. 큰 곡률과 알약 버튼은 앱 UI의 문법이지 글 읽는 화면의 문법이 아니다.
+     여기서 아낀 시각적 여유가 글 쪽으로 간다. */
+  --radius-card: 0.375rem; /* 카드 */
+  --radius-field: 0.25rem; /* 입력창·드롭다운 */
+  --radius-btn: 0.25rem; /* 버튼 (알약이었다) */
 }
 
 /* color-scheme를 테마와 동기화. 이게 없으면 .dark 클래스만 켜져도 브라우저는
@@ -66,13 +75,14 @@
      다크모드 바탕까지 정말 바꾸고 싶은 스킨은 `:root.dark { ... }`라고 쓰면 된다
      (같은 급이고 뒤에 오므로 이긴다). 즉 **일부러 그렇게 쓴 사람만 바꾼다.** */
 :root:where(.dark) {
-  --color-accent: #0a84ff;
-  --color-accent-hi: #3898ff;
+  --color-accent: #7fb3e8;
+  --color-accent-hi: #a3c9f0;
 }
 
 :root.dark {
-  --color-canvas: #000000;
-  --color-ink: #f5f5f7;
+  /* 순수 검정이 아니다. #000은 화면에서 구멍처럼 보이고 카드 경계가 안 읽힌다. */
+  --color-canvas: #131313;
+  --color-ink: #ededed;
 }
 
 /* ── 스킨이 붙잡을 손잡이(data-skin) ────────────────────────────────────────
@@ -120,25 +130,16 @@ body {
   background: color-mix(in oklab, var(--color-accent) 18%, transparent);
 }
 
-/* 그라데이션 글자가 천천히 좌우로 흐르는 효과 (animate-gradient 클래스로 켬) */
-@keyframes gradient-pan {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient-pan 6s ease infinite;
-}
+/* `.animate-gradient`와 그 keyframes를 2026-08-18에 지웠다.
+   제목 글자를 6초 주기로 흐르게 하던 것이고, 유일한 사용처인 `ui.gradientText`를
+   없애면서 같이 죽었다(그 판단은 ui.ts 주석에). 남겨두면 다음 사람이 "이런 게
+   있네" 하고 다시 쓴다. */
 
 /* 움직임을 줄여달라는 OS 설정을 존중한다.
-   여기 대응이 **0건**이었다(2026-08-11 공백검사). 특히 위 .animate-gradient는
-   제목마다 6초 주기로 **영원히** 움직이는데, 전정기관이 민감한 사용자에게는
-   끌 방법이 없었다. Reveal의 등장 애니메이션·부드러운 스크롤도 같이 끊는다.
+   여기 대응이 **0건**이었다(2026-08-11 공백검사). 그때 가장 문제였던 건 위에서
+   지운 흐르는 그라데이션이었다 — 제목마다 **영원히** 움직이는데 전정기관이 민감한
+   사용자에게 끌 방법이 없었다. 지금은 그게 아예 없지만, Reveal의 등장 애니메이션과
+   부드러운 스크롤이 남아 있어 이 블록은 계속 필요하다.
    `!important`를 쓰는 건 Tailwind 유틸리티가 인라인 수준으로 붙기 때문이다. */
 @media (prefers-reduced-motion: reduce) {
   html {

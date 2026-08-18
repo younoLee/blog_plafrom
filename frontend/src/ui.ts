@@ -20,10 +20,14 @@ export const ui = {
   // 카드: 더 둥글게, 테두리 옅게, 그림자는 hover 때만 부드럽게 떠오름
   card:
     'rounded-card border border-black/[0.07] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] dark:border-white/10 dark:bg-white/[0.06]',
-  // 그라데이션 글자(블루→퍼플→핑크, 천천히 흐름) — 강조하고 싶은 단어/제목에
-  gradientText:
-    'animate-gradient bg-gradient-to-r from-accent via-accent-2 to-accent-3 bg-clip-text text-transparent',
-  // 히어로 뒤 은은한 색 번짐 — 부모를 relative로 두고 그 안에 배치
-  glow:
-    'pointer-events-none absolute inset-x-0 -top-16 -z-10 mx-auto h-56 max-w-xl rounded-full bg-gradient-to-tr from-accent/20 via-accent-2/15 to-accent-3/15 blur-3xl',
+  // 화면 제목(h1).
+  //
+  // 전에는 `gradientText`였다 — 블루→퍼플→핑크 그라데이션 글자가 6초 주기로 좌우로
+  // 흘렀다. 그게 '사람이 만든 것 같지 않다'는 인상의 가장 큰 몫이었다. 한국 개발
+  // 블로그에서 제목 글자가 움직이는 걸 거의 못 본다. 색이 아니라 크기와 굵기로
+  // 제목임을 알리는 쪽이 읽기에도 낫다.
+  //
+  // 옆에 있던 `glow`(히어로 뒤 흐릿한 색 번짐)도 같이 없앴다. 그건 랜딩 페이지
+  // 템플릿의 표식에 가깝고, 글 목록 화면이 굳이 흉내 낼 이유가 없다.
+  pageTitle: 'text-ink',
 }

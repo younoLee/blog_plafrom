@@ -10,7 +10,6 @@ import { Reveal } from '../components/Reveal'
 import { Sidebar } from '../components/Sidebar'
 import { ServerAsleepError } from '../api/http'
 import { fetchDevlogIndex, type DevlogIndexPost } from '../api/devlogIndex'
-import { coverLabel } from '../postUtils'
 
 function HomePage() {
   const { user } = useAuth()
@@ -160,23 +159,23 @@ function HomePage() {
 
   return (
     <>
-      {/* 히어로 */}
-      <section data-skin="hero" className="relative mb-14 text-center">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-16 -z-10 mx-auto h-56 max-w-xl rounded-full bg-gradient-to-tr from-accent/20 via-accent-2/15 to-accent-3/15 blur-3xl"
-        />
-        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-          최근 <span className={ui.gradientText}>이야기</span>
-        </h1>
-        <p className="mt-3 text-lg text-gray-500 dark:text-gray-400">인프라를 직접 만들며 배운 것을 남깁니다.</p>
-        {/* 이메일 구독·새 글 알림은 전용 페이지에서 */}
-        <p className="mx-auto mt-7 max-w-md text-sm text-gray-500 dark:text-gray-400">
-          이메일 구독과 새 글 알림은{' '}
+      {/* 목록 머리말.
+          전에는 화면 절반을 쓰는 가운데 정렬 히어로였다 — 흐르는 그라데이션 제목,
+          그 뒤의 색 번짐, "인프라를 직접 만들며 배운 것을 남깁니다"라는 아무 블로그에나
+          붙는 문장, 그리고 구독 안내 한 문단. 넷 다 랜딩 페이지의 문법이지 **글 목록**의
+          문법이 아니다. 참고로 본 D2와 velog는 목록 화면에 이런 구역 자체가 없다.
+          첫 화면에서 제일 먼저 보여야 하는 건 글 제목이다.
+
+          구독 안내를 지우지 않고 한 줄로 줄였다. 지우면 그 화면으로 가는 입구가
+          사이드바 버튼 하나만 남는다. */}
+      <section data-skin="hero" className="mb-8 border-b border-black/[0.08] pb-5 dark:border-white/10">
+        <h1 className={`text-2xl font-bold tracking-tight ${ui.pageTitle}`}>글</h1>
+        <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+          만들면서 겪은 것을 남긴다. 새 글 알림은{' '}
           <Link to="/subscriptions" className="text-accent hover:underline">
             구독
           </Link>
-          에서 할 수 있어.
+          에서.
         </p>
       </section>
 
@@ -334,27 +333,29 @@ function HomePage() {
         </section>
       )}
 
-      <div data-skin="post-grid" className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
+      {/* 글 목록 — 격자가 아니라 한 줄씩 쌓는 목록이다.
+          전에는 2~3열 카드 격자였고, 커버 없는 글은 16:9 자리표시를 크게 그렸다.
+          그런데 이 블로그 글은 **거의 다 커버가 없어서** 목록 한 화면의 절반이
+          빈 회색 상자가 됐다. 카드 격자는 각 칸에 그림이 있을 때 성립하는 형식이다.
+          글만 있는 블로그는 목록이 맞다(D2·velog의 목록 화면이 그렇고, 무엇보다
+          제목이 먼저 읽힌다). 커버가 **있는** 글만 오른쪽에 작게 붙인다. */}
+      <div data-skin="post-grid" className="divide-y divide-black/[0.08] border-b border-black/[0.08] dark:divide-white/10 dark:border-white/10">
         {posts.map((post, i) => (
           <Reveal key={post.id} delay={Math.min(i * 60, 300)}>
-          <article data-skin="post-card" className={`${ui.card} hover:-translate-y-0.5 hover:border-accent/30`}>
-            {post.cover_image ? (
-              <Link data-skin="post-thumb" to={`/blog/posts/${post.id}`} className="mb-4 block overflow-hidden rounded-field">
-                <img src={post.cover_image} alt="" loading="lazy" className="aspect-[16/9] w-full object-cover transition duration-300 hover:scale-[1.03]" />
-              </Link>
-            ) : (
-              // 커버 없는 글: 제목 이니셜 + 은은한 그라데이션으로 그리드를 안 휑하게
+          <article
+            data-skin="post-card"
+            className={`grid gap-x-6 py-6 ${post.cover_image ? 'sm:grid-cols-[1fr_10rem]' : 'grid-cols-1'}`}
+          >
+            {/* 커버가 있을 때만 그린다. 없으면 **아무것도 안 그린다** — 예전엔 편 번호를
+                큰 상자에 얹어 자리를 채웠는데, 채울 것이 없는데 자리를 채우면 그게 곧
+                빈 상자다. 목록에서는 제목이 그 자리를 대신한다. */}
+            {post.cover_image && (
               <Link
                 data-skin="post-thumb"
                 to={`/blog/posts/${post.id}`}
-                className="mb-4 flex aspect-[16/9] items-center justify-center overflow-hidden rounded-field bg-gradient-to-br from-accent/10 via-accent-2/10 to-accent-3/10"
+                className="order-first mb-3 block overflow-hidden rounded-field sm:order-none sm:col-start-2 sm:row-start-1 sm:row-end-[-1] sm:mb-0 sm:self-start"
               >
-                {/* select-none: 이건 읽으라고 둔 글자가 아니라 그림 자리다. 없으면
-                    마우스를 올렸을 때 텍스트 선택 커서(I-빔)가 떠서 '고를 수 있는 것'처럼
-                    보인다(2026-08-17 사용자 지적, 사이드바 아바타와 같은 병). */}
-                <span className="select-none text-4xl font-bold text-accent/35">
-                  {coverLabel(post.title)}
-                </span>
+                <img src={post.cover_image} alt="" loading="lazy" className="aspect-[16/9] w-full object-cover" />
               </Link>
             )}
             <h3 data-skin="post-title" className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -388,7 +389,7 @@ function HomePage() {
                 ))}
               </div>
             )}
-            <div data-skin="post-meta" className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
+            <div data-skin="post-meta" className="mt-3 flex items-center justify-between">
               <time className="text-xs text-gray-500 dark:text-gray-400">
                 {new Date(post.created_at).toLocaleDateString()} · {post.reading_minutes}분 읽기
               </time>

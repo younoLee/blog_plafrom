@@ -24,12 +24,11 @@ function VerifyPage() {
 
   return (
     <div className="relative mx-auto max-w-sm text-center">
-      <div aria-hidden className={ui.glow} />
       <div className="rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
         {status === 'loading' && <p className="text-gray-500 dark:text-gray-400">인증 처리 중…</p>}
         {status === 'ok' && (
           <>
-            <h1 className={`mb-3 text-3xl font-semibold tracking-tight ${ui.gradientText}`}>인증 완료!</h1>
+            <h1 className={`mb-3 text-3xl font-semibold tracking-tight ${ui.pageTitle}`}>인증 완료!</h1>
             <p className="text-sm text-gray-600 dark:text-gray-300">
               이메일 인증이 끝났어. 이제 로그인할 수 있어.<br />
               (글쓰기는 관리자 승인 후 가능해)

@@ -389,7 +389,7 @@ function AdminPage() {
 
   return (
     <div>
-      <h1 className={`text-3xl font-bold tracking-tight ${ui.gradientText}`}>관리자</h1>
+      <h1 className={`text-3xl font-bold tracking-tight ${ui.pageTitle}`}>관리자</h1>
       <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
         가입자를 승인하면 글을 쓸 수 있어. 승인 취소하면 다시 막혀(기존 글은 남음).
       </p>

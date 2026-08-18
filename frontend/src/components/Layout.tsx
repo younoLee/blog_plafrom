@@ -25,9 +25,13 @@ function Layout() {
       {/* 상단 고정 헤더 (모든 페이지 공통) — 애플풍 프로스티드 바 */}
       <header className="sticky top-0 z-10 border-b border-black/5 bg-canvas/70 backdrop-blur-xl dark:border-white/10 dark:bg-canvas/60">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
-          <Link to="/" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight">
-            <img src="/favicon.svg" alt="" className="h-6 w-6" />
-            <span>DEV 블로그</span>
+          {/* 로고 그림을 뺐다(2026-08-18). public/favicon.svg는 흐린 타원 16개를 겹쳐
+              만든 보라 그라데이션 번개인데, 그 모양 자체가 '자동으로 만들어진 표식'으로
+              읽힌다. 참고로 본 D2·velog는 둘 다 글자만 쓴다 — 이름이 곧 표식이다.
+              탭 아이콘(favicon)과 PWA 아이콘은 그대로 둔다. 그건 이름을 정한 뒤에
+              같이 만드는 게 맞고, 지금 지우면 탭에 빈 칸이 남는다. */}
+          <Link to="/" className="flex shrink-0 items-center font-semibold tracking-tight">
+            DEV 블로그
           </Link>
           {/* 버튼이 많아 좁은 화면에선 넘침 → flex-wrap으로 다음 줄로 자연스럽게 줄바꿈 */}
           <nav className="flex flex-wrap items-center justify-end gap-1.5">

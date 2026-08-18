@@ -17,22 +17,35 @@ import { IconCheck } from './icons'
 // 프리셋 — 변수 몇 줄이 전부다. 이게 이 구조의 요점이라 예시도 그만큼만 보여준다.
 const PRESETS: { name: string; hint: string; css: string }[] = [
   {
-    name: 'velog풍',
-    hint: '초록 강조 · 살짝 둥근 카드 · 각진 버튼',
+    name: 'velog풍 (카드 격자)',
+    hint: '초록 강조 + 목록을 2열 카드 격자로. 커버 이미지가 많은 블로그에 맞는다',
     css: `:root {
   --color-accent: #20c997;
   --color-accent-hi: #12b886;
   --color-canvas: #f8f9fa;
   --radius-card: .5rem;
-  --radius-btn: .25rem;
 }
-.dark { --color-accent: #38d9a9; --color-accent-hi: #20c997 }`,
+
+/* 목록 → 카드 격자. 기본 화면이 목록이라 이쪽이 '배치를 바꾸는' 스킨이다. */
+[data-skin="post-grid"] {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+  border-bottom: 0;
+}
+[data-skin="post-grid"] > * { border-top: 0 }
+[data-skin="post-card"] {
+  display: block;
+  padding: 1.25rem;
+  border: 1px solid color-mix(in oklab, var(--color-ink) 10%, transparent);
+  border-radius: var(--radius-card);
+}
+[data-skin="post-thumb"] { width: 100%; margin-bottom: .75rem }`,
   },
   {
-    name: 'D2풍 (배치까지)',
-    hint: '카드 격자 → 한 줄 리스트 + 우측 썸네일. 색만이 아니라 배치를 바꾼다',
-    css: `/* 색 */
-:root {
+    name: 'D2풍',
+    hint: '민트 강조 · 모서리 없음 · 썸네일과 제목을 키운다. 기본 목록 형태를 그대로 쓴다',
+    css: `:root {
   --color-accent: #00c9b7;
   --color-accent-hi: #00b3a3;
   --color-accent-2: #00c9b7;
@@ -43,38 +56,10 @@ const PRESETS: { name: string; hint: string; css: string }[] = [
   --radius-btn: 0;
 }
 
-/* 배치 — 카드 격자를 한 줄짜리 리스트로 바꾼다 */
-[data-skin="hero"] { display: none }
-
-[data-skin="post-grid"] { display: block }
-
-[data-skin="post-card"] {
-  display: grid;
-  grid-template-columns: 1fr 200px;
-  grid-template-rows: repeat(4, auto);
-  column-gap: 28px;
-  padding: 30px 0;
-  border: 0;
-  /* 글자색을 따라가는 구분선 — 검정으로 고정하면 다크모드에서 안 보인다 */
-  border-bottom: 1px solid color-mix(in oklab, var(--color-ink) 14%, transparent);
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-  transform: none;
-}
-[data-skin="post-card"]:hover { box-shadow: none; transform: none }
-
-[data-skin="post-thumb"] {
-  grid-column: 2;
-  grid-row: 1 / -1;
-  align-self: start;
-  margin: 0;
-  border-radius: 0;
-}
-[data-skin="post-title"] { grid-column: 1; font-size: 1.6rem; line-height: 1.35 }
-[data-skin="post-excerpt"] { grid-column: 1 }
-[data-skin="post-tags"] { grid-column: 1 }
-[data-skin="post-meta"] { grid-column: 1; border-top: 0; padding-top: .5rem }`,
+/* 목록은 기본값 그대로다. 줄 간격과 제목만 키운다. */
+[data-skin="post-card"] { padding: 1.75rem 0 }
+[data-skin="post-title"] { font-size: 1.6rem; line-height: 1.35 }
+[data-skin="hero"] { display: none }`,
   },
   {
     name: '네이버풍',

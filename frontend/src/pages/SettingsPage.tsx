@@ -109,7 +109,7 @@ function SettingsPage() {
 
   return (
     <div>
-      <h1 className={`text-3xl font-bold tracking-tight ${ui.gradientText}`}>설정</h1>
+      <h1 className={`text-3xl font-bold tracking-tight ${ui.pageTitle}`}>설정</h1>
       {/* 표시명 — 구독 목록·댓글·알림에 나가는 이름.
           이 칸이 없던 동안 모든 계정이 "회원"으로 보여서 구독 화면에서 누가 누군지
           구분이 안 됐다(2026-08-14 신고). 정하는 통로가 없으면 폴백이 아무리 좋아도

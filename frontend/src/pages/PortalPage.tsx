@@ -28,10 +28,10 @@ function PortalPage() {
       <Reveal className="text-center">
         <h1 className="text-5xl font-semibold tracking-tight sm:text-7xl">
           기록하는{' '}
-          <span className={ui.gradientText}>개발자</span>.
+          <span className={ui.pageTitle}>개발자</span>.
         </h1>
         <p className="mx-auto mt-5 max-w-xl text-lg text-gray-500 dark:text-gray-400 sm:text-xl">
-          인프라를 직접 만들며 배운 것을 남깁니다.
+          서버를 직접 굴리면서 부딪힌 것을 적는다.
         </p>
       </Reveal>
 

@@ -33,7 +33,7 @@ function PaymentPage() {
   if (!user) {
     return (
       <div className="mx-auto max-w-md text-center">
-        <h1 className={`text-3xl font-bold tracking-tight ${ui.gradientText}`}>Pro 구독</h1>
+        <h1 className={`text-3xl font-bold tracking-tight ${ui.pageTitle}`}>Pro 구독</h1>
         <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
           구독하려면 먼저 로그인해줘.
         </p>
@@ -92,8 +92,7 @@ function PaymentPage() {
   return (
     <div className="mx-auto max-w-lg">
       <div className="relative text-center">
-        <div className={ui.glow} />
-        <h1 className={`text-4xl font-bold tracking-tight ${ui.gradientText}`}>Pro 구독</h1>
+        <h1 className={`text-4xl font-bold tracking-tight ${ui.pageTitle}`}>Pro 구독</h1>
         <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
           결제하면 AI 초안에서 최상위 Claude 모델을 쓸 수 있어.
         </p>

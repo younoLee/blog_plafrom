@@ -40,7 +40,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
           </div>
           <h3 className="mt-3 font-semibold tracking-tight">{name}</h3>
           <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-            인프라를 직접 만들며 배운 것을 남깁니다.
+            서버를 직접 굴리면서 부딪힌 것을 적는다.
           </p>
           {/* 이미 구독 중인 사람에게도 '+ 이 블로그 구독'이라 말하고 있었다. 그걸 누르면
               도착하는 화면의 다음 버튼이 **되돌릴 수 없는 해지**라, 신청하려던 사람이

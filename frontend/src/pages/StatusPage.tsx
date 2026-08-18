@@ -143,7 +143,7 @@ function StatusPage() {
       <div className="flex items-center justify-between">
         <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
           <IconActivity className="h-6 w-6 text-emerald-500" />
-          <span className={ui.gradientText}>서비스 상태</span>
+          <span className={ui.pageTitle}>서비스 상태</span>
         </h1>
         <button type="button" onClick={load} disabled={loading} className={ui.btnGhost}>
           {/* 텍스트는 항상 span으로 감싸 맨 텍스트 노드 토글을 피함(insertBefore 크래시 방지) */}
@@ -245,7 +245,7 @@ function StatusPage() {
         <div className="grid grid-cols-2 gap-4">
           <div className={ui.card}>
             <p className="text-sm text-gray-500 dark:text-gray-400">전체 글</p>
-            <p className={`mt-1 text-4xl font-semibold ${ui.gradientText}`}>
+            <p className={`mt-1 text-4xl font-semibold ${ui.pageTitle}`}>
               {status.stats.posts ?? '—'}
             </p>
           </div>

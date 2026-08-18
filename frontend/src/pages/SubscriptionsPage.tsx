@@ -93,7 +93,7 @@ function SubscriptionsPage() {
 
   return (
     <div>
-      <h1 className={`text-3xl font-bold tracking-tight ${ui.gradientText}`}>구독</h1>
+      <h1 className={`text-3xl font-bold tracking-tight ${ui.pageTitle}`}>구독</h1>
       <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
         글쓴이에게 구독을 ‘신청’하면 글쓴이가 승인한 뒤 그 사람의 ‘구독자공개’ 글을 볼 수 있어.
         승인되면 🔔로 새 글 알림도 켤 수 있어. (글쓴이마다 따로)

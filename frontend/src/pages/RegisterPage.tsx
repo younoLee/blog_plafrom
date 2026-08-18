@@ -25,7 +25,6 @@ const card = 'mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:bord
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative mx-auto max-w-sm">
-      <div aria-hidden className={ui.glow} />
       <Link to="/" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
         <IconArrowLeft className="h-4 w-4" />홈으로
       </Link>
@@ -38,7 +37,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Notice({ title, children, gradient = false }: { title: string; children: React.ReactNode; gradient?: boolean }) {
   return (
     <Reveal className={`${card} text-center`}>
-      <h1 className={`mb-3 text-2xl font-semibold tracking-tight ${gradient ? `text-3xl ${ui.gradientText}` : ''}`}>{title}</h1>
+      <h1 className={`mb-3 text-2xl font-semibold tracking-tight ${gradient ? `text-3xl ${ui.pageTitle}` : ''}`}>{title}</h1>
       {children}
     </Reveal>
   )
@@ -94,7 +93,7 @@ function InviteForm({ token, invite }: { token: string; invite: InvitePreview })
 
   return (
     <Reveal className={card}>
-      <h1 className={`mb-2 text-3xl font-semibold tracking-tight ${ui.gradientText}`}>초대 가입</h1>
+      <h1 className={`mb-2 text-3xl font-semibold tracking-tight ${ui.pageTitle}`}>초대 가입</h1>
       <p className="mb-6 text-sm text-gray-600 dark:text-gray-300">
         비밀번호만 정하면 끝이야. 확인 메일을 기다릴 필요 없어.
       </p>
