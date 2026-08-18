@@ -160,3 +160,63 @@ body {
    없어서 hljs 클래스가 애초에 한 번도 붙지 않았다(렌더 결과 language-* 0건).
    즉 이 색 규칙들은 처음부터 아무 글자에도 적용된 적이 없는 죽은 코드였다.
    코드블록 배경/여백은 prose(@tailwindcss/typography)가 계속 담당한다. */
+
+/* ── '내 문장'(HTML 슬롯) 기본 활자 ─────────────────────────────────────────
+   사용자가 넣은 HTML이 그려지는 자리다(components/HtmlSlot.tsx).
+
+   왜 규칙이 필요한가: Tailwind의 preflight가 <p>·<ul>·<h2>의 여백과 글머리표를
+   전부 0으로 만든다. 그 상태에서 사용자가 `<p>첫째</p><p>둘째</p>`를 넣으면
+   **두 문단이 한 줄로 붙어 나온다.** 자기가 뭘 잘못했는지 알 수 없는 종류의 일이다.
+
+   왜 prose(@tailwindcss/typography)를 안 쓰나: prose는 글 본문용이라 글자 크기·
+   최대 너비·제목 크기를 통째로 정한다. 이 칸은 사이드바 소개나 푸터 한 줄처럼
+   **주변에 녹아야 하는** 자리라, 크기는 자리가 정하고 여기서는 간격만 되돌린다.
+
+   전부 `.blog-slot` 아래로 한정한다 — 전역에서 preflight를 되돌리면 화면 전체의
+   여백이 바뀐다. `:where()`로 감싸 특이도를 0으로 만든 이유는, 사용자가 자기
+   스킨에서 `.내클래스 { margin: 0 }` 한 줄로 이걸 이길 수 있어야 하기 때문이다. */
+.blog-slot :where(p, ul, ol, blockquote, pre, figure) {
+  margin-block: 0.75em;
+}
+.blog-slot :where(p, ul, ol, blockquote, pre, figure):first-child { margin-block-start: 0 }
+.blog-slot :where(p, ul, ol, blockquote, pre, figure):last-child { margin-block-end: 0 }
+.blog-slot :where(h2, h3, h4) {
+  margin-block: 1em 0.4em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.blog-slot :where(h2) { font-size: 1.25em }
+.blog-slot :where(h3) { font-size: 1.1em }
+.blog-slot :where(ul) { list-style: disc; padding-inline-start: 1.25em }
+.blog-slot :where(ol) { list-style: decimal; padding-inline-start: 1.5em }
+.blog-slot :where(a) { color: var(--color-accent); text-decoration: underline }
+.blog-slot :where(blockquote) {
+  border-inline-start: 3px solid color-mix(in oklab, var(--color-ink) 15%, transparent);
+  padding-inline-start: 0.9em;
+  color: color-mix(in oklab, var(--color-ink) 70%, transparent);
+}
+.blog-slot :where(code) {
+  font-size: 0.9em;
+  background: color-mix(in oklab, var(--color-ink) 7%, transparent);
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+}
+.blog-slot :where(pre) {
+  overflow-x: auto;
+  background: color-mix(in oklab, var(--color-ink) 7%, transparent);
+  padding: 0.75em;
+  border-radius: var(--radius-card);
+}
+.blog-slot :where(pre code) { background: none; padding: 0 }
+/* 이미지가 칸을 넘지 않게. 사이드바(18rem)에 큰 사진을 넣으면 이게 없을 때
+   가로 스크롤이 생기고, 그 스크롤은 페이지 전체에 걸린다. */
+.blog-slot :where(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-card);
+}
+.blog-slot :where(hr) {
+  border: 0;
+  border-top: 1px solid color-mix(in oklab, var(--color-ink) 12%, transparent);
+  margin-block: 1em;
+}

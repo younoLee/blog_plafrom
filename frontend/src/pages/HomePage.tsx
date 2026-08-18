@@ -7,6 +7,7 @@ import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { Reveal } from '../components/Reveal'
 import { Sidebar } from '../components/Sidebar'
+import { HtmlSlot } from '../components/HtmlSlot'
 import { PostRow } from '../components/PostRow'
 import { ServerAsleepError } from '../api/http'
 import { fetchDevlogIndex, type DevlogIndexPost } from '../api/devlogIndex'
@@ -177,6 +178,11 @@ function HomePage() {
           </Link>
           에서.
         </p>
+        {/* 주인이 직접 쓴 머리말. 안 썼으면 아무것도 안 나온다.
+            위 한 줄을 대체하지 않고 아래에 붙이는 이유: 저 줄은 구독으로 가는
+            **유일한 입구**를 품고 있다(2026-08-18에 첫 화면을 목록으로 되돌리면서
+            남긴 것). 문장을 쓴 사람의 화면에서 그 입구가 사라지면 안 된다. */}
+        <HtmlSlot slot="intro" className="mt-3 text-sm" />
       </section>
 
       {/* 절전은 '고장'이 아니라 의도된 비용 절약이라 톤을 구분한다(빨강 에러 X). */}

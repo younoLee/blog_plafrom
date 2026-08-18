@@ -6,6 +6,7 @@ import { fetchAuthor, type AuthorProfile } from '../api/authors'
 import { applySkinFor } from '../api/skin'
 import { useAuth } from '../auth/auth-context'
 import { ServerAsleepError } from '../api/http'
+import { HtmlSlot } from '../components/HtmlSlot'
 import { PostRow } from '../components/PostRow'
 import { useDocumentTitle } from '../useDocumentTitle'
 import NotFoundPage from './NotFoundPage'
@@ -116,6 +117,9 @@ function AuthorPage() {
             전체 글 보기
           </Link>
         </p>
+        {/* 이 사람이 쓴 머리말. applySkinFor가 스킨과 **함께** 갈아 끼우므로
+            여기 나오는 건 항상 이 블로그 주인의 문장이다. */}
+        <HtmlSlot slot="intro" className="mt-3 text-sm" />
       </section>
 
       {asleep && (

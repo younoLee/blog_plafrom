@@ -13,7 +13,9 @@ def test_스킨이_없으면_빈_문자열이지_에러가_아니다(client, mak
     make_user(role="admin")
     r = client.get("/api/skin")
     assert r.status_code == 200
-    assert r.json() == {"css": ""}
+    # 스킨과 '내 문장'이 한 응답에 함께 온다(routers/skin.py 상단 주석 참고).
+    # 여기서 css만 본다 — 문장 쪽은 test_slots.py가 잠근다.
+    assert r.json()["css"] == ""
 
 
 def test_주인이_없어도_200이다(client):

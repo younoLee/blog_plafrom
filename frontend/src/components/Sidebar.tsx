@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { PostMetaResult } from '../api/posts'
 import { fetchBlogOwner } from '../api/subscriptions'
+import { useSlots } from '../api/slots'
 import { ui } from '../ui'
+import { HtmlSlot } from './HtmlSlot'
 
 
 // 블로그 홈 우측 사이드바: 프로필 카드 + 최근 글 + 태그. 화면이 '꽉 찬 블로그'처럼 보이게 채워준다.
@@ -10,6 +12,8 @@ import { ui } from '../ui'
 // 목록으로 세면 2쪽에서 글 수·태그가 그 페이지 기준으로 틀어진다.
 export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
   const [owner, setOwner] = useState<{ name: string | null }>({ name: null })
+  // 자기 소개를 직접 쓴 사람이면 아래 고정 문장 대신 그것을 쓴다.
+  const intro = useSlots().aside
 
   useEffect(() => {
     // 같은 엔드포인트를 부르는 fetchBlogOwner()가 이미 있고 그건 타임아웃이 붙어 있다.
@@ -39,9 +43,16 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
             {initial}
           </div>
           <h3 className="mt-3 font-semibold tracking-tight">{name}</h3>
-          <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-            서버를 직접 굴리면서 부딪힌 것을 적는다.
-          </p>
+          {/* 소개를 직접 쓴 사람은 그 문장이, 안 쓴 사람은 기본 한 줄이 나온다.
+              **둘 다 보여주지 않는다** — 자기 소개를 썼는데 그 위에 남이 정한 문장이
+              그대로 남아 있으면, 쓴 사람 입장에선 자기 글이 안 들어간 것으로 보인다. */}
+          {intro ? (
+            <HtmlSlot slot="aside" className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400" />
+          ) : (
+            <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+              서버를 직접 굴리면서 부딪힌 것을 적는다.
+            </p>
+          )}
           {/* 이미 구독 중인 사람에게도 '+ 이 블로그 구독'이라 말하고 있었다. 그걸 누르면
               도착하는 화면의 다음 버튼이 **되돌릴 수 없는 해지**라, 신청하려던 사람이
               해지 버튼 앞에 서게 되는 경로였다(2026-08-17). 여기서는 상태를 모르므로

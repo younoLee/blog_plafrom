@@ -3,6 +3,7 @@ import { useAuth } from '../auth/auth-context'
 import { canWrite } from '../api/auth'
 import { useTheme } from '../theme'
 import { ui } from '../ui'
+import { HtmlSlot } from './HtmlSlot'
 import { IconMoon, IconSun, IconPencil } from './icons'
 import { NotificationBell } from './NotificationBell'
 
@@ -134,7 +135,11 @@ function Layout() {
         <Outlet />
       </main>
 
-      <footer className="mx-auto max-w-7xl px-4 py-12 text-center text-xs text-gray-500 dark:text-gray-400">
+      <footer data-skin="footer" className="mx-auto max-w-7xl px-4 py-12 text-center text-xs text-gray-500 dark:text-gray-400">
+        {/* 주인(또는 `/@handle`을 보는 중이면 그 사람)이 쓴 문장. 비어 있으면 아무것도
+            안 그린다. 링크 줄 **위**에 두는 이유: 이건 사람이 쓴 말이고 아래는 사이트가
+            제공하는 길이다. 아래에 두면 사람 말이 각주처럼 읽힌다. */}
+        <HtmlSlot slot="footer" className="mx-auto mb-5 max-w-xl text-sm" />
         © 2026 블로그 만들기 · FastAPI · React · Tailwind
         {/* 정적 아카이브와 피드. 서버(EC2)가 꺼져 있어도 열리는 경로라, 절전 중에
             글 목록이 안 뜰 때 여기로 빠져나갈 수 있다. React Router가 가로채면

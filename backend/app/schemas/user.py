@@ -3,6 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.core.html_slots import SLOT_MAX
 from app.schemas.base import SafeModel
 
 # 상한 72는 '글자 수'다(Pydantic max_length). bcrypt의 72는 '바이트'라 단위가 다르다 —
@@ -122,6 +123,25 @@ class SkinUpdate(SafeModel):
             if bad in low:
                 raise ValueError(f"CSS에 쓸 수 없는 것이 있어: {bad}")
         return v
+
+
+# 블로그 '내 문장' — 제목 아래·사이드바·푸터에 넣는 HTML.
+#
+# 여긴 **거절하지 않는다.** CSS는 금지 문자를 만나면 422로 막았지만(위), HTML은
+# 허용 목록으로 **다시 쓴다**(app/core/html_slots.py). 이유:
+#   · CSS의 `<`는 실수로 들어갈 일이 없어서 막으면 사람이 바로 안다.
+#     HTML에서 `<div>`를 막으면 "왜 안 되는지"가 설명 없이는 안 보인다.
+#   · 붙여 넣기 한 번에 `<span style>`·`<font>` 같은 게 잔뜩 딸려 온다. 그때마다
+#     저장을 거절하면 사람은 어느 글자를 지워야 하는지 모른 채 갇힌다.
+#   · 씻은 결과를 **응답으로 돌려주므로** 편집기가 그걸 다시 채운다 — 무엇이
+#     사라졌는지 눈으로 보인다. 거절보다 이쪽이 배우기 쉽다.
+#
+# 길이만 여기서 본다. 씻기 전 원문 기준이라 상한이 조금 넉넉한 셈인데,
+# 씻은 뒤는 항상 더 짧으므로 DB에 들어가는 값은 이 안에 든다.
+class SlotsUpdate(SafeModel):
+    intro: str = Field(default="", max_length=SLOT_MAX)
+    aside: str = Field(default="", max_length=SLOT_MAX)
+    footer: str = Field(default="", max_length=SLOT_MAX)
 
 # 블로그 주소(handle) 정하기 — 주소에 그대로 박히는 값이라 입구에서 좁게 받는다.
 #

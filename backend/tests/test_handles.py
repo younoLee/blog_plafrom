@@ -141,4 +141,4 @@ def test_승인_대기중인_사람은_못_바꾼다(client, make_user, auth_hea
 def test_없는_핸들의_스킨은_빈_값이다(client, make_user):
     # 404가 아니다 — 스킨은 장식이라 화면이 이것 때문에 실패 경로를 타면 손해가 더 크다.
     make_user(role="admin")
-    assert client.get("/api/skin?handle=nobody").json() == {"css": ""}
+    assert client.get("/api/skin?handle=nobody").json()["css"] == ""

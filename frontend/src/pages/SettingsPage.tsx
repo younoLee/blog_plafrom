@@ -7,6 +7,7 @@ import { fetchKeys, saveKey, deleteKey, type KeyStatus } from '../api/ai'
 import { ui } from '../ui'
 import { IconCheck } from '../components/icons'
 import SkinEditor from '../components/SkinEditor'
+import SlotEditor from '../components/SlotEditor'
 
 // provider별 색 점 (시각적 구분용)
 const DOT: Record<string, string> = {
@@ -196,6 +197,9 @@ function SettingsPage() {
           `/@handle`이 생기면서 저장한 값이 실제로 보일 자리가 생겼다 — 그래서 넓혔다.
           주인이 저장한 것은 사이트 스킨(`/blog`)이 되고, 글쓴이 것은 자기 블로그에 걸린다. */}
       {canWrite(user) && <SkinEditor />}
+      {/* 스킨 바로 아래에 둔다 — 둘은 같은 것의 양면이고(어떻게 보이나 / 무엇이
+          적히나) `class`로 서로를 참조한다. 떨어뜨려 놓으면 그 관계가 안 보인다. */}
+      {canWrite(user) && <SlotEditor />}
 
       <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
         내 API 키를 등록하면 글쓰기에서 GPT·Gemini·Grok 등 다른 모델로도 초안을 만들 수 있어.

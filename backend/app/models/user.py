@@ -82,6 +82,16 @@ class User(Base):
     # 여러 사람의 스킨을 동시에 적용할 자리가 없다. 컬럼을 users에 둔 건 나중에
     # 글쓴이별 주소가 생기면 그대로 쓰기 위해서다(마이그레이션 주석 참고).
     custom_css: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 이 사람의 블로그 '내 문장' — 제목 아래 머리말·사이드바 소개·푸터. NULL = 안 적음.
+    #
+    # JSON 문자열이다: `{"intro": "...", "aside": "...", "footer": "..."}`.
+    # 세 컬럼으로 펴지 않은 이유는 마이그레이션 d6e7f8a9b0c1 주석에 있다(요약: 검색도
+    # 조인도 안 하는 덩어리이고, 자리가 늘 때마다 컬럼을 늘리고 싶지 않다).
+    #
+    # ⚠️ custom_css와 달리 이 값은 **HTML로 파싱된다.** `<`를 막는 것으로 끝나지 않아서,
+    # 저장 전에 app/core/html_slots.sanitize_slots()가 **허용 목록으로 다시 쓴다**
+    # (모르는 태그·속성은 전부 사라진다). DB에 들어오는 시점에 이미 씻긴 값이다.
+    custom_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
-import { fetchMySkin, saveSkin, previewSkin } from '../api/skin'
+import { useEffect, useState } from 'react'
+import { fetchMine, saveSkin, previewSkin, restoreSiteSkin } from '../api/skin'
+import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconCheck } from './icons'
 
@@ -75,6 +76,11 @@ const PRESETS: { name: string; hint: string; css: string }[] = [
 ]
 
 function SkinEditor() {
+  // 주인이 저장한 것만 '사이트 스킨'이다. 그 사람 것만 캐시에 남긴다
+  // (api/skin.ts의 remember 주석 — 아니면 자기 브라우저에서만 /blog가 자기 색이 된다).
+  const { user } = useAuth()
+  const isSite = user?.role === 'admin'
+
   const [draft, setDraft] = useState('')
   const [saved, setSaved] = useState('') // 서버에 저장돼 있는 값 (떠날 때 되돌릴 기준)
   const [loading, setLoading] = useState(true)
@@ -82,25 +88,20 @@ function SkinEditor() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
-  // 언마운트 정리에서 읽어야 하는데 state를 그대로 읽으면 첫 렌더의 값(빈 문자열)에
-  // 갇힌다 — 저장한 스킨이 있는데도 떠날 때 기본색으로 되돌아간다.
-  const savedRef = useRef('')
-
   useEffect(() => {
-    fetchMySkin()
-      .then((css) => {
+    fetchMine()
+      .then(({ css }) => {
         setDraft(css)
         setSaved(css)
-        savedRef.current = css
       })
       .catch((e) => setError(e instanceof Error ? e.message : '스킨을 못 불러왔어'))
       .finally(() => setLoading(false))
   }, [])
 
-  // 이 화면을 떠나면 저장된 스킨으로 되돌린다(미리보기가 사이트에 남지 않게).
-  useEffect(() => {
-    return () => previewSkin(savedRef.current)
-  }, [])
+  // 이 화면을 떠나면 **사이트 스킨**으로 되돌린다(미리보기가 다른 화면에 남지 않게).
+  // 전에는 '내가 저장한 것'으로 되돌렸는데, 주인이 아닌 글쓴이에게는 그게 틀렸다 —
+  // 자기 색이 사이트에 적용된 것처럼 보인다. 내 스킨은 `/@handle`에서 확인한다.
+  useEffect(() => restoreSiteSkin, [])
 
   function edit(css: string) {
     setDraft(css)
@@ -113,9 +114,8 @@ function SkinEditor() {
     setError('')
     setMsg('')
     try {
-      const css = await saveSkin(draft)
+      const { css } = await saveSkin(draft, isSite)
       setSaved(css)
-      savedRef.current = css
       setMsg(css ? '스킨을 저장했어. 방문자에게도 이대로 보여.' : '기본 스킨으로 되돌렸어.')
     } catch (e) {
       setError(e instanceof Error ? e.message : '저장 실패')
@@ -143,6 +143,11 @@ function SkinEditor() {
           쓸 수 있는 변수: <code>--color-accent</code> <code>--color-accent-hi</code>{' '}
           <code>--color-canvas</code> <code>--color-ink</code> <code>--radius-card</code>{' '}
           <code>--radius-field</code> <code>--radius-btn</code>
+          <br />
+          잡을 수 있는 자리: <code>[data-skin="hero"]</code> <code>post-grid</code>{' '}
+          <code>post-card</code> <code>post-title</code> <code>post-thumb</code>{' '}
+          <code>sidebar</code> <code>footer</code> <code>layout</code> ·{' '}
+          아래 '내 문장'에 쓴 <code>class</code>도 여기서 잡힌다
         </span>
       </p>
 
@@ -187,6 +192,12 @@ function SkinEditor() {
           </button>
         )}
       </div>
+
+      {!isSite && (
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          이 스킨은 <strong>내 블로그(/@주소)</strong>에 걸려. 사이트 첫 화면의 색은 주인이 정해.
+        </p>
+      )}
 
       {msg && (
         <p className="mt-3 inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
