@@ -57,14 +57,14 @@ var NOT_FOUND_HTML =
     // (favicon.svg·icon-192 둘 다 200). 정적 페이지들과 같은 이유로 붙인다.
     '<link rel="icon" type="image/svg+xml" href="/favicon.svg">' +
     '<link rel="apple-touch-icon" href="/icon-192.png">' +
-    '<meta name="theme-color" content="#863bff">' +
+    '<meta name="theme-color" content="#215ba6">' +
     '<style>' +
     ':root{color-scheme:light dark}' +
     'body{margin:0;padding:4rem 1.25rem;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
-    'color:#1d1d1f;background:#fff}' +
+    'color:#1a1a1a;background:#fbfaf8}' +
     'main{max-width:34rem;margin:0 auto}h1{font-size:1.5rem;margin:0 0 .75rem;letter-spacing:-.02em}' +
-    'p{color:#515154;margin:0 0 1.5rem}a{color:#0071e3}' +
-    '@media(prefers-color-scheme:dark){body{color:#f5f5f7;background:#000}p{color:#a1a1a6}a{color:#0a84ff}}' +
+    'p{color:#515154;margin:0 0 1.5rem}a{color:#215ba6}' +
+    '@media(prefers-color-scheme:dark){body{color:#ededed;background:#131313}p{color:#a1a1a6}a{color:#7fb3e8}}' +
     '</style></head><body><main>' +
     '<h1>그런 주소는 없어</h1>' +
     '<p>주소를 잘못 눌렀거나, 옮겨진 페이지야.</p>' +
