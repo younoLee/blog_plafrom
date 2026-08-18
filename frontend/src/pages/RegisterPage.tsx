@@ -26,7 +26,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative mx-auto max-w-sm">
       <div aria-hidden className={ui.glow} />
-      <Link to="/" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+      <Link to="/" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
         <IconArrowLeft className="h-4 w-4" />홈으로
       </Link>
       {children}
@@ -63,7 +63,7 @@ function ClosedNotice() {
         초대 링크를 받았다면 그 링크에서 바로 가입돼.
       </p>
       <div className="mt-6 flex flex-col items-center gap-2">
-        <Link to="/" className="text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">그냥 글만 보러 가기</Link>
+        <Link to="/" className="text-sm text-accent hover:underline">그냥 글만 보러 가기</Link>
         <Link to="/login" className="text-sm text-gray-500 hover:underline dark:text-gray-400">
           초대받은 계정으로 로그인
         </Link>
@@ -143,7 +143,7 @@ function InvalidNotice() {
         초대해준 사람에게 새 링크를 받아줘.
       </p>
       <div className="mt-6 flex flex-col items-center gap-2">
-        <Link to="/" className="text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">그냥 글만 보러 가기</Link>
+        <Link to="/" className="text-sm text-accent hover:underline">그냥 글만 보러 가기</Link>
         <Link to="/login" className="text-sm text-gray-500 hover:underline dark:text-gray-400">이미 계정이 있어</Link>
       </div>
     </Notice>

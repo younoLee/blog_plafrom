@@ -131,7 +131,7 @@ function PaymentPage() {
         <ul className="mt-5 space-y-3">
           {PERKS.map((p) => (
             <li key={p.title} className="flex gap-3">
-              <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0071e3]/10 text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+              <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/10 text-accent">
                 ✓
               </span>
               <div>

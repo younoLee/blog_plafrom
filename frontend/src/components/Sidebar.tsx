@@ -27,11 +27,15 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
   const total = meta?.total ?? 0
 
   return (
-    <aside className="space-y-5 md:sticky md:top-20">
+    <aside data-skin="sidebar" className="space-y-5 md:sticky md:top-20">
       {/* 프로필 카드 */}
       <div className={ui.card}>
         <div className="flex flex-col items-center text-center">
-          <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-tr from-[#0071e3] to-[#7c3aed] text-2xl font-semibold text-white">
+{/* select-none: 아바타가 이미지가 아니라 이름 첫 글자를 그린 div라, 브라우저가
+              이걸 본문 글자로 보고 마우스를 올리면 텍스트 선택 커서(I-빔)를 준다.
+              프로필 사진 위에서 글자를 고르는 커서가 뜨는 건 눌러도 되는 것처럼
+              보이게 만든다(2026-08-17 사용자 지적). 고를 글자가 아니므로 잠근다. */}
+          <div className="grid h-16 w-16 select-none place-items-center rounded-full bg-gradient-to-tr from-accent to-accent-2 text-2xl font-semibold text-white">
             {initial}
           </div>
           <h3 className="mt-3 font-semibold tracking-tight">{name}</h3>
@@ -44,7 +48,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
               (사이드바는 구독 정보를 안 받는다) 중립적인 이름으로 보낸다. */}
           <Link
             to="/subscriptions"
-            className="mt-3 inline-flex items-center gap-1 rounded-full bg-[#0071e3] px-4 py-1.5 text-xs font-medium text-white transition hover:bg-[#0077ed] dark:bg-[#0a84ff]"
+            className="mt-3 inline-flex items-center gap-1 rounded-btn bg-accent px-4 py-1.5 text-xs font-medium text-white transition hover:bg-accent-hi"
           >
             구독 관리
           </Link>
@@ -76,7 +80,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
                 <div className="min-w-0">
                   <Link
                     to={`/blog/posts/${p.id}`}
-                    className="line-clamp-1 text-sm text-gray-700 transition hover:text-[#0071e3] dark:text-gray-200 dark:hover:text-[#0a84ff]"
+                    className="line-clamp-1 text-sm text-gray-700 transition hover:text-accent dark:text-gray-200"
                   >
                     {p.title}
                   </Link>
@@ -99,7 +103,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
               <Link
                 key={tag}
                 to={`/blog?tag=${encodeURIComponent(tag)}`}
-                className="inline-flex items-center gap-1 rounded-full bg-black/[0.05] px-2.5 py-1 text-xs text-gray-600 transition hover:bg-[#0071e3]/10 hover:text-[#0071e3] dark:bg-white/10 dark:text-gray-300 dark:hover:text-[#0a84ff]"
+                className="inline-flex items-center gap-1 rounded-btn bg-black/[0.05] px-2.5 py-1 text-xs text-gray-600 transition hover:bg-accent/10 hover:text-accent dark:bg-white/10 dark:text-gray-300"
               >
                 #{tag}
                 <span className="text-gray-500 dark:text-gray-400">{count}</span>

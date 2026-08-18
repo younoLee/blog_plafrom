@@ -9,7 +9,7 @@ export function SeriesBox({ nav, currentId }: { nav: SeriesNav; currentId: numbe
     <section className={`${ui.card} my-8`} aria-label="연재 목록">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold tracking-tight">
-          연재 · <span className="text-[#0071e3] dark:text-[#0a84ff]">{nav.series}</span>
+          연재 · <span className="text-accent">{nav.series}</span>
         </h2>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {nav.index} / {nav.total}편
@@ -25,13 +25,13 @@ export function SeriesBox({ nav, currentId }: { nav: SeriesNav; currentId: numbe
               </span>
               {isCurrent ? (
                 // 현재 글은 링크가 아니라 강조 — 자기 자신으로 가는 링크는 의미가 없다
-                <span aria-current="true" className="font-semibold text-[#0071e3] dark:text-[#0a84ff]">
+                <span aria-current="true" className="font-semibold text-accent">
                   {item.title}
                 </span>
               ) : (
                 <Link
                   to={`/blog/posts/${item.id}`}
-                  className="text-gray-600 transition hover:text-[#0071e3] dark:text-gray-300 dark:hover:text-[#0a84ff]"
+                  className="text-gray-600 transition hover:text-accent dark:text-gray-300"
                 >
                   {item.title}
                 </Link>
@@ -49,14 +49,14 @@ export function SeriesPrevNext({ nav }: { nav: SeriesNav }) {
   if (!nav.prev && !nav.next) return null
 
   const box =
-    'group flex-1 rounded-2xl border border-black/[0.07] p-4 transition hover:border-[#0071e3]/40 dark:border-white/10 dark:hover:border-[#0a84ff]/40'
+    'group flex-1 rounded-2xl border border-black/[0.07] p-4 transition hover:border-accent/40 dark:border-white/10'
 
   return (
     <nav className="my-8 flex flex-col gap-3 sm:flex-row" aria-label="연재 이동">
       {nav.prev ? (
         <Link to={`/blog/posts/${nav.prev.id}`} className={box}>
           <div className="text-xs text-gray-500 dark:text-gray-400">← 이전 편</div>
-          <div className="mt-1 line-clamp-2 text-sm font-medium transition group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
+          <div className="mt-1 line-clamp-2 text-sm font-medium transition group-hover:text-accent">
             {nav.prev.title}
           </div>
         </Link>
@@ -66,7 +66,7 @@ export function SeriesPrevNext({ nav }: { nav: SeriesNav }) {
       {nav.next ? (
         <Link to={`/blog/posts/${nav.next.id}`} className={`${box} sm:text-right`}>
           <div className="text-xs text-gray-500 dark:text-gray-400">다음 편 →</div>
-          <div className="mt-1 line-clamp-2 text-sm font-medium transition group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
+          <div className="mt-1 line-clamp-2 text-sm font-medium transition group-hover:text-accent">
             {nav.next.title}
           </div>
         </Link>

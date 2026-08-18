@@ -65,7 +65,7 @@ export function Toc({ content }: { content: string }) {
           <li key={h.id} className={h.depth === 3 ? 'ml-4' : ''}>
             <a
               href={`#${h.id}`}
-              className="text-sm text-gray-600 transition hover:text-[#0071e3] dark:text-gray-300 dark:hover:text-[#0a84ff]"
+              className="text-sm text-gray-600 transition hover:text-accent dark:text-gray-300"
             >
               {h.text}
             </a>

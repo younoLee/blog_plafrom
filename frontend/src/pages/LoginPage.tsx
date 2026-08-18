@@ -35,7 +35,7 @@ function LoginPage() {
   return (
     <div className="relative mx-auto max-w-sm">
       <div aria-hidden className={ui.glow} />
-      <Link to="/" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+      <Link to="/" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
         <IconArrowLeft className="h-4 w-4" />홈으로
       </Link>
       <Reveal className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
@@ -54,7 +54,7 @@ function LoginPage() {
         </p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           가입은 현재{' '}
-          <Link to="/register" className="font-medium text-[#0071e3] hover:underline dark:text-[#0a84ff]">초대제</Link>
+          <Link to="/register" className="font-medium text-accent hover:underline">초대제</Link>
           로 운영 중이야
         </p>
       </Reveal>

@@ -314,7 +314,7 @@ function PostDetailPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Link to="/blog" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+      <Link to="/blog" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
         <IconArrowLeft className="h-4 w-4" />목록으로
       </Link>
 
@@ -357,12 +357,12 @@ function PostDetailPage() {
           <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
             {post.title}
             {post.visibility === 'private' && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-sm text-gray-500 dark:bg-white/10 dark:text-gray-400">
+              <span className="inline-flex items-center gap-1 rounded-btn bg-gray-100 px-2 py-1 text-sm text-gray-500 dark:bg-white/10 dark:text-gray-400">
                 <IconLock className="h-3.5 w-3.5" />비공개
               </span>
             )}
             {post.visibility === 'subscribers' && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-sm text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+              <span className="inline-flex items-center gap-1 rounded-btn bg-blue-50 px-2 py-1 text-sm text-accent">
                 구독자공개
               </span>
             )}
@@ -380,7 +380,7 @@ function PostDetailPage() {
                   ? '서버가 꺼져 있어도 열리는 주소를 복사한다 (미리보기 카드도 이 글로 뜬다)'
                   : '이 페이지 주소를 복사한다'
               }
-              className="rounded-full border border-black/[0.1] px-3 py-1 text-sm text-gray-500 transition hover:bg-black/[0.03] dark:border-white/15 dark:text-gray-400 dark:hover:bg-white/[0.06]"
+              className="rounded-btn border border-black/[0.1] px-3 py-1 text-sm text-gray-500 transition hover:bg-black/[0.03] dark:border-white/15 dark:text-gray-400 dark:hover:bg-white/[0.06]"
             />
             {/* 로그인 + 남의 글이면 글쓴이 구독 버튼 (구독하면 그 사람 비공개글도 볼 수 있음) */}
             {user && post.owner_id && post.owner_id !== user.id && (
@@ -413,7 +413,7 @@ function PostDetailPage() {
                 <Link
                   key={t}
                   to={`/blog?tag=${encodeURIComponent(t)}`}
-                  className="rounded-full bg-black/[0.05] px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-[#0071e3]/10 hover:text-[#0071e3] dark:bg-white/10 dark:text-gray-300 dark:hover:text-[#0a84ff]"
+                  className="rounded-btn bg-black/[0.05] px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-accent/10 hover:text-accent dark:bg-white/10 dark:text-gray-300"
                 >
                   #{t}
                 </Link>
@@ -423,7 +423,7 @@ function PostDetailPage() {
           {/* 목차: 본문 앞. 소제목이 2개 미만이면 Toc이 알아서 안 그린다 */}
           <Toc content={post.content} />
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}
-          <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-[#0071e3] prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert dark:prose-a:text-[#0a84ff]">
+          <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert">
             {body}
           </div>
         </article>
@@ -449,7 +449,7 @@ function PostDetailPage() {
               <li key={r.slug}>
                 <a
                   href={`/${r.slug.replace(/^\//, '')}`}
-                  className="font-medium text-[#0071e3] hover:underline dark:text-[#0a84ff]"
+                  className="font-medium text-accent hover:underline"
                 >
                   {r.title}
                 </a>
@@ -480,7 +480,7 @@ function PostDetailPage() {
                     배지를 '회원' 쪽에 다는 방향인 게 중요하다 — 반대로 '익명'에만 표를 달면
                     그 표가 빠지는 순간 사칭이 다시 통한다(fail-open). */}
                 {c.is_member ? (
-                  <span className="rounded-full bg-[#0071e3]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#0071e3] dark:text-[#0a84ff]">
+                  <span className="rounded-btn bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                     회원
                   </span>
                 ) : (

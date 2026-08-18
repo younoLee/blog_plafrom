@@ -6,6 +6,7 @@ import { canWrite } from '../api/auth'
 import { fetchKeys, saveKey, deleteKey, type KeyStatus } from '../api/ai'
 import { ui } from '../ui'
 import { IconCheck } from '../components/icons'
+import SkinEditor from '../components/SkinEditor'
 
 // provider별 색 점 (시각적 구분용)
 const DOT: Record<string, string> = {
@@ -134,6 +135,13 @@ function SettingsPage() {
           </button>
         </div>
       </section>
+
+      {/* 블로그 스킨 — **주인(admin)만** 보인다.
+          이 사이트는 블로그 주소가 /blog 하나뿐이라 적용되는 스킨도 하나다. 글쓴이에게
+          편집기를 열어주면 '저장은 되는데 화면엔 안 나오는' 칸이 되는데, 그건 이 저장소가
+          여러 번 밟은 모양이라(만들어져 있는데 연결이 없다) 아예 안 보여준다.
+          글쓴이마다 자기 블로그 주소가 생기면 그때 이 조건을 canWrite로 넓히면 된다. */}
+      {user.role === 'admin' && <SkinEditor />}
 
       <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
         내 API 키를 등록하면 글쓰기에서 GPT·Gemini·Grok 등 다른 모델로도 초안을 만들 수 있어.

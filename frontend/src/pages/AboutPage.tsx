@@ -49,7 +49,7 @@ export default function AboutPage() {
         <h1 className="text-3xl font-semibold tracking-tight">소개</h1>
         <p className="mt-4 text-gray-500 dark:text-gray-400">
           소개글을 불러오지 못했어. 정적 페이지로 열어볼 수 있어 —{' '}
-          <a href="/about.html" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+          <a href="/about.html" className="text-accent hover:underline">
             /about.html
           </a>
         </p>
@@ -62,7 +62,7 @@ export default function AboutPage() {
       {md === null ? (
         <p className="text-gray-500 dark:text-gray-400">불러오는 중…</p>
       ) : (
-        <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-[#0071e3] prose-a:no-underline hover:prose-a:underline dark:prose-invert dark:prose-a:text-[#0a84ff]">
+        <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-accent prose-a:no-underline hover:prose-a:underline dark:prose-invert">
           <ReactMarkdown rehypePlugins={[rehypeSlug]}>{md}</ReactMarkdown>
         </div>
       )}

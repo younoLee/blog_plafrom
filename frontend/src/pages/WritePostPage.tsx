@@ -245,7 +245,7 @@ function WritePostPage() {
 
   return (
     <div>
-      <Link to="/" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+      <Link to="/" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
         <IconArrowLeft className="h-4 w-4" />홈으로
       </Link>
       <div className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
@@ -254,12 +254,12 @@ function WritePostPage() {
       </h1>
 
       {/* AI 초안 잡기: 거친 메모 → 정돈된 글 구조를 제목·본문에 채움 */}
-      <div className="mb-6 rounded-2xl border border-[#0071e3]/15 bg-[#0071e3]/[0.05] p-5 dark:border-[#0a84ff]/20 dark:bg-[#0a84ff]/[0.07]">
+      <div className="mb-6 rounded-2xl border border-accent/15 bg-accent/[0.05] p-5/[0.07]">
         <div className="flex items-center gap-2">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#0071e3]/10 text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent/10 text-accent">
             <IconSparkles className="h-4 w-4" />
           </span>
-          <p className="text-sm font-medium text-[#0071e3] dark:text-[#0a84ff]">AI로 초안 잡기</p>
+          <p className="text-sm font-medium text-accent">AI로 초안 잡기</p>
         </div>
         <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           떠오르는 메모를 대충 적고 누르면 제목·소제목·초안으로 정리해줘. (제목/본문을 덮어써)
@@ -414,9 +414,9 @@ function WritePostPage() {
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {tags.map((t) => (
-                <span key={t} className="inline-flex items-center gap-1 rounded-full bg-[#0071e3]/10 px-2.5 py-1 text-xs font-medium text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+                <span key={t} className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
                   #{t}
-                  <button type="button" onClick={() => removeTag(t)} className="leading-none text-[#0071e3]/60 hover:text-[#0071e3] dark:text-[#0a84ff]/70" aria-label={`${t} 삭제`}>×</button>
+                  <button type="button" onClick={() => removeTag(t)} className="leading-none text-accent/60 hover:text-accent" aria-label={`${t} 삭제`}>×</button>
                 </span>
               ))}
             </div>
@@ -455,14 +455,14 @@ function WritePostPage() {
           <button
             type="button"
             onClick={() => setPreview((v) => !v)}
-            className={`ml-auto rounded-lg px-2.5 py-1 text-xs font-medium transition ${preview ? 'bg-[#0071e3] text-white dark:bg-[#0a84ff]' : 'text-gray-600 hover:bg-black/[0.06] dark:text-gray-300 dark:hover:bg-white/10'}`}
+            className={`ml-auto rounded-lg px-2.5 py-1 text-xs font-medium transition ${preview ? 'bg-accent text-white' : 'text-gray-600 hover:bg-black/[0.06] dark:text-gray-300 dark:hover:bg-white/10'}`}
           >
             {preview ? '편집으로' : '미리보기'}
           </button>
         </div>
         {preview ? (
           // 미리보기: 실제 글 화면과 같은 방식(ReactMarkdown)으로 '꾸며진' 결과를 보여줌
-          <div className="prose prose-gray min-h-[18rem] max-w-none rounded-xl border border-black/10 bg-white p-5 prose-headings:tracking-tight prose-a:text-[#0071e3] prose-img:rounded-xl dark:prose-invert dark:border-white/15 dark:bg-white/[0.03] dark:prose-a:text-[#0a84ff]">
+          <div className="prose prose-gray min-h-[18rem] max-w-none rounded-xl border border-black/10 bg-white p-5 prose-headings:tracking-tight prose-a:text-accent prose-img:rounded-xl dark:prose-invert dark:border-white/15 dark:bg-white/[0.03]">
             {/* ⚠️ 보안: rehype-raw/allowDangerousHtml 금지 — 본문은 사용자·AI초안 값이고 서버가
                 HTML을 새니타이즈 안 한다. react-markdown이 raw HTML을 안 렌더하는 게 저장형 XSS
                 방어선. (PostDetailPage에 같은 주석) */}

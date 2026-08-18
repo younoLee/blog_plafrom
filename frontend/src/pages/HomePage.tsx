@@ -10,6 +10,7 @@ import { Reveal } from '../components/Reveal'
 import { Sidebar } from '../components/Sidebar'
 import { ServerAsleepError } from '../api/http'
 import { fetchDevlogIndex, type DevlogIndexPost } from '../api/devlogIndex'
+import { coverLabel } from '../postUtils'
 
 function HomePage() {
   const { user } = useAuth()
@@ -160,10 +161,10 @@ function HomePage() {
   return (
     <>
       {/* 히어로 */}
-      <section className="relative mb-14 text-center">
+      <section data-skin="hero" className="relative mb-14 text-center">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-16 -z-10 mx-auto h-56 max-w-xl rounded-full bg-gradient-to-tr from-[#0071e3]/20 via-purple-400/15 to-pink-400/15 blur-3xl dark:from-[#0a84ff]/20"
+          className="pointer-events-none absolute inset-x-0 -top-16 -z-10 mx-auto h-56 max-w-xl rounded-full bg-gradient-to-tr from-accent/20 via-accent-2/15 to-accent-3/15 blur-3xl"
         />
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
           최근 <span className={ui.gradientText}>이야기</span>
@@ -172,7 +173,7 @@ function HomePage() {
         {/* 이메일 구독·새 글 알림은 전용 페이지에서 */}
         <p className="mx-auto mt-7 max-w-md text-sm text-gray-500 dark:text-gray-400">
           이메일 구독과 새 글 알림은{' '}
-          <Link to="/subscriptions" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+          <Link to="/subscriptions" className="text-accent hover:underline">
             구독
           </Link>
           에서 할 수 있어.
@@ -200,7 +201,7 @@ function HomePage() {
       {error && !asleep && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
 
       {/* 본문 + 우측 사이드바 2단. md(768px)+ = 옆으로(PC/태블릿), 그 아래(폰) = 세로 스택 */}
-      <div className="grid gap-8 md:grid-cols-[1fr_18rem]">
+      <div data-skin="layout" className="grid gap-8 md:grid-cols-[1fr_18rem]">
       <div>
       {/* 검색 — Enter로 제출. 검색어는 URL(?q=)에 남아 뒤로가기·공유가 된다 */}
       <form onSubmit={handleSearch} className="mb-5 flex gap-2">
@@ -210,11 +211,11 @@ function HomePage() {
           onChange={(e) => setQueryInput(e.target.value)}
           placeholder="제목·본문 검색 (2글자 이상)"
           aria-label="글 검색"
-          className="min-w-0 flex-1 rounded-full border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-400 focus:border-[#0071e3] dark:border-white/15 dark:bg-white/5 dark:focus:border-[#0a84ff]"
+          className="min-w-0 flex-1 rounded-btn border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-400 focus:border-accent dark:border-white/15 dark:bg-white/5"
         />
         <button
           type="submit"
-          className="shrink-0 rounded-full bg-[#0071e3] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#0077ed] dark:bg-[#0a84ff]"
+          className="shrink-0 rounded-btn bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-hi"
         >
           검색
         </button>
@@ -224,13 +225,13 @@ function HomePage() {
         <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
           {q ? (
             <>
-              <span className="text-[#0071e3] dark:text-[#0a84ff]">"{q}"</span>
+              <span className="text-accent">"{q}"</span>
               <span className="text-base font-normal text-gray-400">검색 결과</span>
               <Link to={tag ? `/blog?tag=${encodeURIComponent(tag)}` : '/blog'} className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 검색 취소</Link>
             </>
           ) : tag ? (
             <>
-              <span className="text-[#0071e3] dark:text-[#0a84ff]">#{tag}</span>
+              <span className="text-accent">#{tag}</span>
               <Link to="/blog" className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 전체보기</Link>
             </>
           ) : (
@@ -293,7 +294,7 @@ function HomePage() {
                   본문을 읽게 고쳐서 지금은 사실이다. **한쪽만 되돌리면 다시 거짓이 된다.** */}
               검색은 서버가 있어야 해서 절전 중엔 못 해 — 아래는 검색어를 반영하지 않은 전체
               목록이야. 지금 찾고 싶으면{' '}
-              <a href="/devlog.html" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+              <a href="/devlog.html" className="text-accent hover:underline">
                 개발일지 아카이브
               </a>
               에서 찾아줘(제목·본문까지 뒤지고, 서버 없이 돌아).
@@ -307,7 +308,7 @@ function HomePage() {
                     <time className="shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">
                       {p.date}
                     </time>
-                    <h4 className="font-medium group-hover:text-[#0071e3] dark:group-hover:text-[#0a84ff]">
+                    <h4 className="font-medium group-hover:text-accent">
                       {p.title}
                     </h4>
                   </div>
@@ -333,64 +334,68 @@ function HomePage() {
         </section>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
+      <div data-skin="post-grid" className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
         {posts.map((post, i) => (
           <Reveal key={post.id} delay={Math.min(i * 60, 300)}>
-          <article className={`${ui.card} hover:-translate-y-0.5 hover:border-[#0071e3]/30 dark:hover:border-[#0a84ff]/30`}>
+          <article data-skin="post-card" className={`${ui.card} hover:-translate-y-0.5 hover:border-accent/30`}>
             {post.cover_image ? (
-              <Link to={`/blog/posts/${post.id}`} className="mb-4 block overflow-hidden rounded-xl">
+              <Link data-skin="post-thumb" to={`/blog/posts/${post.id}`} className="mb-4 block overflow-hidden rounded-field">
                 <img src={post.cover_image} alt="" loading="lazy" className="aspect-[16/9] w-full object-cover transition duration-300 hover:scale-[1.03]" />
               </Link>
             ) : (
               // 커버 없는 글: 제목 이니셜 + 은은한 그라데이션으로 그리드를 안 휑하게
               <Link
+                data-skin="post-thumb"
                 to={`/blog/posts/${post.id}`}
-                className="mb-4 flex aspect-[16/9] items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[#0071e3]/10 via-purple-400/10 to-pink-400/10 dark:from-[#0a84ff]/15 dark:via-purple-500/10 dark:to-pink-500/10"
+                className="mb-4 flex aspect-[16/9] items-center justify-center overflow-hidden rounded-field bg-gradient-to-br from-accent/10 via-accent-2/10 to-accent-3/10"
               >
-                <span className="text-4xl font-bold text-[#0071e3]/35 dark:text-[#0a84ff]/40">
-                  {post.title[0]?.toUpperCase() ?? '#'}
+                {/* select-none: 이건 읽으라고 둔 글자가 아니라 그림 자리다. 없으면
+                    마우스를 올렸을 때 텍스트 선택 커서(I-빔)가 떠서 '고를 수 있는 것'처럼
+                    보인다(2026-08-17 사용자 지적, 사이드바 아바타와 같은 병). */}
+                <span className="select-none text-4xl font-bold text-accent/35">
+                  {coverLabel(post.title)}
                 </span>
               </Link>
             )}
-            <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-              <Link to={`/blog/posts/${post.id}`} className="transition hover:text-[#0071e3] dark:hover:text-[#0a84ff]">{post.title}</Link>
+            <h3 data-skin="post-title" className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+              <Link to={`/blog/posts/${post.id}`} className="transition hover:text-accent">{post.title}</Link>
               {post.visibility === 'private' && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-white/10 dark:text-gray-400">
+                <span className="inline-flex items-center gap-1 rounded-btn bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-white/10 dark:text-gray-400">
                   <IconLock className="h-3 w-3" />비공개
                 </span>
               )}
               {post.visibility === 'subscribers' && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+                <span className="inline-flex items-center gap-1 rounded-btn bg-blue-50 px-2 py-0.5 text-xs font-medium text-accent">
                   구독자공개
                 </span>
               )}
             </h3>
-            <Link to={`/blog/posts/${post.id}`} className="mt-2 block text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+            <Link data-skin="post-excerpt" to={`/blog/posts/${post.id}`} className="mt-2 block text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
               <p className="line-clamp-2 leading-relaxed">
                 {post.excerpt}
               </p>
             </Link>
             {post.tags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
+              <div data-skin="post-tags" className="mt-3 flex flex-wrap gap-1.5">
                 {post.tags.slice(0, 4).map((t) => (
                   <Link
                     key={t}
                     to={`/blog?tag=${encodeURIComponent(t)}`}
-                    className="rounded-full bg-black/[0.05] px-2 py-0.5 text-xs text-gray-600 transition hover:bg-[#0071e3]/10 hover:text-[#0071e3] dark:bg-white/10 dark:text-gray-300 dark:hover:text-[#0a84ff]"
+                    className="rounded-btn bg-black/[0.05] px-2 py-0.5 text-xs text-gray-600 transition hover:bg-accent/10 hover:text-accent dark:bg-white/10 dark:text-gray-300"
                   >
                     #{t}
                   </Link>
                 ))}
               </div>
             )}
-            <div className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
+            <div data-skin="post-meta" className="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 dark:border-white/10">
               <time className="text-xs text-gray-500 dark:text-gray-400">
                 {new Date(post.created_at).toLocaleDateString()} · {post.reading_minutes}분 읽기
               </time>
               {/* 본인 글이거나 관리자면 수정·삭제 버튼 노출 */}
               {user && (post.owner_id === user.id || user.role === 'admin') && (
                 <div className="flex gap-3 text-sm">
-                  <Link to={`/blog/posts/${post.id}/edit`} className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">수정</Link>
+                  <Link to={`/blog/posts/${post.id}/edit`} className="text-accent hover:underline">수정</Link>
                   <button type="button" onClick={() => handleDelete(post.id)} className="text-red-500 hover:underline">삭제</button>
                 </div>
               )}
@@ -407,7 +412,7 @@ function HomePage() {
             type="button"
             onClick={() => goToPage(page - 1)}
             disabled={page <= 1}
-            className="rounded-full border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-[#0071e3] enabled:hover:text-[#0071e3] disabled:opacity-40 dark:border-white/15 dark:enabled:hover:border-[#0a84ff] dark:enabled:hover:text-[#0a84ff]"
+            className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
           >
             ← 이전
           </button>
@@ -418,7 +423,7 @@ function HomePage() {
             type="button"
             onClick={() => goToPage(page + 1)}
             disabled={page >= lastPage}
-            className="rounded-full border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-[#0071e3] enabled:hover:text-[#0071e3] disabled:opacity-40 dark:border-white/15 dark:enabled:hover:border-[#0a84ff] dark:enabled:hover:text-[#0a84ff]"
+            className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
           >
             다음 →
           </button>

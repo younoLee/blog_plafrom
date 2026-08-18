@@ -26,7 +26,7 @@ function ForgotPasswordPage() {
   return (
     <div className="relative mx-auto max-w-sm">
       <div aria-hidden className={ui.glow} />
-      <Link to="/login" className="inline-flex items-center gap-1 text-sm text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+      <Link to="/login" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
         <IconArrowLeft className="h-4 w-4" />로그인으로
       </Link>
       <Reveal className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">

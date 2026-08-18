@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { excerpt, readingTime, archiveUrlFor, relatedPosts } from './postUtils'
+import { excerpt, readingTime, archiveUrlFor, relatedPosts, coverLabel } from './postUtils'
 
 describe('excerpt', () => {
   it('마크다운 기호를 벗긴다(헤딩·불릿·강조·코드)', () => {
@@ -121,5 +121,37 @@ describe('relatedPosts', () => {
 
   it('max로 개수를 자른다', () => {
     expect(relatedPosts(index, '#31 알림', ['보안', '테스트'], 2)).toHaveLength(2)
+  })
+})
+
+describe('coverLabel — 커버 없는 글의 자리표시 글자', () => {
+  it('연재 글은 편 번호를 쓴다 (첫 글자를 쓰면 목록이 온통 같은 글자가 된다)', () => {
+    expect(coverLabel('블로그 만들기 #33 — 다 만들고 나서야 안 도는 걸 알았다')).toBe('#33')
+    expect(coverLabel('블로그 만들기 #1 — 빈 폴더에서')).toBe('#1')
+  })
+
+  it('실제 33편이 서로 다른 값을 낸다 — 이게 이 함수의 존재 이유다', () => {
+    const titles = Array.from({ length: 33 }, (_, i) => `블로그 만들기 #${i + 1} — 어떤 제목`)
+    const labels = new Set(titles.map(coverLabel))
+    expect(labels.size).toBe(33)
+    // 고치기 전 방식(첫 글자)은 33편이 전부 '블' 하나로 뭉쳤다
+    expect(new Set(titles.map((t) => t[0])).size).toBe(1)
+  })
+
+  it('제목 뒤쪽 숫자를 편 번호로 잘못 집지 않는다', () => {
+    // 샵 뒤 숫자만 본다 — 안 그러면 '403'이나 '18'이 편 번호가 된다
+    expect(coverLabel('한글 태그 허브 18장이 라이브에서 403이었다')).toBe('한')
+  })
+
+  it('연재가 아닌 글은 앞머리 기호를 걷어낸 첫 글자', () => {
+    expect(coverLabel('   AWS 비용 줄이기')).toBe('A')
+    expect(coverLabel('— 어떤 글')).toBe('어')
+  })
+
+  it('제목이 없거나 비면 # 로 떨어진다 (빈 칸을 그리지 않는다)', () => {
+    expect(coverLabel('')).toBe('#')
+    expect(coverLabel(null)).toBe('#')
+    expect(coverLabel(undefined)).toBe('#')
+    expect(coverLabel('   ')).toBe('#')
   })
 })

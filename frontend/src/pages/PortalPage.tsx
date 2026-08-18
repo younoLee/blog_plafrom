@@ -19,9 +19,9 @@ function PortalPage() {
     <div className="relative py-12">
       {/* 히어로 뒤 오로라: 두 겹 색 번짐을 겹쳐 깊이감 */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-28 -z-10 mx-auto h-80 max-w-3xl">
-        <div className="absolute left-1/4 top-0 h-64 w-64 -translate-x-1/2 rounded-full bg-[#0071e3]/30 blur-3xl dark:bg-[#0a84ff]/25" />
-        <div className="absolute right-1/4 top-6 h-64 w-64 translate-x-1/2 rounded-full bg-pink-400/25 blur-3xl dark:bg-pink-500/20" />
-        <div className="absolute left-1/2 top-2 h-56 w-56 -translate-x-1/2 rounded-full bg-purple-400/25 blur-3xl dark:bg-purple-500/20" />
+        <div className="absolute left-1/4 top-0 h-64 w-64 -translate-x-1/2 rounded-full bg-accent/30 blur-3xl" />
+        <div className="absolute right-1/4 top-6 h-64 w-64 translate-x-1/2 rounded-full bg-accent-3/25 blur-3xl dark:bg-accent-3/20" />
+        <div className="absolute left-1/2 top-2 h-56 w-56 -translate-x-1/2 rounded-full bg-accent-2/25 blur-3xl dark:bg-accent-2/20" />
       </div>
 
       {/* 대형 그라데이션 헤드라인 */}
@@ -42,14 +42,14 @@ function PortalPage() {
             to="/blog"
             className="group block h-full rounded-3xl border border-black/[0.07] bg-white p-8 transition hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(0,0,0,0.1)] dark:border-white/10 dark:bg-white/[0.06]"
           >
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0071e3]/10 text-[#0071e3] dark:bg-[#0a84ff]/15 dark:text-[#0a84ff]">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-accent/10 text-accent">
               <IconNote className="h-6 w-6" />
             </div>
             <h2 className="mt-5 text-2xl font-semibold tracking-tight">블로그</h2>
             <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
               글 읽고 쓰기, 구독, 댓글
             </p>
-            <span className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[#0071e3] dark:text-[#0a84ff]">
+            <span className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-accent">
               들어가기 <IconArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
             </span>
           </Link>

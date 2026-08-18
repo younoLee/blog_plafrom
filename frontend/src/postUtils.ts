@@ -82,3 +82,27 @@ export function archiveUrlFor(
   const hit = posts.find((p) => p.title === title)
   return hit ? `${origin.replace(/\/$/, '')}/${hit.slug.replace(/^\//, '')}` : null
 }
+
+/** 커버 이미지가 없는 글의 자리표시 글자.
+ *
+ *  **왜 제목 첫 글자를 안 쓰는가** — 2026-08-17에 사용자가 화면을 보고 잡았다.
+ *  이 블로그의 글은 33편이 전부 `블로그 만들기 #NN — …`으로 시작한다. 그래서
+ *  첫 글자를 쓰면 목록 한 화면에 **'블'이 열 장** 깔렸다. "카드를 안 휑하게"
+ *  만들려던 장치가 정반대로 작동한 자리다(전부 같으면 정보량이 0이다).
+ *
+ *  그래서 제목 안의 편 번호를 먼저 찾는다. 연재가 아닌 글에는 번호가 없으므로,
+ *  그때는 연재 접두사·기호를 걷어낸 뒤의 첫 글자로 되돌아간다.
+ *
+ *  `#`을 붙여 돌려주는 이유: 숫자만 있으면 '33'이 무슨 수인지 알 수 없다.
+ */
+export function coverLabel(title: string | undefined | null): string {
+  const t = (title ?? '').trim()
+  if (!t) return '#'
+  // `#33`, `＃33`(전각), `#33편` 모두 잡는다. 제목 뒤쪽 숫자(403·18장)를 잘못 집지
+  // 않도록 **샵 뒤에 붙은 숫자만** 본다.
+  const n = t.match(/[#＃]\s*(\d{1,4})/)
+  if (n) return `#${n[1]}`
+  // 번호가 없는 글: 앞머리의 기호·공백을 걷어낸 첫 글자.
+  const first = t.replace(/^[\s#＃[\]()<>·—-]+/, '')[0]
+  return (first ?? '#').toUpperCase()
+}

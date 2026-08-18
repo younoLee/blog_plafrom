@@ -27,13 +27,13 @@ function NotFoundPage() {
       <div className="mt-8 flex flex-wrap justify-center gap-3">
         <Link
           to="/blog"
-          className="rounded-full bg-[#0071e3] px-5 py-2.5 text-sm font-medium text-white transition hover:brightness-110"
+          className="rounded-btn bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:brightness-110"
         >
           글 목록으로
         </Link>
         <Link
           to="/"
-          className="rounded-full border border-black/[0.1] px-5 py-2.5 text-sm font-medium transition hover:bg-black/[0.03] dark:border-white/15 dark:hover:bg-white/[0.06]"
+          className="rounded-btn border border-black/[0.1] px-5 py-2.5 text-sm font-medium transition hover:bg-black/[0.03] dark:border-white/15 dark:hover:bg-white/[0.06]"
         >
           첫 화면
         </Link>
@@ -42,7 +42,7 @@ function NotFoundPage() {
       {/* 서버가 꺼져 있으면 위 두 링크의 목적지도 비어 보인다. 그때도 읽히는 길을 같이 준다. */}
       <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
         서버가 절전 중이어도 읽을 수 있는 곳 —{' '}
-        <a href="/devlog.html" className="text-[#0071e3] hover:underline dark:text-[#0a84ff]">
+        <a href="/devlog.html" className="text-accent hover:underline">
           개발일지 아카이브
         </a>
       </p>
