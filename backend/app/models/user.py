@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, func, text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -55,6 +55,20 @@ class User(Base):
     pro_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 이 사람의 블로그 스킨(CSS). NULL = 기본 스킨.
+    #
+    # 프론트가 색·모서리를 CSS 변수로 노출하므로(index.css의 @theme), 여기 담기는 건
+    # 보통 `:root { --color-accent: #20c997 }` 몇 줄이다. 그 변수 하나가 링크·버튼·
+    # 태그칩·그라데이션까지 한꺼번에 따라 바뀐다.
+    #
+    # ⚠️ 이 값은 **무인증으로 공개된다**(GET /api/skin). 방문자 브라우저에서 실행되는
+    # 스타일이므로 저장 전에 schemas의 SkinUpdate가 `</style`·`@import`·`javascript:`를
+    # 거른다. 스크립트 실행 자체는 CSP(script-src 'self')가 한 겹 더 막는다.
+    #
+    # 지금은 주인(admin)의 값만 화면에 나간다 — 블로그 주소가 /blog 하나뿐이라
+    # 여러 사람의 스킨을 동시에 적용할 자리가 없다. 컬럼을 users에 둔 건 나중에
+    # 글쓴이별 주소가 생기면 그대로 쓰기 위해서다(마이그레이션 주석 참고).
+    custom_css: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

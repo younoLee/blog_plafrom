@@ -33,6 +33,7 @@ from app.routers import (
     payments,
     posts,
     push,
+    skin,
     subscribers,
     subscriptions,
     uploads,
@@ -407,6 +408,7 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(payments.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(push.router, prefix="/api")
+app.include_router(skin.router, prefix="/api")
 
 # 업로드된 이미지 파일 서빙: GET /uploads/<파일명> → uploads/ 폴더
 # ⚠️ 이건 **로컬 개발용 폴백**이다. 운영에서는 S3_BUCKET이 설정돼 있어 이미지가 S3에

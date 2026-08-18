@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.schemas.base import SafeModel
 
@@ -79,3 +79,41 @@ class ResetPasswordRequest(SafeModel):
 # 빈 문자열은 '안 정함'(NULL)으로 되돌리는 뜻으로 받는다 — 지우는 방법도 있어야 한다.
 class DisplayNameUpdate(SafeModel):
     display_name: str = Field(max_length=50)
+
+# 블로그 스킨(CSS) 저장 — 방문자 브라우저에서 실행될 스타일이라 입구에서 거른다.
+#
+# 이 값은 무인증으로 공개되고(GET /api/skin) 프론트가 <style>에 넣어 적용한다.
+# 그래서 위험은 '못생긴 CSS'가 아니라 **CSS를 벗어나는 문자열**이다:
+#
+#   · `</style>` — HTML로 파싱되는 자리라면 태그를 닫고 밖으로 나간다. 지금 프론트는
+#     텍스트 노드로 넣어서(React) 파싱되지 않지만, 정적 아카이브처럼 HTML을 문자열로
+#     짜는 경로가 나중에 생기면 그때는 진짜 구멍이 된다. 입구에서 막아두면 그 경로가
+#     생겨도 이미 안전하다 — '고친 자리 옆의 안 쓸린 입구'를 미리 닫는 쪽이다.
+#   · `@import` — 외부 스타일시트를 끌어온다. CSP가 cdn.jsdelivr.net을 이미 허용하고
+#     있어서 실제로 로드된다. 스킨 한 줄이 남의 CSS 전체를 데려오는 건 범위가 다르다.
+#   · `javascript:` / `expression(` — 옛 브라우저에서 스크립트가 되는 형태.
+#
+# `<`를 통째로 막는 이유: CSS에 `<`가 필요한 문법이 없다. 문자 단위로 막는 쪽이
+# `</style` 변형(`</ style`, `</STYLE`)을 일일이 쫓는 것보다 안 샌다.
+#
+# ⚠️ 막지 **않는** 것: `url(https://...)`. 배경 이미지로 방문자 접속이 외부에 알려질 수
+# 있지만, 본문의 외부 이미지가 이미 같은 성질이고(img-src https:) 배경까지 막으면
+# 스킨으로 할 수 있는 일이 크게 줄어든다. 감수하는 위험으로 적어둔다.
+#
+# 50KB는 넉넉한 상한이다 — 변수 몇 줄이 보통이고, 통째로 갈아엎는 스킨도 이 안에 든다.
+# 빈 문자열은 '기본 스킨으로 되돌린다'는 뜻으로 받는다(NULL로 저장).
+CSS_MAX = 50_000
+_CSS_FORBIDDEN = ("<", "@import", "javascript:", "expression(")
+
+
+class SkinUpdate(SafeModel):
+    custom_css: str = Field(max_length=CSS_MAX)
+
+    @field_validator("custom_css")
+    @classmethod
+    def _no_escape(cls, v: str) -> str:
+        low = v.lower()
+        for bad in _CSS_FORBIDDEN:
+            if bad in low:
+                raise ValueError(f"CSS에 쓸 수 없는 것이 있어: {bad}")
+        return v
