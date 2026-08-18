@@ -14,8 +14,7 @@
 NULL = '아무것도 안 적었다'. 기본값을 `{}`로 채우지 않는다 — 백필은 3행짜리 테이블에서
 아낄 게 없고, NULL과 빈 객체가 같은 뜻이면 상태가 둘로 갈린다.
 
-revision: d6e7f8a9b0c1
-down_revision: c5d6e7f8a9b0 (users.handle)
+바로 아래 c5d6e7f8a9b0(users.handle) 위에 얹는다.
 """
 
 from collections.abc import Sequence

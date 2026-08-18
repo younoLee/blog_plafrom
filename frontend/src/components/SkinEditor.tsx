@@ -60,7 +60,14 @@ const PRESETS: { name: string; hint: string; css: string }[] = [
 /* 목록은 기본값 그대로다. 줄 간격과 제목만 키운다. */
 [data-skin="post-card"] { padding: 1.75rem 0 }
 [data-skin="post-title"] { font-size: 1.6rem; line-height: 1.35 }
-[data-skin="hero"] { display: none }`,
+
+/* 머리말 구역에서 사이트가 넣은 두 줄만 지운다.
+   전에는 hero를 통째로 display:none 했는데 그건 너무 넓었다 — 내가 쓴 머리말도
+   같이 사라지고, /@주소 화면에서는 글쓴이 이름과 핸들까지 지워진다.
+   자식만 지목하면 내 문장은 남는다. */
+[data-skin="hero"] > h1,
+[data-skin="hero"] > p { display: none }
+[data-skin="hero"] { border-bottom: 0; padding-bottom: 0 }`,
   },
   {
     name: '네이버풍',

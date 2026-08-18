@@ -120,7 +120,12 @@ revs, downs = {}, set()
 for f in pathlib.Path('.').glob('*.py'):
     t = f.read_text(encoding='utf-8')
     r = re.search(r'^revision(?::\s*str)?\s*=\s*["\']([0-9a-f]+)["\']', t, re.M)
-    d = re.findall(r'^down_revision(?::[^=]*)?\s*=\s*["\']([0-9a-f]+)["\']', t, re.M)
+    # 타입 주석은 **같은 줄**에만 있다. `[^=]*`로 두면 개행까지 먹어서, 파일 위쪽
+    # 주석에 `down_revision:` 같은 글자가 있으면 거기서 시작해 저 아래 `revision =`
+    # 까지 한 덩어리로 매칭된다 — 그러면 그 파일이 **자기 자신을 down으로 가리키는**
+    # 것으로 세어져 head가 사라지고 "MULTI:"(빈 목록)가 뜬다. 2026-08-19에 실제로
+    # 겪었고, 증상이 '병합이 필요합니다'라 원인과 전혀 안 닮았다.
+    d = re.findall(r'^down_revision(?::[^=\n]*)?\s*=\s*["\']([0-9a-f]+)["\']', t, re.M)
     if r: revs[r.group(1)] = f.name
     downs.update(d)
 heads = sorted(set(revs) - downs)
