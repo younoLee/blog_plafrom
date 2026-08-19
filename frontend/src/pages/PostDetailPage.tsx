@@ -357,11 +357,11 @@ function PostDetailPage() {
 
       {post && (
         <Reveal>
-        <article className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
+        <article data-skin="article" className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
           {post.cover_image && (
-            <img src={post.cover_image} alt="" className="mb-6 aspect-[2/1] w-full rounded-xl object-cover" />
+            <img src={post.cover_image} alt="" data-skin="article-cover" className="mb-6 aspect-[2/1] w-full rounded-xl object-cover" />
           )}
-          <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
+          <h1 data-skin="article-title" className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
             {post.title}
             {post.visibility === 'private' && (
               <span className="inline-flex items-center gap-1 rounded-btn bg-gray-100 px-2 py-1 text-sm text-gray-500 dark:bg-white/10 dark:text-gray-400">
@@ -374,7 +374,7 @@ function PostDetailPage() {
               </span>
             )}
           </h1>
-          <div className="mt-2 flex items-center gap-3">
+          <div data-skin="article-meta" className="mt-2 flex items-center gap-3">
             <time className="text-sm text-gray-500 dark:text-gray-400">
               {new Date(post.created_at).toLocaleString()} · {readingTime(post.content)}분 읽기
             </time>
@@ -415,7 +415,7 @@ function PostDetailPage() {
             )}
           </div>
           {post.tags.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-1.5">
+            <div data-skin="article-tags" className="mt-4 flex flex-wrap gap-1.5">
               {post.tags.map((t) => (
                 <Link
                   key={t}
@@ -434,7 +434,7 @@ function PostDetailPage() {
             <Toc content={post.content} />
           </div>
           {/* 마크다운 본문: prose로 자동 타이포그래피, 다크모드는 prose-invert */}
-          <div className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert">
+          <div data-skin="article-body" className="prose prose-gray mt-6 max-w-none prose-headings:tracking-tight prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl dark:prose-invert">
             {body}
           </div>
         </article>
@@ -443,17 +443,17 @@ function PostDetailPage() {
 
       {/* 연재: 본문 다 읽은 뒤에 '다음 편' + 전체 목록이 오게 본문 아래 배치 */}
       {series && (
-        <>
+        <div data-skin="series">
           <SeriesPrevNext nav={series} />
           <SeriesBox nav={series} currentId={postId} />
-        </>
+        </div>
       )}
 
       {/* 같은 주제의 다른 편. 링크는 SPA 주소가 아니라 **정적 아카이브**로 건다 —
           이 사이트는 EC2를 평소 꺼두므로 추천을 눌렀는데 안 열리면 추천이 아니다.
           겹치는 태그가 없으면 relatedPosts가 빈 배열을 주고 블록 자체가 안 나온다. */}
       {related.length > 0 && (
-        <section className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">
+        <section data-skin="related" className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]">
           <h2 className="mb-4 text-lg font-semibold tracking-tight">비슷한 주제의 편</h2>
           <ul className="space-y-3">
             {related.map(({ post: r, shared }) => (
@@ -475,6 +475,7 @@ function PostDetailPage() {
 
       <section
         id="comments"
+        data-skin="comments"
         className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]"
       >
         <h2 className="mb-4 text-lg font-semibold tracking-tight">
@@ -533,7 +534,7 @@ function PostDetailPage() {
           목차를 앞에 두면 키보드 사용자가 글에 닿기 전에 목차 링크를 전부 지나야 한다
           (Layout이 '본문 바로가기'를 둔 것과 같은 이유다). */}
       {post && (
-        <aside className="hidden xl:col-start-1 xl:row-start-1 xl:block">
+        <aside data-skin="article-toc" className="hidden xl:col-start-1 xl:row-start-1 xl:block">
           <Toc content={post.content} variant="aside" />
         </aside>
       )}

@@ -33,7 +33,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
   return (
     <aside data-skin="sidebar" className="space-y-5 md:sticky md:top-20">
       {/* 프로필 카드 */}
-      <div className={ui.card}>
+      <div data-skin="sidebar-profile" className={ui.card}>
         <div className="flex flex-col items-center text-center">
 {/* select-none: 아바타가 이미지가 아니라 이름 첫 글자를 그린 div라, 브라우저가
               이걸 본문 글자로 보고 마우스를 올리면 텍스트 선택 커서(I-빔)를 준다.
@@ -78,7 +78,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
 
       {/* 최근 글 */}
       {recent.length > 0 && (
-        <div className={ui.card}>
+        <div data-skin="sidebar-recent" className={ui.card}>
           <h4 className="mb-3 text-sm font-semibold tracking-tight">최근 글</h4>
           <ul className="space-y-3">
             {recent.map((p) => (
@@ -107,7 +107,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
 
       {/* 태그 목록 (클릭 시 그 태그 글만 보기) */}
       {topTags.length > 0 && (
-        <div className={ui.card}>
+        <div data-skin="sidebar-tags" className={ui.card}>
           <h4 className="mb-3 text-sm font-semibold tracking-tight">태그</h4>
           <div className="flex flex-wrap gap-1.5">
             {topTags.map(({ tag, count }) => (

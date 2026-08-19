@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchMine, saveSkin, previewSkin, restoreSiteSkin } from '../api/skin'
 import { useAuth } from '../auth/auth-context'
+import { SKIN_HANDLES, SKIN_HANDLE_NAMES } from '../skinHandles'
 import { joinSkin, splitSkin, type SkinOptions } from '../skinOptions'
 import { ui } from '../ui'
 import { IconCheck } from './icons'
@@ -188,11 +189,29 @@ function SkinEditor() {
         <code>--color-canvas</code> <code>--color-ink</code> <code>--radius-card</code>{' '}
         <code>--radius-field</code> <code>--radius-btn</code>
         <br />
-        잡을 수 있는 자리: <code>[data-skin="hero"]</code> <code>post-grid</code>{' '}
-        <code>post-card</code> <code>post-title</code> <code>post-thumb</code>{' '}
-        <code>sidebar</code> <code>footer</code> <code>layout</code> ·{' '}
-        아래 '내 문장'에 쓴 <code>class</code>도 여기서 잡힌다
+        아래 '내 문장'에 쓴 <code>class</code>도 여기서 잡힌다.
       </p>
+
+      {/* 잡을 수 있는 자리. 스물다섯 개라 한 줄에 늘어놓으면 벽이 되고, 접어두면
+          있는 줄도 모른다 — 그래서 묶어서 편다. 목록은 src/skinHandles.ts 하나에서
+          온다(마크업·index.css 주석과 어긋나면 테스트가 잡는다). */}
+      <details className="mt-2">
+        <summary className="cursor-pointer text-xs text-gray-500 select-none dark:text-gray-400">
+          잡을 수 있는 자리 {SKIN_HANDLE_NAMES.length}개 — <code>[data-skin="이름"]</code>
+        </summary>
+        <div className="mt-2 space-y-1.5">
+          {SKIN_HANDLES.map((g) => (
+            <div key={g.group} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+              <span className="w-14 shrink-0 text-gray-500 dark:text-gray-400">{g.group}</span>
+              <span className="flex flex-wrap gap-x-2 gap-y-0.5">
+                {g.names.map((n) => (
+                  <code key={n}>{n}</code>
+                ))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </details>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {PRESETS.map((p) => (
