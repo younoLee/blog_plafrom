@@ -29,7 +29,7 @@ PUT이 자기 행에 쓰는 게 2026-08-18 오후에 바뀐 부분이다. 그 �
 
 import json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -37,8 +37,9 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import require_writer
 from app.core.html_slots import SLOT_KEYS, sanitize_slots
+from app.core.ratelimit import limiter
 from app.core.textguard import has_nul
-from app.models.user import User
+from app.models.user import PUBLIC_BLOG_ROLES, User
 from app.schemas.user import SkinUpdate, SlotsUpdate
 
 router = APIRouter(prefix="/skin", tags=["skin"])
@@ -80,7 +81,15 @@ def _out(user: User | None) -> SkinOut:
 
 
 @router.get("", response_model=SkinOut)
+# 한도를 **넉넉하게** 잡는다. 이 경로는 방문자 전원이 첫 화면에서 반드시 부르므로
+# 낮게 걸면 정상 방문자가 먼저 걸린다(그게 원래 리밋을 안 걸었던 이유다). 120/min은
+# 사람이 화면을 넘기는 속도로는 절대 안 닿고, 스크립트가 오리진을 태우는 건 막는다.
+# t2.micro 한 대가 오리진이고 CloudFront의 /api/*는 CachingDisabled라 전량이 그대로
+# 꽂힌다 — 엣지에서 흡수되는 게 0이다(2026-08-19 보안검사).
+@limiter.limit("120/minute")
 def get_skin(
+    # slowapi가 키를 뽑으려면 핸들러가 Request를 받아야 한다. 안 받으면 조용히 안 걸린다.
+    request: Request,
     # 상한은 handle 컬럼과 같은 20자. 없으면 아무 길이나 들어와 조회로 간다.
     handle: str | None = Query(None, max_length=20),
     db: Session = Depends(get_db),
@@ -91,9 +100,10 @@ def get_skin(
     정상 상태이기 때문이다. 없을 때 에러를 주면 프론트가 매 방문마다 실패를
     처리해야 하고, 그 처리를 빠뜨리면 콘솔이 빨개진다.
 
-    레이트리밋을 걸지 않았다. 이 응답은 사용자 입력 하나를 읽어 그대로 돌려주는
-    단일 행 조회이고, 모든 방문자가 첫 화면에서 반드시 한 번 부른다 — 여기에
-    분당 한도를 걸면 정상 방문자가 먼저 걸린다.
+    레이트리밋은 **넉넉하게** 걸려 있다(120/min). 원래는 아예 안 걸었는데, 그 근거였던
+    "분당 한도를 걸면 정상 방문자가 먼저 걸린다"는 한도를 낮게 잡을 때의 이야기였다.
+    사람이 화면을 넘기는 속도로는 120에 절대 안 닿고, 스크립트가 오리진(t2.micro 한 대)을
+    태우는 것만 막힌다 — CloudFront의 `/api/*`는 CachingDisabled라 전량이 그대로 꽂힌다.
     """
     if has_nul(handle):
         # NUL이 든 핸들은 **그런 사람이 없는 것과 같이** 취급한다. 여기서 422를 던지면
@@ -105,8 +115,14 @@ def get_skin(
     if handle:
         # 없는 핸들이면 빈 스킨이다(404가 아니다). 스킨은 장식이라, 화면이 이것 하나
         # 때문에 실패 경로를 타면 손해가 더 크다 — 아래 docstring의 이유와 같다.
+        # 역할을 뺏긴 계정(banned·pending)은 **없는 사람과 같이** 취급한다.
+        # 이게 없으면 차단해도 그 사람 CSS와 '내 문장'이 계속 무인증으로 나간다
+        # (2026-08-19 보안검사). 되돌리면 블로그도 같이 돌아온다.
         target = db.scalar(
-            select(User).where(func.lower(User.handle) == handle.strip().lower())
+            select(User).where(
+                func.lower(User.handle) == handle.strip().lower(),
+                User.role.in_(PUBLIC_BLOG_ROLES),
+            )
         )
     else:
         target = _owner(db)

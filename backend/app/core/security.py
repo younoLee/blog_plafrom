@@ -38,6 +38,32 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(_bcrypt_input(plain), hashed.encode())
 
 
+# 없는 계정에도 **같은 비용의 해시 검사**를 돌리기 위한 가짜 해시.
+#
+# 왜 필요한가(2026-08-19 보안검사, 실측): 로그인이
+# `if user is None or not verify_password(...)`였는데 이건 단락 평가라, 계정이 없으면
+# bcrypt가 아예 안 돈다. 응답 시간이 **0.03초 대 1.9초**로 갈렸다 — 30~60배가 반복
+# 재현됐다. 본문은 넷 다 바이트가 같은 401인데 시간 하나가 "이 이메일은 계정이 있다"를
+# 확정해 준다. register(항상 202)와 forgot-password(항상 202)가 문자열로는 안 가리도록
+# 공들여 막아둔 것을 사이드채널 하나가 되돌린다.
+#
+# 값은 import 시점에 한 번 만든다. 상수로 박아두면 cost가 바뀔 때 같이 안 바뀌어서,
+# 진짜 해시와 비용이 어긋나는 순간 다시 새기 시작한다 — 그건 눈에 안 보인다.
+_ABSENT_USER_HASH = hash_password("이 값은 아무 비밀번호와도 안 맞는다")
+
+
+def verify_password_or_dummy(plain: str, hashed: str | None) -> bool:
+    """계정이 없어도 해시 검사를 **거르지 않는다**. 없으면 항상 False.
+
+    호출부가 `user is None`을 먼저 보고 빠져나가면 이 함수가 있어도 소용없다.
+    반드시 `verify_password_or_dummy(pw, user.hashed_password if user else None)`
+    형태로, 사용자 존재 여부와 **무관하게 한 번** 부를 것.
+    """
+    return verify_password(plain, hashed if hashed is not None else _ABSENT_USER_HASH) and (
+        hashed is not None
+    )
+
+
 # --- JWT 토큰 ---
 def create_access_token(user_id: int, token_version: int) -> str:
     payload = {

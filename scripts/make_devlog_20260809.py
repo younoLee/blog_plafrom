@@ -222,7 +222,7 @@ p("08-07에 이걸 몰라서 \"백엔드는 healthy인데 /api/*가 전부 504\"
   "오늘은 런북에 단계가 있어서 먼저 했다.")
 ev("주차 해제 확인", [
     "$ aws cloudfront get-distribution-config --id E1438IL9CSVBS4 ...",
-    "ec2-13-209-15-31.ap-northeast-2.compute.amazonaws.com",
+    "ec2-<주소>.ap-northeast-2.compute.amazonaws.com",
     "$ curl -o /dev/null -w '%{http_code} (%{time_total}s)' .../api/health",
     "200 (0.336625s)",
 ])
@@ -298,9 +298,9 @@ p("미룬 이유가 \"중복이 있으면 실패한다\"였다. 프로덕션은 
 p("그런데 서버는 이미 꺼져 있었다. 대신 **정지 직전에 뜬 백업**을 내려받아 읽었다.")
 ev("백업에서 users를 읽어보니", [
     "계정 3개",
-    "  id=  3  es2646526@gmail.com",
-    "  id=  5  jinukkim0305@naver.com",
-    "  id=  6  youno3249@gmail.com",
+    "  id=  3  주인@example.com",
+    "  id=  5  글쓴이A@example.com",
+    "  id=  6  글쓴이B@example.com",
     "",
     "대소문자 무시 중복: 없음 ✅",
 ])

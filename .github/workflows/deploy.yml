@@ -200,7 +200,13 @@ jobs:
         # 갈아치우므로 안 주면 application/octet-stream이 되고, nosniff 때문에 스크립트가
         # 아예 실행되지 않는다(사이트가 백지가 된다).
         run: |
-          aws s3 sync dist/ s3://blogplafromops --delete --exclude "uploads/*" \
+          # sw-kill.json도 제외한다. 이건 **사고 때 손으로 올리는 회수 레버**라
+          # dist에 없고(ops/sw-kill.json), --delete가 대상이면 배포 한 번에 레버가
+          # 조용히 풀린다. 전에는 public/에 disabled:false로 들어 있어서 반대 방향으로
+          # 같은 사고가 났다 — 손으로 올린 true를 다음 배포가 false로 덮었다
+          # (2026-08-19 보안검사). 지금은 '없는 게 정상'이고 워커가 404를 정상 취급한다.
+          aws s3 sync dist/ s3://blogplafromops --delete \
+            --exclude "uploads/*" --exclude "sw-kill.json" \
             --cache-control "public,max-age=0,must-revalidate"
 
       - name: CloudFront 캐시 무효화

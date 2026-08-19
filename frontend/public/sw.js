@@ -27,7 +27,27 @@
 // 이 워커를 되돌리려면 보통 새 워커를 배포해야 한다. 그런데 그건 '배포가 되는 상태'를
 // 전제로 한다. 캐시가 잘못돼 사이트가 옛 화면에 갇히면 그 전제가 깨질 수 있다.
 // 그래서 **배포와 무관한 출구**를 하나 둔다: /sw-kill.json 에 {"disabled":true}를
-// 올리면(파일 하나 업로드) 다음 이동에서 모든 기기가 캐시를 비우고 스스로 등록해제한다.
+// 올리면(파일 하나 업로드) 모든 기기가 **10분 안에** 캐시를 비우고 스스로 등록해제한다.
+// 원본은 저장소의 ops/sw-kill.json 이고, 평소 S3에는 **없는 게 정상**이다(404 = 정상).
+//
+// ⚠️ **이게 실제로는 안 돌고 있었다**(2026-08-19 보안검사). 부르는 곳이 `activate`
+// 하나뿐이었는데, activate는 **새 워커 바이트가 배포될 때만** 뜬다. 즉 "배포 없이
+// 파일 하나로 회수한다"는 설명이 거짓이었고, 정작 배포가 되는 상황에서는 이 레버가
+// 필요 없다. 이미 설치된 워커는 sw-kill.json을 영원히 안 읽었다.
+//
+// 그래서 fetch에서도 본다. 다만 **이동마다 부르면 안 된다** — 화면 이동 하나에
+// 요청이 하나씩 더 붙고, 그 요청이 오리진으로 간다. 10분에 한 번으로 조인다.
+// (검사 자체는 await 하지 않는다. 회수는 급하지만 이 페이지의 응답을 늦출 만큼은 아니다.)
+const KILL_CHECK_MS = 10 * 60 * 1000
+let lastKillCheck = 0
+
+function maybeCheckKillSwitch() {
+  const now = Date.now()
+  if (now - lastKillCheck < KILL_CHECK_MS) return
+  lastKillCheck = now
+  checkKillSwitch()
+}
+
 async function checkKillSwitch() {
   try {
     const res = await fetch('/sw-kill.json', { cache: 'no-store' })
@@ -105,6 +125,9 @@ self.addEventListener('fetch', (event) => {
     )
     return
   }
+
+  // 회수 스위치를 10분에 한 번 확인한다(응답은 안 기다린다 — 위 주석 참고).
+  maybeCheckKillSwitch()
 
   // network-first: 네트워크가 이긴다. 실패했을 때만 캐시를 쓴다.
   event.respondWith(

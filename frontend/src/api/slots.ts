@@ -63,10 +63,25 @@ const ALLOWED = new Set([
 // 허용: http(s):, mailto:, `/경로`(단 `//다른출처`는 아님), `#앵커`, 스킴 없는 상대 경로.
 const OK_SCHEME = /^(?:https?:|mailto:|\/(?!\/)|#|[^:/?#]*$)/i
 
-/** 주소에서 공백·제어문자를 뺀다 — `jav\tascript:`를 브라우저는 실행한다. */
+/**
+ * 검사용으로 주소를 정규화한다 — **브라우저와 같은 눈으로 보기 위해서다.**
+ *
+ * 두 가지를 한다:
+ *  · 공백·제어문자 제거 — `jav\tascript:`를 브라우저는 실행한다.
+ *  · **백슬래시 → 슬래시** — 브라우저의 URL 파서는 `/\evil.example/x`를
+ *    `//evil.example/x`와 같게 읽는다(WHATWG URL). 이걸 안 접으면 위 OK_SCHEME의
+ *    `\/(?!\/)`가 "슬래시 하나로 시작하는 내부 경로"로 보고 통과시킨다
+ *    — 백슬래시 한 글자로 뚫린다(2026-08-19 보안검사, 서버·프론트·커버 세 곳 다 같았다).
+ *
+ * 값 자체는 안 바꾼다(검사에만 쓴다). 그래서 정상 주소가 깨지지 않는다 —
+ * 경로에 백슬래시를 쓰려면 어차피 `%5C`로 인코딩된다.
+ */
 function bareUrl(v: string): string {
   let out = ''
-  for (const ch of v) if (ch.codePointAt(0)! > 0x20) out += ch
+  for (const ch of v) {
+    if (ch === '\\') out += '/'
+    else if (ch.codePointAt(0)! > 0x20) out += ch
+  }
   return out
 }
 

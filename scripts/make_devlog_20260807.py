@@ -232,7 +232,7 @@ p("초대제를 만들고 나서 사용자가 물었다. \"검증된 주소로�
 p("나는 처음에 샌드박스 얘기를 했다. 틀렸다. **샌드박스가 정하는 건 '누구에게' 보낼 수 있나와 '얼마나'뿐이다.** "
   "스팸함에 꽂히는 건 그것과 무관하고, 원인은 **발신 인증**이다.")
 ev("실측 — 원인이 한눈에 보인다", [
-    "MAIL_FROM = es2646526@gmail.com     ← 발신자가 gmail.com",
+    "MAIL_FROM = 주인@example.com     ← 발신자가 gmail.com",
     "SES 도메인 ID  : 없음",
     "DKIM          : NOT_STARTED · SigningEnabled=False",
 ])

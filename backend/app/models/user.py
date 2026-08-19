@@ -95,3 +95,17 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+# 공개 블로그(`/@handle`)를 가질 수 있는 역할.
+#
+# **역할을 뺏으면 블로그가 같이 내려가야 한다.** 2026-08-19 보안검사가 잡은 것:
+# ban·revoke는 role과 token_version만 바꿔서 그 계정의 쓰기는 막았는데, `/@handle`이
+# 읽는 세 경로(`/api/authors/{h}`·`/api/skin?handle=`·`/api/posts?author=`)가 전부
+# 무인증 200으로 표시명·CSS·'내 문장'·공개 글을 계속 내보냈다. 조치가 절반만 들었다.
+#
+# 고치는 방법이 둘 있었다. ① ban·revoke가 handle·skin·slots를 같이 지운다
+# ② 공개 읽기 경로가 역할을 본다. **②를 골랐다** — ①은 상태를 두 군데 두는 것이라
+# 새 회수 경로가 생길 때마다 같이 안 고치면 또 어긋난다(그게 이번에 난 사고다).
+# ②는 어느 경로로 회수해도 결과가 같고, 되돌리면(unban→approve) 블로그도 같이 돌아온다.
+PUBLIC_BLOG_ROLES = ("writer", "admin")

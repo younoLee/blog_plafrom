@@ -7,15 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_writer
+from app.core.deps import get_current_user
 from app.core.ratelimit import limiter
 from app.core.security import (
+    verify_password_or_dummy,
     create_access_token,
     create_email_token,
     decode_email_token,
     hash_invite_token,
     hash_password,
-    verify_password,
 )
 from app.models.invite import Invite
 from app.models.user import User
@@ -254,8 +254,15 @@ def _find_user_by_email(db: Session, email: str) -> User | None:
 def login(request: Request, data: UserCreate, db: Session = Depends(get_db)):
     user = _find_user_by_email(db, data.email)
     # 사용자 없거나 비밀번호 틀리면 동일한 401 (어느 쪽이 틀렸는지 안 알려줌 = 보안)
-    if user is None or not verify_password(data.password, user.hashed_password):
+    #
+    # ⚠️ **단락 평가를 쓰면 안 된다.** 전에는 `user is None or not verify_password(...)`
+    # 였는데, 그러면 없는 계정에는 bcrypt가 안 돌아 응답이 0.03초, 있는 계정은 1.9초였다
+    # (2026-08-19 실측, 30~60배). 문구를 똑같이 맞춰놔도 시간이 답을 알려준다.
+    # 아래는 사용자 유무와 관계없이 해시 검사를 **항상 한 번** 돈다.
+    ok = verify_password_or_dummy(data.password, user.hashed_password if user else None)
+    if not ok:
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 틀렸어")
+    assert user is not None  # ok가 True면 user가 있다(mypy용)
     # 차단된 계정은 로그인 불가
     if user.role == "banned":
         raise HTTPException(status_code=403, detail="차단된 계정이야")
@@ -352,12 +359,9 @@ def update_me(
 @router.patch("/me/handle", response_model=UserRead)
 def update_my_handle(
     data: HandleUpdate,
-    # 표시명과 달리 **require_writer**다. 이건 공개 주소를 **선점**하는 일이라,
-    # 아직 승인 안 난 계정(role=pending)이 부르면 글도 스킨도 못 만드는 채로 주소만
-    # 잡아둔다 — 그 뒤 `/api/authors/그주소`가 200으로 그 계정을 공개하고, 나중에
-    # 승인된 사람이 같은 주소를 쓰면 409로 막힌다(2026-08-19 검사).
-    # 설정 화면은 이미 canWrite로 이 칸을 가려 두어서 화면 쪽은 안 바뀐다.
-    current: User = Depends(require_writer),
+    # ⚠️ 의존성이 `get_current_user`인 건 **지우기를 살리기 위해서다.** 아래 본문에서
+    # 값이 비어 있지 않을 때만 writer를 요구한다. 설명은 docstring에.
+    current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """내 블로그 주소(`/@handle`)를 정한다.
@@ -373,6 +377,19 @@ def update_my_handle(
     그 오류를 사람이 읽을 문장으로 바꿔주기만 한다.
     """
     handle = data.handle
+
+    # **주소를 정하는 것**은 권한이 필요하다. 아직 승인 안 난 계정(pending)이 부르면
+    # 글도 스킨도 못 만드는 채로 주소만 잡아둔다 — 그 뒤 `/api/authors/그주소`가 그
+    # 계정을 공개하고, 나중에 승인된 사람이 같은 주소를 쓰면 409로 막힌다.
+    #
+    # **지우는 것은 언제나 된다.** 08-19 오전에 이 함수를 통째로 require_writer로 좁혔더니
+    # 차단·승인취소된 사람이 자기 주소를 내릴 방법이 사라졌다(같은 날 보안검사가 잡았다).
+    # 만드는 문을 잠그면서 나가는 문까지 잠근 셈이다. 공개 읽기 경로가 이제 역할을 보므로
+    # 그 사람 블로그는 어차피 안 열리지만, **자기 것을 자기가 못 지우는 상태**는 그것대로
+    # 잘못이다 — 주소는 다른 사람이 이어 쓸 수 있어야 하고, 본인이 흔적을 지울 수 있어야 한다.
+    if handle and current.role not in ("writer", "admin"):
+        raise HTTPException(status_code=403, detail="승인된 계정만 블로그 주소를 정할 수 있어")
+
     current.handle = handle or None
     try:
         db.commit()

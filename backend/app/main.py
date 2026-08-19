@@ -25,7 +25,7 @@ from app.core.database import get_db
 from app.core.ratelimit import limiter
 from app.core.textguard import has_nul
 from app.models.post import Post
-from app.models.user import User
+from app.models.user import PUBLIC_BLOG_ROLES, User
 from app.routers import (
     admin,
     ai,
@@ -424,8 +424,14 @@ def health_check():
     return {"status": "ok"}
 
 
+# 무인증 공개 경로 셋(`/api/skin`·`/api/blog-owner`·`/api/authors/{h}`)에 넉넉한 한도를
+# 건다. 셋 다 `/@handle` 화면이 첫 페인트 전에 부르고 전부 DB 조회다. CloudFront의
+# `/api/*`는 CachingDisabled라 엣지에서 흡수되는 게 0이고 WAF에도 rate 룰이 없어서,
+# 노트북 한 대로 t2.micro 크레딧을 태울 수 있었다(2026-08-19 보안검사, 44 req/s 실측).
+# 한도가 높은 이유는 skin.py 주석에 적었다 — 낮게 걸면 정상 방문자가 먼저 걸린다.
 @app.get("/api/blog-owner")
-def blog_owner(db: Session = Depends(get_db)):
+@limiter.limit("120/minute")
+def blog_owner(request: Request, db: Session = Depends(get_db)):
     # 이 블로그의 주인(관리자). 프론트의 '이 블로그 구독' 버튼이 이 id를 구독함.
     #
     # ⚠️ **이메일에서 이름을 유도하지 않는다.** 2026-08-10 보안검사: 예전엔
@@ -442,7 +448,8 @@ def blog_owner(db: Session = Depends(get_db)):
 
 
 @app.get("/api/authors/{handle}")
-def author_profile(handle: str, db: Session = Depends(get_db)):
+@limiter.limit("120/minute")
+def author_profile(request: Request, handle: str, db: Session = Depends(get_db)):
     """`/@handle` 화면이 그릴 사람 정보. **무인증**이다(공개 블로그니까).
 
     돌려주는 것은 화면에 이미 보이는 것뿐이다 — 표시명·핸들·공개 글 수. 이메일은
@@ -461,7 +468,14 @@ def author_profile(handle: str, db: Session = Depends(get_db)):
     # 없는 핸들과 쓸 수 없는 핸들은 그 질문에 같은 답을 준다.
     if has_nul(handle):
         raise HTTPException(status_code=404, detail="그런 블로그가 없어")
-    u = db.scalar(select(User).where(func.lower(User.handle) == handle.strip().lower()))
+    # 역할 조건이 붙어 있다 — 차단·승인취소된 계정의 블로그는 **없는 것**이 된다.
+    # 셋(authors·skin·posts)이 같은 규칙을 봐야 회수가 통째로 듣는다.
+    u = db.scalar(
+        select(User).where(
+            func.lower(User.handle) == handle.strip().lower(),
+            User.role.in_(PUBLIC_BLOG_ROLES),
+        )
+    )
     if u is None:
         raise HTTPException(status_code=404, detail="그런 블로그가 없어")
     n = db.scalar(

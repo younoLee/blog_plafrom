@@ -11,7 +11,7 @@ from app.core.textguard import has_nul
 from app.models.author_subscription import AuthorSubscription
 from app.models.notification import Notification
 from app.models.post import Post
-from app.models.user import User
+from app.models.user import PUBLIC_BLOG_ROLES, User
 from app.schemas.post import (
     PostCreate,
     PostList,
@@ -174,7 +174,13 @@ def list_posts(
         # lower(handle)에 걸려 있어 두 값이 동시에 존재할 수 없다.
         filters.append(
             Post.owner_id.in_(
-                select(User.id).where(func.lower(User.handle) == author.strip().lower())
+                # 역할 조건이 같이 붙는다. 차단·승인취소된 사람의 `/@handle` 목록이
+                # 계속 나가면 회수가 절반만 듣는다(2026-08-19 보안검사).
+                # 없는 핸들과 같은 결과(빈 목록)가 되므로 화면은 안 바뀐다.
+                select(User.id).where(
+                    func.lower(User.handle) == author.strip().lower(),
+                    User.role.in_(PUBLIC_BLOG_ROLES),
+                )
             )
         )
     if tag:

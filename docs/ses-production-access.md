@@ -153,14 +153,14 @@ AWS가 말을 안 하므로 아래는 증거 없는 추정이다. 다만 신청�
 
 ## 실측한 계정 현황 (2026-07-31 · 프로덕션 직접 확인)
 
-서버를 켜서 프로덕션 DB에서 직접 셌고, 쓰레기 계정 2개(`test@test.com`·`ppap@gmail.com`)를
+서버를 켜서 프로덕션 DB에서 직접 셌고, 쓰레기 계정 2개(`test@test.com`·`가입시도@example.com`)를
 지운 뒤의 값이다.
 
 | 이메일 | 역할 | SES 검증 |
 |---|---|---|
-| es2646526@gmail.com | admin | ✅ |
-| jinukkim0305@naver.com | writer | ✅ |
-| youno3249@gmail.com | writer | ✅ |
+| 주인@example.com | admin | ✅ |
+| 글쓴이A@example.com | writer | ✅ |
+| 글쓴이B@example.com | writer | ✅ |
 | demo@example.com | writer | 데모 계정 (도메인상 검증 불가·불필요) |
 
 - 계정 **4개**, 전부 `email_verified`

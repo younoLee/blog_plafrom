@@ -51,6 +51,9 @@ class _PostBody(SafeModel):
         v = v.strip()
         if not v:
             return None
+        # 백슬래시를 먼저 접는다 — 브라우저는 `/\host/x`를 `//host/x`와 같게 읽는다.
+        # 접지 않으면 아래 `//` 검사가 백슬래시 한 글자로 뚫린다(2026-08-19 보안검사).
+        v = v.replace("\\", "/")
         # '//host/x'는 프로토콜 상대 URL = 외부 호스트다. 상대경로처럼 보이지만
         # same-origin이 아니므로 '/'로 시작한다고 통과시키면 안 된다.
         if v.startswith("//"):

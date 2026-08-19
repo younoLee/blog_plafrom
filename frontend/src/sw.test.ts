@@ -109,6 +109,14 @@ describe('서비스워커 원문이 지켜야 할 것', () => {
     expect(src).toContain('/sw-kill.json')
     expect(src).toContain('registration.unregister()')
   })
+
+  it('회수 스위치를 activate에서만 보지 않는다', () => {
+    // 문자열이 들어 있는지만 보던 테스트가 초록이었는데 **실제로는 안 돌고 있었다**
+    // (2026-08-19 보안검사). 부르는 곳이 activate 하나뿐이었고, activate는 새 워커
+    // 바이트가 배포될 때만 뜬다 — 즉 "배포 없이 파일 하나로 회수"가 거짓이었다.
+    // 아래 '동작' 테스트가 진짜 잠금이고, 이건 그 회귀를 눈에 띄게 하는 표식이다.
+    expect(src).toContain('maybeCheckKillSwitch')
+  })
 })
 
 /**
@@ -121,7 +129,7 @@ describe('서비스워커 원문이 지켜야 할 것', () => {
  */
 type Store = Map<string, { body: string; ok: boolean }>
 
-function loadWorker(opts: { offline?: boolean; store?: Store } = {}) {
+function loadWorker(opts: { offline?: boolean; store?: Store; kill?: boolean } = {}) {
   const listeners: Record<string, (e: unknown) => void> = {}
   // 캐시 통을 밖에서 넘길 수 있다 — '온라인에서 받아둔 뒤 오프라인이 됐다'를
   // 재현하려면 **같은 캐시**를 가진 채 네트워크만 끊어야 한다.
@@ -139,20 +147,32 @@ function loadWorker(opts: { offline?: boolean; store?: Store } = {}) {
     },
   }
   let networkCalls = 0
+  // 회수 스위치가 **실제로 도는지** 재려면 세 가지를 세야 한다:
+  // 워커가 /sw-kill.json을 부르는가 · 캐시를 지우는가 · 등록해제하는가.
+  let killFetches = 0
+  let unregisters = 0
+  let cacheDeletes = 0
   const self_ = {
     addEventListener(type: string, fn: (e: unknown) => void) {
       listeners[type] = fn
     },
     location: { origin: ORIGIN },
     clients: { claim() {}, matchAll: async () => [], openWindow() {} },
-    registration: { showNotification() {}, unregister: async () => {} },
+    registration: {
+      showNotification() {},
+      unregister: async () => {
+        unregisters++
+      },
+    },
     skipWaiting() {},
   }
   const caches_ = {
     async keys() {
       return ['docs-v1']
     },
-    async delete() {},
+    async delete() {
+      cacheDeletes++
+    },
     async match(req: { url?: string } | string) {
       return cache.match(req)
     },
@@ -161,9 +181,17 @@ function loadWorker(opts: { offline?: boolean; store?: Store } = {}) {
     },
   }
   const fetch_ = async (req: { url?: string } | string) => {
+    const url = typeof req === 'string' ? req : (req.url ?? '')
+    // 회수 파일은 워커가 직접 부르는 것이라 networkCalls에 안 센다 — 다른 테스트가
+    // 그 숫자로 '네트워크를 몇 번 갔나'를 재고 있어서 섞이면 그쪽이 거짓말을 한다.
+    if (url === '/sw-kill.json') {
+      killFetches++
+      // 평소에는 이 파일이 **없는 게 정상**이다(404). 그 경로도 같이 잰다.
+      if (!opts.kill) return { ok: false, json: async () => ({}) }
+      return { ok: true, json: async () => ({ disabled: true }) }
+    }
     networkCalls++
     if (opts.offline) throw new Error('offline')
-    const url = typeof req === 'string' ? req : (req.url ?? '')
     const res = { ok: true, body: 'NET:' + url, clone: () => res }
     return res
   }
@@ -186,6 +214,9 @@ function loadWorker(opts: { offline?: boolean; store?: Store } = {}) {
     },
     cached: () => [...store.keys()].map((u) => new URL(u).pathname).sort(),
     networkCalls: () => networkCalls,
+    killFetches: () => killFetches,
+    unregisters: () => unregisters,
+    cacheDeletes: () => cacheDeletes,
     store,
   }
 }
@@ -242,5 +273,63 @@ describe('fetch 핸들러 동작', () => {
     const after1 = w.networkCalls()
     await w.handle(`${ORIGIN}/index-A1b2C3d4.js`)
     expect(w.networkCalls()).toBe(after1) // 두 번째는 캐시가 답했다
+  })
+})
+
+/**
+ * 회수 스위치가 **말한 대로 도는지**.
+ *
+ * 이 레버의 약속은 "앱 배포 없이 파일 하나로 모든 기기를 회수한다"이다. 2026-08-19
+ * 보안검사가 그 약속이 거짓임을 실측했다 — 부르는 곳이 `activate` 하나뿐이라
+ * 이미 설치된 워커는 `/sw-kill.json`을 영영 안 읽었고, 새 워커를 배포해야만 돌았다.
+ * 배포가 되는 상황이면 이 레버가 필요 없으니, 필요할 때만 안 되는 물건이었다.
+ *
+ * 보안 영향은 0이지만 **사고 한복판에서 사람을 잘못된 길로 보낸다**. 문서 세 곳이
+ * 다 된다고 적혀 있었다.
+ */
+/** 워커가 뒤에서 도는 비동기 사슬을 끝까지 흘려보낸다. */
+async function flush() {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0))
+}
+
+describe('회수 스위치', () => {
+  it('평범한 이동에서 /sw-kill.json을 본다 — activate를 기다리지 않는다', async () => {
+    const w = loadWorker()
+    await w.handle(`${ORIGIN}/devlog.html`)
+    expect(w.killFetches()).toBe(1)
+  })
+
+  it('true면 캐시를 비우고 스스로 등록해제한다', async () => {
+    const w = loadWorker({ kill: true })
+    await w.handle(`${ORIGIN}/devlog.html`)
+    // checkKillSwitch는 응답을 안 기다리게(await 없이) 부른다 — 이 페이지의 응답을
+    // 늦추지 않으려는 것이라, 테스트가 대신 기다려 준다. await가 여러 단이라
+    // (fetch → json → caches.keys → delete → unregister) 틱 하나로는 부족하다.
+    await flush()
+    expect(w.cacheDeletes()).toBeGreaterThan(0)
+    expect(w.unregisters()).toBe(1)
+  })
+
+  it('파일이 없으면(404) 아무 일도 안 한다 — 그게 평소 상태다', async () => {
+    const w = loadWorker()
+    await w.handle(`${ORIGIN}/devlog.html`)
+    await flush()
+    expect(w.unregisters()).toBe(0)
+    expect(w.cacheDeletes()).toBe(0)
+  })
+
+  it('이동마다 부르지는 않는다 — 요청이 화면 수만큼 늘면 그게 새 부담이다', async () => {
+    const w = loadWorker()
+    await w.handle(`${ORIGIN}/devlog.html`)
+    await w.handle(`${ORIGIN}/lessons.html`)
+    await w.handle(`${ORIGIN}/rss.xml`)
+    expect(w.killFetches()).toBe(1) // 10분에 한 번(KILL_CHECK_MS)
+  })
+
+  it('회수 파일 요청이 문서 네트워크 집계에 안 섞인다', async () => {
+    // 섞이면 다른 테스트가 '네트워크를 몇 번 갔나'로 재는 것이 조용히 틀어진다.
+    const w = loadWorker()
+    await w.handle(`${ORIGIN}/devlog.html`)
+    expect(w.networkCalls()).toBe(1)
   })
 })

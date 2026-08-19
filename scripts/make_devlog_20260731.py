@@ -252,12 +252,12 @@ ev("백업에서 센 실제 숫자", [
     "approved_subs    3",
     "",
     "계정 내역:",
-    "  es2646526@gmail.com     admin    ← SES에 이미 등록됨",
-    "  jinukkim0305@naver.com  writer   ← SES에 이미 등록됨",
-    "  youno3249@gmail.com     writer   ← SES에 이미 등록됨",
+    "  주인@example.com     admin    ← SES에 이미 등록됨",
+    "  글쓴이A@example.com  writer   ← SES에 이미 등록됨",
+    "  글쓴이B@example.com     writer   ← SES에 이미 등록됨",
     "  demo@example.com        writer   (데모 계정)",
     "  test@test.com           pending  (쓰레기)",
-    "  ppap@gmail.com          pending  (쓰레기)",
+    "  가입시도@example.com          pending  (쓰레기)",
 ])
 p("**이 숫자가 신청 논거를 약하게 만들었다.** 실제 사람 3명이 전부 이미 SES에 등록돼 있다. "
   "즉 지금 이 순간 메일을 못 받는 사람은 아무도 없다. '지금 막혀 있다'로 쓸 수가 없는 것이다.")

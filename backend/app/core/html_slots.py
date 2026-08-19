@@ -84,6 +84,13 @@ def _clean_url(value: str) -> str | None:
     v = "".join(ch for ch in value if ord(ch) > 0x20).strip()
     if not v:
         return None
+    # **백슬래시를 슬래시로 접는다.** 브라우저의 URL 파서는 `/\evil.example/x`를
+    # `//evil.example/x`와 **같게** 읽는다(WHATWG URL, 크롬·파이어폭스 공통. 실측:
+    # `new URL('/\\evil.example/x','https://site/a')` → `https://evil.example/x`).
+    # 아래 `//` 검사만 있으면 백슬래시 한 글자로 우회된다(2026-08-19 보안검사).
+    # 정상 주소는 안 깨진다 — 경로에 백슬래시를 쓰려면 `%5C`로 인코딩되기 때문이다.
+    # 위에서 제어문자를 먼저 터는 것과 같은 논리다: **브라우저와 같은 눈으로 본다.**
+    v = v.replace("\\", "/")
     # `//evil.example/x` — 스킴 없는 절대 주소다. 상대 경로처럼 생겼지만 남의
     # 출처로 나간다. 이 기능에 필요 없으니 막는다.
     if v.startswith("//"):

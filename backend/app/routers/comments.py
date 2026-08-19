@@ -34,13 +34,36 @@ def _viewable_post_or_404(post_id: int, db: Session, user: User | None) -> Post:
     return post
 
 
+def _site_owner_id(db: Session) -> int | None:
+    """블로그 주인 = role이 admin인 사람 중 id가 가장 작은 사람.
+
+    `/api/blog-owner`·`routers/skin.py`와 **같은 규칙**이다. 규칙이 갈라지면 어떤
+    화면에서는 주인 배지가 붙고 어떤 화면에서는 안 붙는다.
+    """
+    return db.scalar(select(User.id).where(User.role == "admin").order_by(User.id))
+
+
+def _read(c: Comment, owner_id: int | None, post_owner_id: int) -> CommentRead:
+    """댓글 하나를 응답 모양으로. **배지는 id로만 판정한다**(이름은 안 본다)."""
+    return CommentRead(
+        id=c.id,
+        post_id=c.post_id,
+        author=c.author,
+        content=c.content,
+        created_at=c.created_at,
+        is_member=c.is_member,
+        is_owner=c.user_id is not None and c.user_id == owner_id,
+        is_author=c.user_id is not None and c.user_id == post_owner_id,
+    )
+
+
 @router.get("", response_model=list[CommentRead])
 def list_comments(
     post_id: int,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    _viewable_post_or_404(post_id, db, user)
+    post = _viewable_post_or_404(post_id, db, user)
     # 오래된 댓글이 위로 (대화 흐름 순서)
     # 안전 상한. 이 저장소의 다른 목록은 전부 상한이 있는데(글 50 · 태그 20 · 최근글 5 ·
     # 연재 100 · 알림 20) 댓글만 빠져 있었다 — 2026-08-10 심층검사. 익명 작성이 열려 있고
@@ -62,7 +85,8 @@ def list_comments(
             post_id,
             COMMENTS_MAX,
         )
-    return rows
+    owner_id = _site_owner_id(db)
+    return [_read(c, owner_id, post.owner_id if post.owner_id else -1) for c in rows]
 
 
 @router.post("", response_model=CommentRead, status_code=201)
@@ -122,7 +146,9 @@ def create_comment(
         background.add_task(
             notify_new_comment_push, post_id, post.title, author, post.owner_id
         )
-    return comment
+    # post.owner_id는 NULL일 수 있다(로그인 이전에 쓴 글). 그땐 글쓴이 배지가 붙을
+    # 사람이 없으므로 -1을 넘긴다 — 실제 id와 절대 안 맞는 값이다.
+    return _read(comment, _site_owner_id(db), post.owner_id if post.owner_id else -1)
 
 
 @router.delete("/{comment_id}", status_code=204)

@@ -1,0 +1,8 @@
+{
+  "disabled": true,
+  "_설명": "이 파일을 S3에 올리면 모든 기기가 10분 안에 캐시를 비우고 서비스워커를 스스로 등록해제한다. 앱 배포 없이 파일 하나로 회수하는 경로다.",
+  "_왜 여기 있나": "전에는 frontend/public/에 disabled:false로 있었다. 그러면 빌드 산출물(dist)에 들어가고, 배포의 `aws s3 sync dist/ --delete`가 **손으로 올린 true를 다시 false로 덮는다** — 회수 레버가 다음 배포에 스스로 풀린다(2026-08-19 보안검사). 그래서 저장소 밖 경로(ops/)로 옮기고 값도 true로 고정했다. 평소 S3에는 이 파일이 **없는 게 정상**이고, 워커는 404를 정상으로 취급한다(sw.js의 catch).",
+  "_쓰는 법": "aws s3 cp ops/sw-kill.json s3://blogplafromops/sw-kill.json --cache-control 'public,max-age=0,must-revalidate' --content-type application/json --region ap-northeast-2",
+  "_되돌리는 법": "aws s3 rm s3://blogplafromops/sw-kill.json --region ap-northeast-2  (파일을 지우면 된다. false로 덮지 말 것 — 없는 게 정상 상태다)",
+  "_확인": "워커는 10분에 한 번 본다(sw.js의 KILL_CHECK_MS). 즉시 확인하려면 DevTools > Application > Service Workers 에서 Update 를 누른다."
+}
