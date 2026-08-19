@@ -316,3 +316,51 @@ def test_nul_byte_blocked_in_comments_too(client, make_user, auth_headers):
     )
     assert r.status_code == 422, f"{r.status_code} {r.text[:150]}"
     assert r.headers["content-type"].startswith("application/json")
+
+
+def test_같은_시각_글도_순서가_흔들리지_않는다(client, make_user, auth_headers):
+    """정렬에 동점 처리가 없어서 나던 흔들림을 잠근다(2026-08-19).
+
+    **Postgres의 `now()`는 한 트랜잭션 안에서 고정이다.** 그리고 이 저장소의 테스트는
+    하나를 트랜잭션 하나로 묶는다(conftest). 그래서 한 테스트에서 만든 글들은
+    `created_at`이 **전부 같다** — 그 상태에서 `ORDER BY created_at`만 있으면 순서가
+    DB 마음이고, 실행마다 달라진다.
+
+    실제로 `test_series_nav_beyond_limit_returns_null_not_500`이 그것 때문에 전체
+    실행에서만 가끔 빨간불이었다(단독 실행·파일 단위로는 통과). CI가 흔들리면
+    '빨간불이 났다'는 신호 자체를 못 믿게 된다 — 그게 이 테스트가 막는 것이다.
+
+    운영에도 같은 일이 있다. 같은 초에 두 편을 올리면 목록이 요청마다 뒤집힐 수 있고,
+    목록은 limit/offset 페이지네이션이라 그 경계에서 **같은 글이 두 페이지에 나오거나
+    한 글이 건너뛰어진다.**
+    """
+    user = make_user(role="writer")
+    headers = auth_headers(user)
+    ids = []
+    for i in range(6):
+        r = client.post(
+            "/api/posts", headers=headers, json={"title": f"T{i}", "content": "C", "series": "연재"}
+        )
+        assert r.status_code == 201, r.text
+        ids.append(r.json()["id"])
+
+    # 전제 확인: 정말로 created_at이 같은가. 같지 않으면 이 테스트는 아무것도 안 잠근다.
+    stamps = {client.get(f"/api/posts/{i}").json()["created_at"] for i in ids}
+    assert len(stamps) == 1, f"created_at이 갈렸다({len(stamps)}종) — 이 테스트의 전제가 깨졌다"
+
+    # ① 목록: 여러 번 불러도 같은 순서여야 한다
+    def page(offset):
+        r = client.get(f"/api/posts?limit=3&offset={offset}")
+        assert r.status_code == 200, r.text
+        return [p["id"] for p in r.json()["items"]]
+
+    assert page(0) == page(0)
+    # ② 페이지가 겹치거나 빠지지 않는다 — 동점 처리가 없으면 여기서 깨진다
+    first, second = page(0), page(3)
+    assert not set(first) & set(second), "같은 글이 두 페이지에 나온다"
+    assert set(first) | set(second) >= set(ids), "건너뛴 글이 있다"
+
+    # ③ 연재: 순서가 고정이고, 사람이 기대하는 대로 먼저 만든 글이 앞
+    nav = client.get(f"/api/posts/{ids[0]}/series").json()
+    assert [it["id"] for it in nav["items"]] == ids
+    assert nav["index"] == 1

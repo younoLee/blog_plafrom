@@ -200,7 +200,16 @@ def list_posts(
     # 페이지를 끊기 전 전체 개수(프론트의 '총 N개 / 다음 쪽' 표시용)
     total = db.scalar(select(func.count()).select_from(Post).where(*filters)) or 0
     posts = db.scalars(
-        select(Post).where(*filters).order_by(Post.created_at.desc()).limit(limit).offset(offset)
+        # **id로 동점을 깬다.** 이건 `limit`/`offset` 페이지네이션이라, 정렬이 전순서가
+        # 아니면 같은 글이 두 페이지에 나오거나 한 글이 건너뛰어진다 — 같은 초에 올린
+        # 두 편이 요청마다 다른 순서로 오면 그 경계에서 실제로 그렇게 된다.
+        # created_at은 초 단위로도 겹치고, 한 트랜잭션에서 만든 글들은 아예 값이 같다
+        # (Postgres의 now()가 트랜잭션 안에서 고정이다 — 2026-08-19에 연재 쪽에서 먼저 잡혔다).
+        select(Post)
+        .where(*filters)
+        .order_by(Post.created_at.desc(), Post.id.desc())
+        .limit(limit)
+        .offset(offset)
     ).all()
 
     return PostList(
@@ -237,7 +246,9 @@ def posts_meta(
     ).all()
 
     recent = db.scalars(
-        select(Post).where(condition).order_by(Post.created_at.desc()).limit(5)
+        # 여기도 id로 동점을 깬다. 페이지네이션은 아니지만 '최근 글 5개'가 새로고침마다
+        # 순서를 바꾸면 같은 화면이 매번 달라 보인다.
+        select(Post).where(condition).order_by(Post.created_at.desc(), Post.id.desc()).limit(5)
     ).all()
 
     return PostMeta(
@@ -272,7 +283,16 @@ def post_series(
     rows = db.execute(
         select(Post.id, Post.title, Post.created_at)
         .where(visible_condition(user, db), Post.series == post.series)
-        .order_by(Post.created_at)  # 연재는 쓴 순서대로 = 1편이 위
+        # 연재는 쓴 순서대로 = 1편이 위. **id로 동점을 깬다** — created_at만으로는
+        # 순서가 정해지지 않는 경우가 실제로 있다:
+        #  · Postgres의 `now()`는 **한 트랜잭션 안에서 고정**이라, 한 트랜잭션에서
+        #    여러 편을 만들면 created_at이 전부 같다(테스트가 정확히 그 모양이라
+        #    `test_series_nav_beyond_limit_returns_null_not_500`이 전체 실행에서만
+        #    가끔 빨간불이었다 — 2026-08-19에 원인을 찾았다).
+        #  · 운영에서도 같은 초에 두 편을 올리면 요청마다 순서가 뒤집힐 수 있다.
+        #    독자가 새로고침할 때마다 '다음 편'이 달라지는 종류의 흔들림이다.
+        # 동점일 때 id 오름차순 = 먼저 만들어진 글이 앞. 사람이 기대하는 순서와 같다.
+        .order_by(Post.created_at, Post.id)
         .limit(SERIES_ITEMS_MAX)
     ).all()
 

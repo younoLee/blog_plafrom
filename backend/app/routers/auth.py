@@ -10,12 +10,12 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.ratelimit import limiter
 from app.core.security import (
-    verify_password_or_dummy,
     create_access_token,
     create_email_token,
     decode_email_token,
     hash_invite_token,
     hash_password,
+    verify_password_or_dummy,
 )
 from app.models.invite import Invite
 from app.models.user import User
