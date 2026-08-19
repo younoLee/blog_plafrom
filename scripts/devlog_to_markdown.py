@@ -17,6 +17,10 @@
 사용:
   python scripts/devlog_to_markdown.py                 # 전체 → content/devlog/*.md
   python scripts/devlog_to_markdown.py 2026-07-12      # 한 편만 stdout으로 (미리보기)
+  python scripts/devlog_to_markdown.py 2026-07-12 --write   # 한 편만 파일로 (새 편 발행용)
+
+⚠️ 인자 없이 돌리면 **발행된 편을 전부 다시 쓴다.** 2026-08-18에 33편의 em 대시를
+손으로 정리했으므로 그게 통째로 되돌아간다. 새 편을 낼 때는 `--write`를 쓸 것.
 """
 
 import re
@@ -238,12 +242,28 @@ def main() -> None:
     if not files:
         sys.exit("개발일지 .docx를 찾지 못했습니다.")
 
-    if len(sys.argv) > 1:
-        target = next((f for f in files if sys.argv[1] in f.name), None)
+    args = [a for a in sys.argv[1:] if a != "--write"]
+    write = "--write" in sys.argv
+
+    if args:
+        target = next((f for f in files if args[0] in f.name), None)
         if not target:
-            sys.exit(f"{sys.argv[1]} 개발일지를 찾지 못했습니다.")
+            sys.exit(f"{args[0]} 개발일지를 찾지 못했습니다.")
         title, body, tags = convert(target)
-        print(f"제목: {title}\n태그: {tags}\n글자수: {len(body):,}\n{'─' * 60}\n{body}")
+        # `--write`가 없으면 예전처럼 stdout 미리보기다.
+        #
+        # **왜 한 편만 쓰는 길이 필요했나**: 아래 전체 루프는 발행된 편을 전부 다시 쓰는데,
+        # 2026-08-18에 33편의 em 대시를 손으로 정리했으므로 지금 그걸 돌리면 그 작업이
+        # 통째로 되돌아간다. 그래서 새 편을 낼 때 쓸 수 있는 명령이 사실상 없었고,
+        # 미리보기 출력을 리다이렉트해서 머리말을 손으로 떼는 수밖에 없었다
+        # (2026-08-19에 실제로 그렇게 하다가 이 입구를 냈다).
+        if not write:
+            print(f"제목: {title}\n태그: {tags}\n글자수: {len(body):,}\n{'─' * 60}\n{body}")
+            return
+        date = target.stem.replace("블로그_개발일지_", "")
+        out = OUT_DIR / f"{date}.md"
+        out.write_text(f"# {title}\n\n{body}\n", encoding="utf-8")
+        print(f"{out}  {len(body):,}자  {title}")
         return
 
     # ⚠️ **이 루프는 32편을 전부 다시 쓴다 — 손으로 고친 편도 덮는다.**
