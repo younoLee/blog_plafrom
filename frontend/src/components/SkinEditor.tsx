@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react'
 import { fetchMine, saveSkin, previewSkin, restoreSiteSkin } from '../api/skin'
 import { useAuth } from '../auth/auth-context'
+import { joinSkin, splitSkin, type SkinOptions } from '../skinOptions'
 import { ui } from '../ui'
 import { IconCheck } from './icons'
+import SkinPicker from './SkinPicker'
 
 /**
- * 블로그 스킨 편집기 — CSS 변수를 고쳐 사이트 외형을 바꾼다.
+ * 블로그 스킨 편집기 — 사이트 외형을 바꾼다. 두 층이다.
+ *
+ *   위: 눌러서 꾸미기(SkinPicker) — CSS를 몰라도 된다
+ *   아래: 직접 쓴 CSS — 위층보다 **뒤에** 붙으므로 언제든 덮어쓴다
+ *
+ * 두 층은 저장될 때 문자열 하나로 합쳐진다(src/skinOptions.ts의 joinSkin).
+ * 서버는 이 구분을 모르고 그냥 CSS로 받는다 — 그래서 백엔드가 안 바뀌었다.
  *
  * 미리보기는 별도 창이 아니라 **지금 보고 있는 이 화면**에 바로 바른다. 스킨이
  * 바꾸는 건 전역 CSS 변수라 미리보기 틀 안에 가둘 수가 없고, 가두면 정작 확인하고
@@ -139,55 +147,83 @@ function SkinEditor() {
   if (loading) return null
 
   const dirty = draft !== saved
+  // **상태는 CSS 문자열 하나뿐이다.** 체크박스 값을 따로 들고 있으면 손으로 CSS를
+  // 고쳤을 때 둘이 어긋난다. 매번 갈라 읽는 편이 어긋날 자리가 없다.
+  const { options, custom, generated } = splitSkin(draft)
+  const setOptions = (next: SkinOptions) => edit(joinSkin(next, custom))
+  const setCustom = (css: string) => edit(joinSkin(options, css))
 
   return (
     <section className={`${ui.card} mt-6`}>
       <h2 className="text-lg font-semibold tracking-tight">블로그 스킨</h2>
       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        CSS 변수를 고치면 링크·버튼·태그·포커스 링·그라데이션이 한꺼번에 따라 바뀌어.
-        <br />
-        <span className="text-xs">
-          쓸 수 있는 변수: <code>--color-accent</code> <code>--color-accent-hi</code>{' '}
-          <code>--color-canvas</code> <code>--color-ink</code> <code>--radius-card</code>{' '}
-          <code>--radius-field</code> <code>--radius-btn</code>
-          <br />
-          잡을 수 있는 자리: <code>[data-skin="hero"]</code> <code>post-grid</code>{' '}
-          <code>post-card</code> <code>post-title</code> <code>post-thumb</code>{' '}
-          <code>sidebar</code> <code>footer</code> <code>layout</code> ·{' '}
-          아래 '내 문장'에 쓴 <code>class</code>도 여기서 잡힌다
-        </span>
+        눌러서 바꿔. 지금 보고 있는 이 화면이 곧 미리보기야 — 누르는 즉시 바뀌고,
+        저장하지 않고 다른 화면으로 가면 저장된 스킨으로 되돌아가.
       </p>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <SkinPicker value={options} onChange={setOptions} />
+
+      {/* 눌러서 만든 것이 CSS로는 어떻게 생겼는지 보여준다. 접어 두는 이유는
+          이걸 몰라도 되는 게 이 화면의 요점이기 때문이고, 그래도 두는 이유는
+          여기가 CSS를 배우는 제일 짧은 입구이기 때문이다. */}
+      {generated && (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-xs text-gray-500 select-none dark:text-gray-400">
+            눌러서 만들어진 CSS 보기
+          </summary>
+          <pre className="mt-2 overflow-x-auto rounded-field bg-black/[0.04] p-3 font-mono text-[11px] leading-relaxed dark:bg-white/5">
+            {generated}
+          </pre>
+        </details>
+      )}
+
+      <h3 className="mt-6 border-t border-black/[0.06] pt-5 text-sm font-semibold dark:border-white/10">
+        직접 쓰기 <span className="font-normal text-gray-500 dark:text-gray-400">(CSS를 아는 경우)</span>
+      </h3>
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        여기 쓴 건 위에서 누른 것보다 <strong>뒤에</strong> 붙어. 그래서 클릭으로 만든 값도
+        여기서 덮어쓸 수 있어.
+        <br />
+        쓸 수 있는 변수: <code>--color-accent</code> <code>--color-accent-hi</code>{' '}
+        <code>--color-canvas</code> <code>--color-ink</code> <code>--radius-card</code>{' '}
+        <code>--radius-field</code> <code>--radius-btn</code>
+        <br />
+        잡을 수 있는 자리: <code>[data-skin="hero"]</code> <code>post-grid</code>{' '}
+        <code>post-card</code> <code>post-title</code> <code>post-thumb</code>{' '}
+        <code>sidebar</code> <code>footer</code> <code>layout</code> ·{' '}
+        아래 '내 문장'에 쓴 <code>class</code>도 여기서 잡힌다
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
         {PRESETS.map((p) => (
           <button
             key={p.name}
             type="button"
             title={p.hint}
-            onClick={() => edit(p.css)}
+            onClick={() => setCustom(p.css)}
             className={ui.btnGhost}
           >
             {p.name}
           </button>
         ))}
-        <button type="button" onClick={() => edit('')} className={ui.btnGhost}>
-          기본으로
+        <button
+          type="button"
+          onClick={() => edit('')}
+          title="누른 것까지 전부 지운다"
+          className={ui.btnGhost}
+        >
+          전부 기본으로
         </button>
       </div>
 
       <textarea
-        value={draft}
-        onChange={(e) => edit(e.target.value)}
+        value={custom}
+        onChange={(e) => setCustom(e.target.value)}
         spellCheck={false}
-        rows={12}
+        rows={10}
         placeholder={':root {\n  --color-accent: #20c997;\n}'}
-        className={`${ui.input} mt-4 font-mono text-xs leading-relaxed`}
+        className={`${ui.input} mt-3 font-mono text-xs leading-relaxed`}
       />
-
-      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-        지금 이 화면이 곧 미리보기야 — 타이핑하는 대로 바뀌어. 저장하지 않고 다른 화면으로
-        가면 저장된 스킨으로 되돌아가.
-      </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button type="button" onClick={handleSave} disabled={busy || !dirty} className={ui.btnPrimary}>
