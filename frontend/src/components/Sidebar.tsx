@@ -59,7 +59,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
               (사이드바는 구독 정보를 안 받는다) 중립적인 이름으로 보낸다. */}
           <Link
             to="/subscriptions"
-            className="mt-3 inline-flex items-center gap-1 rounded-btn bg-accent px-4 py-1.5 text-xs font-medium text-white transition hover:bg-accent-hi"
+            className="mt-3 inline-flex items-center gap-1 rounded-btn bg-accent px-4 py-1.5 text-xs font-medium text-on-accent transition hover:bg-accent-hi"
           >
             구독 관리
           </Link>

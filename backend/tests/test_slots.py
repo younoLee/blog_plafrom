@@ -271,3 +271,20 @@ def test_DB가_깨져_있어도_조회는_안_죽는다(client, make_user, db):
     r = client.get("/api/skin")
     assert r.status_code == 200
     assert r.json()["slots"] == {"intro": "", "aside": "", "footer": ""}
+
+def test_자기닫는_금지태그가_뒤_문장을_안_먹는다():
+    """`<svg/>` 하나가 그 뒤 글을 통째로 삼키던 자리(2026-08-19).
+
+    `handle_startendtag`가 `handle_starttag`를 부르면 `drop += 1`이 되는데, 자기닫는
+    형태에는 닫는 태그가 안 와서 `handle_endtag`가 영영 안 불린다. drop이 0으로 안
+    돌아오고 이후 모든 내용이 버려졌다 — **저장은 성공했다고 나오는데 글이 사라진다.**
+
+    `<br/>`은 원래 멀쩡했다. 항상 void인 태그(_DROP_VOID)는 이미 덮여 있었고,
+    보통은 짝이 있는 태그(svg·iframe·form)가 자기닫는 형태로 올 때만 새던 자리다.
+    """
+    assert sanitize_html("<p>안녕</p><svg/><p>연락처</p>") == "<p>안녕</p><p>연락처</p>"
+    assert sanitize_html("<p>a</p><iframe/><p>b</p>") == "<p>a</p><p>b</p>"
+    assert sanitize_html("<p>a</p><form/><p>b</p>") == "<p>a</p><p>b</p>"
+    # 짝이 맞는 형태와 진짜 void 태그는 그대로여야 한다(고치면서 안 깨졌는지)
+    assert sanitize_html("<p>a</p><svg></svg><p>b</p>") == "<p>a</p><p>b</p>"
+    assert sanitize_html("<p>a</p><br/><p>b</p>") == "<p>a</p><br><p>b</p>"

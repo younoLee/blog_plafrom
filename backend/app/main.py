@@ -23,6 +23,7 @@ from starlette.datastructures import Headers
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.ratelimit import limiter
+from app.core.textguard import has_nul
 from app.models.post import Post
 from app.models.user import User
 from app.routers import (
@@ -455,6 +456,11 @@ def author_profile(handle: str, db: Session = Depends(get_db)):
     글 수는 공개 글만 센다. 로그인 여부에 따라 숫자가 달라지면 '몇 편 있는 블로그인가'가
     보는 사람마다 달라지고, 비공개 글의 존재가 숫자로 새어 나간다.
     """
+    # NUL이 들어오면 psycopg2가 DB에 닿기 전에 던져 **무인증 500**이 된다(2026-08-19).
+    # 여기서는 404가 맞다 — 이 응답은 '그 화면이 존재하는가'에 대한 답이고,
+    # 없는 핸들과 쓸 수 없는 핸들은 그 질문에 같은 답을 준다.
+    if has_nul(handle):
+        raise HTTPException(status_code=404, detail="그런 블로그가 없어")
     u = db.scalar(select(User).where(func.lower(User.handle) == handle.strip().lower()))
     if u is None:
         raise HTTPException(status_code=404, detail="그런 블로그가 없어")

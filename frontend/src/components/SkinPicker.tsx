@@ -73,7 +73,7 @@ function Seg<T extends string>({
             i > 0 ? 'border-l border-black/10 dark:border-white/15' : ''
           } ${
             value === o.v
-              ? 'bg-accent text-white'
+              ? 'bg-accent text-on-accent'
               : 'bg-white text-gray-700 hover:bg-black/[0.04] dark:bg-white/5 dark:text-gray-200 dark:hover:bg-white/10'
           }`}
         >
@@ -129,7 +129,7 @@ function ChipColor({
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-btn px-3 py-1.5 text-sm transition ${
         active
-          ? 'bg-accent text-white'
+          ? 'bg-accent text-on-accent'
           : 'bg-black/[0.06] text-gray-800 hover:bg-black/[0.1] dark:bg-white/10 dark:text-gray-100 dark:hover:bg-white/20'
       }`}
     >

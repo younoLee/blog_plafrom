@@ -42,7 +42,7 @@ class ErrorBoundary extends Component<Props, State> {
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="mt-4 inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-hi"
+          className="mt-4 inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hi"
         >
           새로고침
         </button>

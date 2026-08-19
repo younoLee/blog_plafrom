@@ -142,3 +142,22 @@ def test_없는_핸들의_스킨은_빈_값이다(client, make_user):
     # 404가 아니다 — 스킨은 장식이라 화면이 이것 때문에 실패 경로를 타면 손해가 더 크다.
     make_user(role="admin")
     assert client.get("/api/skin?handle=nobody").json()["css"] == ""
+
+
+def test_승인_안_난_계정은_주소를_못_잡는다(client, make_user, auth_headers):
+    """pending 계정이 주소를 **선점**하던 자리(2026-08-19 검사).
+
+    설정 화면은 canWrite로 이 칸을 가려놨지만 API에는 게이트가 없었다. 초대로 막 가입한
+    계정이 직접 부르면 200으로 저장됐고, 그 뒤 `/api/authors/그주소`가 200으로 그 계정을
+    공개했다 — 정작 그 계정은 글도 스킨도 못 만든다(둘 다 require_writer). 나중에 승인된
+    사람이 같은 주소를 쓰려 하면 409로 막힌다.
+
+    표시명(`/me/display-name`)은 그대로 둔다. 그건 주소가 아니라 이름이라 선점될 게 없다.
+    """
+    pending = make_user(role="pending")
+    r = client.patch(
+        "/api/auth/me/handle", json={"handle": "yuno"}, headers=auth_headers(pending)
+    )
+    assert r.status_code == 403
+    # 잡히지 않았는지 밖에서도 확인한다 — 저장이 됐는데 403만 흉내내면 못 잡는다
+    assert client.get("/api/authors/yuno").status_code == 404

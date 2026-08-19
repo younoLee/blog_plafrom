@@ -148,4 +148,24 @@ describe('스킨 편집기 — 두 층', () => {
     click(button('민트'))
     expect(document.getElementById('blog-skin')?.textContent).toContain('#20c997')
   })
+
+  it('입력칸 끝에서 개행을 칠 수 있다', async () => {
+    // textarea가 controlled이고 값이 매 렌더 splitSkin으로 다시 계산되므로,
+    // joinSkin이 trim을 하면 **키 하나 칠 때마다** 개행이 되돌려져 Enter가 안 먹었다.
+    // 붙여넣기 말고는 CSS를 쓸 수 없는 상태였다.
+    stubFetch('')
+    await mount()
+    click(button('민트')) // 생성 블록이 있는 상태에서도 같아야 한다
+
+    const ta = area()
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!
+      setter.call(ta, ':root {\n')
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(area().value).toBe(':root {\n')
+  })
 })

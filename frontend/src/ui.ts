@@ -6,7 +6,7 @@ export const ui = {
   // 기본 버튼: 애플 블루 알약(pill). px는 모바일에서 좁게(px-3.5), sm↑에서 넉넉히(px-5)
   // — 헤더에 버튼이 많아 좁은 화면에서 넘치는 걸 막기 위함
   btnPrimary:
-    'inline-flex items-center justify-center gap-1.5 rounded-btn bg-accent px-3.5 py-2 text-sm font-medium text-white transition hover:bg-accent-hi active:scale-[0.98] sm:px-5 sm:py-2.5',
+    'inline-flex items-center justify-center gap-1.5 rounded-btn bg-accent px-3.5 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hi active:scale-[0.98] sm:px-5 sm:py-2.5',
   // 보조 버튼: 연한 회색 알약
   btnGhost:
     'inline-flex items-center justify-center gap-1.5 rounded-btn bg-black/[0.06] px-3.5 py-2 text-sm font-medium text-gray-800 transition hover:bg-black/[0.1] active:scale-[0.98] sm:px-5 sm:py-2.5 dark:bg-white/10 dark:text-gray-100 dark:hover:bg-white/20',

@@ -154,8 +154,28 @@ export async function fetchMine(): Promise<Customization> {
  *
  * 스킨과 문장이 **함께** 바뀐다. 하나만 바꾸면 남의 색에 내 문장이 얹히거나 그 반대가
  * 되는데, 그건 어느 쪽 화면으로도 말이 안 된다.
+ *
+ * ## 문장은 **먼저 비운다** (2026-08-19 검사)
+ *
+ * 색과 문장은 실패했을 때의 값이 다르다. 색이 사이트 것으로 남는 건 그냥 덜 예쁜
+ * 것이지만, 문장이 남는 건 **거짓말**이다 — 서버가 꺼진 평상시(이 사이트의 기본
+ * 상태다) `/@남의주소`를 열면 캐시에 있던 **주인의 자기소개와 연락처**가 그 사람
+ * 블로그에 그려졌다. 서버가 켜져 있어도 첫 페인트와 응답 사이에 같은 화면이 스친다.
+ *
+ * 그래서 시작하자마자 슬롯을 비운다. 아무것도 안 보이는 건 정직하지만 남의 말을
+ * 그 사람 말처럼 보여주는 건 그렇지 않다.
+ *
+ * ## 늦게 온 응답은 버린다
+ *
+ * `/@a`를 열어둔 채 `/@b`로 가면 a의 응답이 뒤에 도착할 수 있다. 그때 a를 바르면
+ * 지금 보고 있는 b의 화면이 a의 색·문장으로 덮인다. 화면 쪽에서 취소 신호를 받아
+ * **바르기 직전에** 확인한다 — 화면이 이미 `reqSeq`로 목록에 같은 처리를 하고 있다.
  */
-export async function applySkinFor(handle: string): Promise<() => void> {
+export async function applySkinFor(
+  handle: string,
+  /** 이미 다른 곳으로 떠났으면 true를 돌려준다. 늦게 온 응답을 버리는 신호. */
+  isStale: () => boolean = () => false,
+): Promise<() => void> {
   const restore = () => {
     try {
       wear(cached())
@@ -163,11 +183,15 @@ export async function applySkinFor(handle: string): Promise<() => void> {
       wear({ css: '', slots: EMPTY_SLOTS })
     }
   }
+  // 색은 그대로 두고 문장만 비운다. 색까지 지우면 응답이 오기 전 한 프레임이
+  // 기본색으로 번쩍이는데, 그건 캐시를 만든 이유(깜빡임 제거) 자체를 되돌린다.
+  setSlots(EMPTY_SLOTS)
   try {
     const res = await fetchWithTimeout(`${BASE}/skin?handle=${encodeURIComponent(handle)}`)
-    if (res.ok) wear(readCustomization(await res.json()))
+    const data = res.ok ? readCustomization(await res.json()) : null
+    if (data && !isStale()) wear(data)
   } catch {
-    // 절전·네트워크 실패. 사이트 스킨이 그대로 남는다.
+    // 절전·네트워크 실패. 색은 사이트 것이 남고 문장은 위에서 비운 채로 둔다.
   }
   return restore
 }

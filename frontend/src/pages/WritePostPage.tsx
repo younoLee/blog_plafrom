@@ -455,7 +455,7 @@ function WritePostPage() {
           <button
             type="button"
             onClick={() => setPreview((v) => !v)}
-            className={`ml-auto rounded-lg px-2.5 py-1 text-xs font-medium transition ${preview ? 'bg-accent text-white' : 'text-gray-600 hover:bg-black/[0.06] dark:text-gray-300 dark:hover:bg-white/10'}`}
+            className={`ml-auto rounded-lg px-2.5 py-1 text-xs font-medium transition ${preview ? 'bg-accent text-on-accent' : 'text-gray-600 hover:bg-black/[0.06] dark:text-gray-300 dark:hover:bg-white/10'}`}
           >
             {preview ? '편집으로' : '미리보기'}
           </button>

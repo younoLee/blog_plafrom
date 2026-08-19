@@ -29,7 +29,7 @@ PUT이 자기 행에 쓰는 게 2026-08-18 오후에 바뀐 부분이다. 그 �
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import require_writer
 from app.core.html_slots import SLOT_KEYS, sanitize_slots
+from app.core.textguard import has_nul
 from app.models.user import User
 from app.schemas.user import SkinUpdate, SlotsUpdate
 
@@ -79,7 +80,11 @@ def _out(user: User | None) -> SkinOut:
 
 
 @router.get("", response_model=SkinOut)
-def get_skin(handle: str | None = None, db: Session = Depends(get_db)):
+def get_skin(
+    # 상한은 handle 컬럼과 같은 20자. 없으면 아무 길이나 들어와 조회로 간다.
+    handle: str | None = Query(None, max_length=20),
+    db: Session = Depends(get_db),
+):
     """지금 적용 중인 스킨. **무인증**이다 — 방문자 전원이 받아야 화면이 그려진다.
 
     빈 문자열은 '기본 스킨'을 뜻한다. 404를 주지 않는 이유는, 스킨이 없는 게
@@ -90,6 +95,13 @@ def get_skin(handle: str | None = None, db: Session = Depends(get_db)):
     단일 행 조회이고, 모든 방문자가 첫 화면에서 반드시 한 번 부른다 — 여기에
     분당 한도를 걸면 정상 방문자가 먼저 걸린다.
     """
+    if has_nul(handle):
+        # NUL이 든 핸들은 **그런 사람이 없는 것과 같이** 취급한다. 여기서 422를 던지면
+        # 방문자 전원의 첫 화면에 실패 경로가 하나 생기는데, 이 조회는 그걸 피하려고
+        # 없는 핸들에도 404 대신 빈 값을 주기로 한 자리다. 규칙을 하나로 유지한다.
+        # (막지 않으면 psycopg2가 DB에 닿기 전에 던져 **무인증 500**이 된다 —
+        #  이 경로는 레이트리밋도 일부러 없어서 비용 없이 반복된다.)
+        return _out(None)
     if handle:
         # 없는 핸들이면 빈 스킨이다(404가 아니다). 스킨은 장식이라, 화면이 이것 하나
         # 때문에 실패 경로를 타면 손해가 더 크다 — 아래 docstring의 이유와 같다.

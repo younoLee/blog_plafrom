@@ -128,6 +128,16 @@ class _Rewriter(HTMLParser):
     # `<br/>`처럼 스스로 닫는 형태. 기본 구현은 start+end를 부르는데, end에서
     # 스택을 건드리면 엉킨다. 여는 쪽만 태운다(_VOID는 어차피 안 쌓인다).
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        # ⚠️ _DROP_TREE 태그의 **자기닫는 형태**는 여기서 끝내야 한다.
+        # `handle_starttag`에 넘기면 `self.drop += 1`이 되는데, `<svg/>`에는 닫는 태그가
+        # 안 오므로 `handle_endtag`가 영영 안 불려 drop이 0으로 안 돌아온다. 그러면
+        # **그 뒤의 모든 글자가 버려진다** — `<p>안녕</p><svg/><p>연락처</p>`가
+        # `<p>안녕</p>` 하나로 줄었다(2026-08-19 검사, 실행해서 확인).
+        # 이 파일 위쪽 주석이 그 실패 모드를 알고 있었는데, 처방인 `_DROP_VOID`가
+        # link·meta처럼 **항상** void인 태그만 덮었다. svg·iframe·form처럼 보통은
+        # 짝이 있는 태그가 자기닫는 형태로 오는 경우가 빠져 있었다.
+        if tag in _DROP_TREE:
+            return  # 이 태그 하나만 버린다. 안에 든 게 없으니 그걸로 끝이다.
         self.handle_starttag(tag, attrs)
         if tag in _ALLOWED and tag not in _VOID and self.stack and self.stack[-1] == tag:
             self.stack.pop()

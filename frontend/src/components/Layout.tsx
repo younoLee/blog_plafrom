@@ -19,7 +19,7 @@ function Layout() {
           sr-only만 쓰면 포커스됐을 때도 안 보이므로 focus: 로 되돌린다. */}
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-btn focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:text-white"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-btn focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:text-on-accent"
       >
         본문 바로가기
       </a>

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user_optional, require_writer
 from app.core.ratelimit import limiter
+from app.core.textguard import has_nul
 from app.models.author_subscription import AuthorSubscription
 from app.models.notification import Notification
 from app.models.post import Post
@@ -160,7 +161,10 @@ def list_posts(
     # **인증 없이 500 + text/plain**이 나갔다(2026-08-12 동적 분석에서 `?tag=%00`·`?q=a%00b`로
     # 재현). `q=%00` 단독은 min_length=2에 걸리지만 `a%00b`는 길이 검사를 통과한다.
     # 프론트는 JSON을 기대하므로 text/plain 500은 파싱조차 못 한다 — 422로 정직하게 돌려준다.
-    if (q and "\x00" in q) or (tag and "\x00" in tag):
+    # 2026-08-19: `author`가 여기 빠져 있었다 — 두 줄 위 주석이 "짝지어진 파라미터 중
+    # 한쪽만 안 쓸렸다"를 두 번이나 적어놓은 바로 그 함수에서 세 번째가 났다.
+    # 손으로 적는 목록이라 파라미터가 늘 때마다 샌다. 이제 함수 하나에 다 넘긴다.
+    if has_nul(q, tag, author):
         raise HTTPException(status_code=422, detail="검색어에 사용할 수 없는 문자가 있어.")
 
     # 필터는 전부 공개범위 조건과 AND — 하나라도 OR로 새면 검색으로 비공개 글이 샌다(IDOR).

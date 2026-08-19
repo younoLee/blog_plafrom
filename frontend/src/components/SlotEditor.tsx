@@ -28,8 +28,12 @@ const FIELDS: { key: SlotKey; label: string; where: string; placeholder: string 
   },
   {
     key: 'aside',
-    label: '사이드바 소개',
-    where: '오른쪽 프로필 카드 아래',
+    // 이름과 위치를 같이 고쳤다(2026-08-19). '사이드바 소개'는 사이트 주인에게만 맞는
+    // 말이었다 — 사이드바는 `/blog`에만 있고 `/blog`는 항상 주인 문장을 쓴다. 그래서
+    // 글쓴이가 여기 쓴 건 **저장은 되는데 어느 화면에도 안 나왔다.** 지금은
+    // `/@주소`의 이름 아래에 그린다(AuthorPage). 같은 뜻의 자리이고 화면마다 있다.
+    label: '프로필 소개',
+    where: '/@주소는 이름 아래 · 사이트 첫 화면은 사이드바',
     placeholder: '<p>서울 · 백엔드</p>\n<p><a href="https://github.com/">GitHub</a></p>',
   },
   {

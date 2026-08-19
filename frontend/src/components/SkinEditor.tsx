@@ -43,7 +43,7 @@ const PRESETS: { name: string; hint: string; css: string }[] = [
   gap: 1.25rem;
   border-bottom: 0;
 }
-[data-skin="post-grid"] > * { border-top: 0 }
+[data-skin="post-grid"] > * { border-block: 0 }
 [data-skin="post-card"] {
   display: block;
   padding: 1.25rem;

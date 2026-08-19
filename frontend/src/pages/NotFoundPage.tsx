@@ -27,7 +27,7 @@ function NotFoundPage() {
       <div className="mt-8 flex flex-wrap justify-center gap-3">
         <Link
           to="/blog"
-          className="rounded-btn bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:brightness-110"
+          className="rounded-btn bg-accent px-5 py-2.5 text-sm font-medium text-on-accent transition hover:brightness-110"
         >
           글 목록으로
         </Link>

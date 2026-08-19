@@ -28,6 +28,34 @@ describe('optionsToCss', () => {
     expect(isDefaultOptions(DEFAULT_OPTIONS)).toBe(true)
   })
 
+  it('강조색을 바꾸면 그 위 글자색도 같이 나온다', () => {
+    // 짝이라 따로 두면 어긋난다 — 화면마다 text-white가 박혀 있던 탓에 스킨이 색을
+    // 밝게 옮기면 흰 바탕에 흰 글자가 됐다(다크 기본값 2.0:1, 민트 1.6:1).
+    const dark = optionsToCss(at({ accent: '#215ba6' })) // 어두운 파랑 → 흰 글자
+    expect(dark).toContain('--color-on-accent: #ffffff')
+    const light = optionsToCss(at({ accent: '#f1f3f5' })) // 아주 밝은 회색 → 검은 글자
+    expect(light).toContain('--color-on-accent: #111111')
+    // 다크모드 강조색은 밝은 쪽으로 옮겨지므로 글자색도 따라 뒤집혀야 한다
+    const mint = optionsToCss(at({ accent: '#20c997' }))
+    const darkBlock = mint.slice(mint.indexOf(':root.dark'))
+    expect(darkBlock).toContain('--color-on-accent: #111111')
+  })
+
+  it('밝기는 상대휘도로 잰다 — 채널 평균이 아니라', () => {
+    // 초록과 파랑은 채널 합이 비슷한데 눈에 들어오는 밝기는 두 배 넘게 차이 난다.
+    // 평균으로 재면 초록 위에 흰 글자를 올려 대비가 무너진다.
+    expect(optionsToCss(at({ accent: '#03c75a' }))).toContain('--color-on-accent: #111111')
+    expect(optionsToCss(at({ accent: '#1c7ed6' }))).toContain('--color-on-accent: #ffffff')
+  })
+
+  it('카드 2열은 divide-y가 긋는 bottom 선을 지운다', () => {
+    // `border-top: 0`만 지우면 격자 칸마다 아래에 회색 줄이 한 줄 더 남는다.
+    // Tailwind divide-y는 --tw-divide-y-reverse가 0이라 **bottom**에 1px를 준다.
+    const css = optionsToCss(at({ list: 'grid' }))
+    expect(css).toContain('[data-skin="post-grid"] > * { border-block: 0 }')
+    expect(css).not.toContain('border-top: 0')
+  })
+
   it('강조색 하나에서 파생 색 넷이 같이 나온다', () => {
     const css = optionsToCss(at({ accent: '#20c997' }))
     expect(css).toContain('--color-accent: #20c997')
@@ -125,6 +153,17 @@ describe('joinSkin', () => {
   it('아무것도 안 눌렀으면 표식조차 안 남긴다', () => {
     expect(joinSkin(DEFAULT_OPTIONS, '')).toBe('')
     expect(joinSkin(DEFAULT_OPTIONS, 'body { margin: 0 }')).toBe('body { margin: 0 }')
+    // 공백뿐이면 '안 쓴 것'이다 — 그래야 서버가 NULL로 되돌린다
+    expect(joinSkin(DEFAULT_OPTIONS, '  \n ')).toBe('')
+  })
+
+  it('직접 쓴 CSS의 개행을 안 자른다 — 자르면 타이핑이 막힌다', () => {
+    // 편집기의 textarea는 controlled이고 값이 매 렌더 다시 계산되므로, 여기서 trim하면
+    // **키 하나 칠 때마다** 개행이 잘려 문서 끝에서 Enter가 아예 안 먹었다.
+    expect(joinSkin(DEFAULT_OPTIONS, ':root {\n')).toBe(':root {\n')
+    expect(joinSkin(at({ accent: '#20c997' }), 'a{}\n')).toMatch(/a\{\}\n$/)
+    // 들여쓰기(앞 공백)도 같은 이유로 살아야 한다
+    expect(joinSkin(DEFAULT_OPTIONS, '  color: red')).toBe('  color: red')
   })
 
   it('왕복해도 자라지 않는다', () => {

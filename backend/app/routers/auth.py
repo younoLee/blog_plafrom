@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_writer
 from app.core.ratelimit import limiter
 from app.core.security import (
     create_access_token,
@@ -352,7 +352,12 @@ def update_me(
 @router.patch("/me/handle", response_model=UserRead)
 def update_my_handle(
     data: HandleUpdate,
-    current: User = Depends(get_current_user),
+    # 표시명과 달리 **require_writer**다. 이건 공개 주소를 **선점**하는 일이라,
+    # 아직 승인 안 난 계정(role=pending)이 부르면 글도 스킨도 못 만드는 채로 주소만
+    # 잡아둔다 — 그 뒤 `/api/authors/그주소`가 200으로 그 계정을 공개하고, 나중에
+    # 승인된 사람이 같은 주소를 쓰면 409로 막힌다(2026-08-19 검사).
+    # 설정 화면은 이미 canWrite로 이 칸을 가려 두어서 화면 쪽은 안 바뀐다.
+    current: User = Depends(require_writer),
     db: Session = Depends(get_db),
 ):
     """내 블로그 주소(`/@handle`)를 정한다.

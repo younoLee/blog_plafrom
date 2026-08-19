@@ -83,6 +83,26 @@ const BLACK: [number, number, number] = [0, 0, 0]
 const WHITE: [number, number, number] = [255, 255, 255]
 
 /**
+ * 이 색 **위에** 얹을 글자색. WCAG 상대휘도로 고른다.
+ *
+ * 밝기를 눈대중(예: r+g+b 평균)으로 재면 안 된다 — 초록(#03c75a)과 파랑(#1c7ed6)은
+ * 평균이 비슷한데 실제로 눈에 들어오는 밝기는 두 배 넘게 차이 난다. 대비 계산에
+ * 쓰이는 값이 상대휘도이므로 고르는 기준도 그것이어야 한다.
+ *
+ * 경계 0.4는 흰 글자·검은 글자 중 **더 나은 쪽**이 갈리는 지점 근처다. 어느 쪽을
+ * 골라도 4.5:1에 못 미치는 중간 밝기 색이 존재하는데, 그건 색을 고른 사람의 선택이라
+ * 여기서 색을 바꾸지는 않는다 — 대신 항상 **덜 나쁜 쪽**을 준다.
+ */
+function onColor(hex: string): string {
+  const ch = (i: number) => {
+    const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const lum = 0.2126 * ch(0) + 0.7152 * ch(1) + 0.0722 * ch(2)
+  return lum > 0.4 ? '#111111' : '#ffffff'
+}
+
+/**
  * 강조색 하나에서 나머지 넷을 만든다.
  *
  * 사람에게 색을 다섯 개 고르라고 하면 안 된다 — 그건 CSS를 쓰라는 것과 난이도가
@@ -97,6 +117,9 @@ function accentVars(accent: string): string[] {
     `  --color-accent-hi: ${mix(accent, BLACK, 0.82)};`,
     `  --color-accent-2: ${mix(accent, WHITE, 0.75)};`,
     `  --color-accent-3: ${mix(accent, WHITE, 0.45)};`,
+    // 강조색과 그 위 글자색은 **짝**이다. 색만 바꾸고 글자를 두면 흰 바탕에 흰 글자가
+    // 난다 — 예전엔 화면마다 `text-white`가 박혀 있어 스킨이 그걸 못 건드렸다.
+    `  --color-on-accent: ${onColor(accent)};`,
   ]
 }
 
@@ -142,7 +165,8 @@ export function optionsToCss(o: SkinOptions): string {
     // `:root:where(.dark)`는 우선순위가 0이라 위 블록에 진다.
     rules.push(
       `:root.dark {\n  --color-accent: ${mix(o.accent, WHITE, 0.55)};\n` +
-        `  --color-accent-hi: ${mix(o.accent, WHITE, 0.38)};\n}`,
+        `  --color-accent-hi: ${mix(o.accent, WHITE, 0.38)};\n` +
+        `  --color-on-accent: ${onColor(mix(o.accent, WHITE, 0.55))};\n}`,
     )
   }
 
@@ -155,7 +179,12 @@ export function optionsToCss(o: SkinOptions): string {
         '  grid-template-columns: repeat(2, 1fr);\n' +
         '  gap: 1.25rem;\n' +
         '  border-bottom: 0;\n}',
-      '[data-skin="post-grid"] > * { border-top: 0 }',
+      // ⚠️ `border-top`이 아니라 **양쪽**을 지운다. Tailwind의 `divide-y`가 실제로
+      // 긋는 선은 bottom이다(`--tw-divide-y-reverse: 0` → top 0, bottom 1px).
+      // top만 지우면 격자 칸마다 아래에 회색 줄이 한 줄 더 남는다.
+      // `/@handle`에서는 Reveal 래퍼가 없어 post-card의 border가 우연히 덮어 멀쩡해
+      // 보이는데, `/blog`에서는 Reveal이 한 겹 끼어 안 덮인다 — 그래서 눈으로 못 잡았다.
+      '[data-skin="post-grid"] > * { border-block: 0 }',
       '[data-skin="post-card"] {\n' +
         '  display: block;\n' +
         '  padding: 1.25rem;\n' +
@@ -253,20 +282,36 @@ export function splitSkin(css: string): SplitSkin {
   }
 
   // 표식 앞에 뭔가 있으면(사람이 위에 붙여 썼다면) 그것도 직접 쓴 것이다.
-  const before = css.slice(0, m.index)
-  const after = css.slice(endAt + END.length)
+  //
+  // ⚠️ 여기서 `.trim()`을 하면 안 된다. 이 함수는 편집기가 **매 렌더** 부르는데,
+  // textarea가 controlled이라 잘린 값이 곧바로 화면에 되돌아온다 — 문서 끝에서
+  // Enter가 아예 안 먹었다(2026-08-19 검사). 그래서 우리가 넣은 이음매만 걷어내고
+  // 사람이 친 앞뒤 공백은 그대로 둔다. joinSkin의 `custom` 비-trim과 짝이다.
+  const before = css.slice(0, m.index).replace(/\s+$/, '')
+  const after = css.slice(endAt + END.length).replace(/^\n+/, '')
   return {
     options: normalizeOptions(parsed),
-    custom: `${before}\n${after}`.trim(),
+    custom: before && after ? `${before}\n\n${after}` : before || after,
     generated: css.slice(bodyStart, endAt).trim(),
   }
 }
 
-/** 옵션과 직접 쓴 CSS를 한 벌로 합친다. splitSkin의 반대. */
+/**
+ * 옵션과 직접 쓴 CSS를 한 벌로 합친다. splitSkin의 반대.
+ *
+ * ⚠️ **`custom`을 trim하지 않는다.** 전에는 했는데, 편집기의 textarea가 controlled이고
+ * 그 값이 매 렌더 `splitSkin(draft).custom`으로 다시 계산되기 때문에 **키 하나 칠 때마다**
+ * trim이 돌았다. 결과: 문서 끝에서 Enter를 눌러도 개행이 즉시 잘려 아무 일도 안 일어나고,
+ * 첫 줄 들여쓰기도 안 들어간다 — 붙여넣기 말고는 CSS를 쓸 수 없었다(2026-08-19 검사).
+ *
+ * 저장할 값이 한 줄 길어지는 건 감수한다. 여기서 아끼는 몇 바이트보다 입력이 되는 게 낫다.
+ */
 export function joinSkin(o: SkinOptions, custom: string): string {
   const body = optionsToCss(o)
-  const tail = custom.trim()
-  if (!body) return tail // 아무것도 안 눌렀으면 표식도 안 남긴다
+  const tail = custom
+  // '비어 있다'의 판정만 공백을 무시한다. 공백뿐인 CSS는 안 쓴 것과 같고, 그래야
+  // 서버가 NULL로 되돌린다(라우터의 `css or None`).
+  if (!body) return tail.trim() ? tail : ''
 
   const head =
     `/*@skin-options ${JSON.stringify(o)}*/\n` +
@@ -274,7 +319,7 @@ export function joinSkin(o: SkinOptions, custom: string): string {
     `   저장할 때마다 다시 쓰이니 손으로 고쳐도 남지 않는다.\n` +
     `   직접 쓴 CSS는 @skin-end 아래에 둘 것 — 뒤에 오므로 여기를 이긴다. */\n` +
     `${body}\n${END}`
-  return tail ? `${head}\n\n${tail}` : head
+  return tail.trim() ? `${head}\n\n${tail}` : head
 }
 
 /** 기본값에서 한 칸이라도 달라졌는가. 편집기가 '되돌리기'를 띄울지 정할 때 쓴다. */

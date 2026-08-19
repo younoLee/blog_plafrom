@@ -52,7 +52,10 @@ function AuthorPage() {
     let cancelled = false
     let restore: (() => void) | undefined
     // 이 사람의 스킨을 바르고, 화면을 떠날 때 사이트 스킨으로 되돌린다.
-    applySkinFor(handle).then((fn) => {
+    // `() => cancelled`를 넘기는 이유: `/@a`의 응답이 `/@b`로 옮긴 뒤에 도착하면
+    // 지금 보고 있는 b의 화면이 a의 색·문장으로 덮인다. 목록이 `reqSeq`로 막는 것과
+    // 같은 일이고, 스킨 쪽에만 그 가드가 없었다(2026-08-19 검사).
+    applySkinFor(handle, () => cancelled).then((fn) => {
       if (cancelled) fn() // 이미 떠났으면 바로 되돌린다
       else restore = fn
     })
@@ -117,9 +120,18 @@ function AuthorPage() {
             전체 글 보기
           </Link>
         </p>
-        {/* 이 사람이 쓴 머리말. applySkinFor가 스킨과 **함께** 갈아 끼우므로
-            여기 나오는 건 항상 이 블로그 주인의 문장이다. */}
+        {/* 이 사람이 쓴 머리말과 소개. applySkinFor가 스킨과 **함께** 갈아 끼우고,
+            받아오기 전에는 슬롯을 비워 두므로 여기 나오는 건 이 핸들의 문장이거나
+            아무것도 아니다. (전에는 "항상 이 블로그 주인의 문장"이라고 적혀 있었는데
+            그게 사실이 아니었다 — 서버가 꺼져 있으면 사이트 주인 문장이 남았다.)
+
+            `aside`를 여기 그리는 이유: 그 칸의 뜻은 '프로필 소개'인데, 그리는 곳이
+            Sidebar 하나뿐이었고 Sidebar는 `/blog`에만 붙는다. 그리고 `/blog`가 쓰는
+            문장은 항상 사이트(주인) 것이다. 그래서 **글쓴이가 쓴 소개는 저장은 되는데
+            어느 화면에도 안 나왔다**(2026-08-19 검사). 이 화면에는 사이드바가 없으므로
+            같은 뜻을 가진 자리(이름 아래)에 둔다. */}
         <HtmlSlot slot="intro" className="mt-3 text-sm" />
+        <HtmlSlot slot="aside" className="mt-2 text-sm text-gray-500 dark:text-gray-400" />
       </section>
 
       {asleep && (
