@@ -52,6 +52,10 @@ class KeysResponse(BaseModel):
 
 
 # 키 저장 요청 (평문 키 — 저장 시 즉시 암호화). compatible은 base_url 필수
-class SetKeyRequest(BaseModel):
+# SafeModel을 상속하는 이유: 이 파일의 다른 요청 본문은 전부 SafeModel인데 여기만
+# BaseModel이었다. key는 validate_api_key의 isprintable()이 NUL을 걸렀지만 base_url엔
+# 그런 검사가 없어, NUL이 든 base_url이 스킴·SSRF 검사를 다 통과하고 DB까지 가서
+# psycopg2의 평범한 ValueError로 터졌다(핸들러 넷 밖 → 500 text/plain).
+class SetKeyRequest(SafeModel):
     key: str = Field(min_length=10, max_length=500)
     base_url: str | None = Field(default=None, max_length=255)

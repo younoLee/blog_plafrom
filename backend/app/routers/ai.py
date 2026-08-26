@@ -326,8 +326,8 @@ def create_draft(
     # DB 접근이 **커밋되지 않은 SELECT**다 — BYOK면 llm_keys.get_credential, 서버키면
     # _reserve_server_slot 끝의 count_month(둘 다 commit이 없다). 그래서 그 시간 내내 풀
     # 커넥션 하나가 'idle in transaction'으로 묶인다(2026-08-10 실측: checkedout=1).
-    # 풀은 기본값 5 + overflow 10 = **15칸뿐**이라, 동시 15건이면 무관한 요청까지 30초
-    # 기다린 뒤 죽는다. 그 죽는 모양도 원래는 500 text/plain이었다(main.py의 풀 고갈 핸들러 참고).
+    # 풀 정원은 유한하다(core/database.py가 정한다). 정원이 차면 뒤따르는 무관한 요청까지
+    # pool_timeout만큼 기다린 뒤 죽는다. 그 죽는 모양도 원래는 500 text/plain이었다(main.py의 풀 고갈 핸들러 참고).
     #
     # 커밋하면 그 자리에서 반납된다(실측: checkedout 1 → 0). 뒤에서 DB가 다시 필요해지면
     # (가드 위반 기록·슬롯 환불) 그때 새로 빌리면 되고, 비용은 쿼리 1개다

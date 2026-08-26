@@ -12,7 +12,7 @@ from app.core.security import hash_invite_token, new_invite_token
 from app.models.ai_usage import AiUsage
 from app.models.invite import Invite
 from app.models.post import Post
-from app.models.user import User
+from app.models.user import BANNED_ROLE, User
 from app.schemas.invite import InviteCreate, InviteCreated, InviteOut
 from app.schemas.user import UserRead
 from app.services.ai_usage import count_today_all_users, today, tokens_today_all_users
@@ -169,8 +169,20 @@ def ban_user(user_id: int, db: Session = Depends(get_db)):
     user = _get_user_or_404(user_id, db)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 차단할 수 없어")
-    user.role = "banned"
+    user.role = BANNED_ROLE
     user.token_version += 1  # 차단 즉시 기존 토큰 무효화
+
+    # 구독·기기 등록은 **건드리지 않는다.** 발송을 막는 일은 수신자 조회가 한다
+    # (services/push.py·email.py의 `User.role != BANNED_ROLE`).
+    #
+    # 한때 여기서 push_subscriptions를 지우고 notify를 False로 내렸다가 뺐다(2026-08-26).
+    # 두 가지가 걸렸다:
+    #   ① unban_user가 그걸 되돌리지 않는다. 차단이 풀린 사용자는 자기가 구독하던 모든
+    #      글쓴이의 알림이 꺼진 채 복귀하고, 그 사실을 알려주는 곳도 없다.
+    #   ② 애초에 이 저장소가 기각한 방식이다 — models/user.py의 PUBLIC_BLOG_ROLES 주석이
+    #      "①은 상태를 두 군데 두는 것이라 새 회수 경로가 생길 때마다 같이 안 고치면
+    #      또 어긋난다"며 '읽는 쪽이 역할을 본다'를 골랐다. 발송도 같은 판단이 맞다.
+    #      회수 경로가 늘어도 조회 조건 하나만 참이면 되고, 되돌리면 알림도 같이 돌아온다.
     db.commit()
     db.refresh(user)
     return user
@@ -180,7 +192,7 @@ def ban_user(user_id: int, db: Session = Depends(get_db)):
 def unban_user(user_id: int, db: Session = Depends(get_db)):
     # 차단 해제: pending으로 되돌림(재승인 필요)
     user = _get_user_or_404(user_id, db)
-    if user.role != "banned":
+    if user.role != BANNED_ROLE:
         raise HTTPException(status_code=400, detail="차단된 계정이 아니야")
     user.role = "pending"
     db.commit()
@@ -214,7 +226,8 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     #  그래도 남긴다 — '사용자 삭제가 글을 지운다'는 건 부수효과가 아니라 이 함수의
     #  의도이고, 코드에 안 적혀 있으면 다음 사람이 FK를 보고서야 알게 된다.)
     db.execute(delete(Post).where(Post.owner_id == user_id))
-    # author_subscriptions는 users FK ondelete CASCADE라 user 삭제 시 자동 정리
+    # author_subscriptions·push_subscriptions 둘 다 users FK ondelete CASCADE라
+    # user 삭제 시 자동 정리된다(models/author_subscription.py:17,20, push_subscription.py:38).
     db.delete(user)
     db.commit()
 
@@ -329,7 +342,7 @@ def create_invite(
     # 전형적인 모양이라, 서비스가 이미 삼키더라도 호출부에서 한 번 더 막는다.
     # **여기서 커넥션을 놓는다 — 위치가 전부다.** 아래 recipient_status는 SES 호출
     # 2회(각 connect 2 + read 3초)라 최악 ≈10초인데, `:222`의 db.refresh가 연 트랜잭션이
-    # 그동안 풀 15칸 중 1칸을 `idle in transaction`으로 묶는다. ai.py:342·uploads.py:106과
+    # 그동안 풀(core/database.py) 한 칸을 `idle in transaction`으로 묶는다. ai.py:342·uploads.py:106과
     # 같은 패턴의 세 번째 자리다.
     # ⚠️ **`row` 조립(위 3줄) 뒤여야 한다.** 그 앞에서 커밋하면 expire_on_commit 때문에
     #    `invite`·`admin`을 읽는 순간 refresh SELECT가 나가 방금 반납한 커넥션을 다시

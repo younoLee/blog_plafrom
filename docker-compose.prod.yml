@@ -57,8 +57,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    # 폴백 겸 StaticFiles 마운트가 요구하는 폴더. 실제 이미지는 S3에 있다
+    # 로컬 저장 폴백용 폴더. 실제 이미지는 S3에 있다
     # (여기를 '이미지의 집'으로 읽으면 안 된다 — 2026-07-22에 이 주석 때문에 오판했다).
+    # 예전엔 "StaticFiles 마운트가 요구하는 폴더"이기도 했으나 2026-08-26부터 아니다 —
+    # main.py가 폴더가 없으면 마운트를 건너뛴다. 이 바인드는 이제 폴백 저장소일 뿐이다.
+    # dev(docker-compose.yml)는 명명 볼륨을 쓴다. 여기만 바인드인 이유는 EC2의 EBS에
+    # 파일을 남겨 보고 싶어서고, 운영 트래픽은 S3라 이 경로를 타지 않는다.
     volumes:
       - ./uploads:/app/uploads
     depends_on:
@@ -85,7 +89,20 @@ services:
       # (빈 DB로 부팅하는 재해 복구 때는 마이그레이션 27개 + GIN 인덱스가 60초를 넘길 수 있다)
       start_period: 120s
       start_interval: 5s
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # --limit-concurrency 는 이름과 달리 **열린 TCP 연결 수** 상한이다. 처리 중인 요청이
+    # 아니다 — uvicorn 은 `len(self.connections) >= limit` 로 검사하고, connections 는
+    # connection_made 에서 늘고 connection_lost 에서만 준다(httptools_impl.py). 즉 요청을
+    # 안 보내고 keep-alive 로 놀고 있는 연결도 정원을 먹는다.
+    #
+    # 그래서 40은 위험했다(2026-08-26에 넣었다가 같은 날 고쳤다). 브라우저는 오리진당
+    # 소켓을 6개까지 열고 CloudFront 도 오리진 연결을 유지하므로 **동시 방문자 7명이면**
+    # 정원이 찬다. 넘으면 헬스체크를 포함한 모든 요청이 503을 받는데, 그건 uvicorn 이
+    # 앱 바깥에서 내는 text/plain 이라 main.py 의 예외 핸들러를 타지 않는다 — 프론트가
+    # 파싱조차 못 하는 바로 그 실패 모양이다.
+    #
+    # 그래서 여기서는 '큐가 무한히 자라는 것'만 막는 큰 값을 둔다. CPU 예산은 이 옵션이
+    # 아니라 앱 레벨에서 지킨다 — routers/auth.py 의 bcrypt 동시성 상한과 레이트리밋이다.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --limit-concurrency 500"
 
 volumes:
   pgdata:

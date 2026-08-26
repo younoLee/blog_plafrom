@@ -109,3 +109,11 @@ class User(Base):
 # 새 회수 경로가 생길 때마다 같이 안 고치면 또 어긋난다(그게 이번에 난 사고다).
 # ②는 어느 경로로 회수해도 결과가 같고, 되돌리면(unban→approve) 블로그도 같이 돌아온다.
 PUBLIC_BLOG_ROLES = ("writer", "admin")
+
+# 차단된 계정의 역할. deps.py가 문자열로 두 번 들고 있었는데, 2026-08-26 검사에서
+# 알림 발송 쪽에도 같은 판정이 필요해졌다. 철자를 흩뿌리면 한 군데를 빠뜨린다.
+#
+# **위 PUBLIC_BLOG_ROLES와 쓰임이 다르다.** 저건 '블로그를 가질 수 있는가'(writer·admin)이고
+# 이건 '알림을 받을 수 있는가'다. 알림 수신자는 reader·pending도 정상이므로
+# PUBLIC_BLOG_ROLES로 거르면 멀쩡한 독자까지 끊긴다 — 거기선 화이트리스트, 여기선 블랙리스트다.
+BANNED_ROLE = "banned"

@@ -126,3 +126,58 @@ def test_reregister_unverified_replaces_password(client, db):
     assert client.post(
         "/api/auth/login", json={"email": victim_email, "password": victim_pw}
     ).status_code == 200
+
+
+def test_login_sheds_load_when_bcrypt_slots_are_full(client, make_user):
+    """bcrypt 칸이 다 차면 로그인은 기다리지 않고 즉시 503을 낸다.
+
+    로그인은 계정 유무와 무관하게 cost 12 bcrypt를 항상 1회 돌린다(타이밍 공격 방어의
+    대가다). 2026-08-26 부하검사 실측으로 그게 코어 하나를 ~1.5초 점유하고, vCPU당
+    처리량이 30~40건/분뿐이라 **각자 10/분 한도를 지키는 IP 서너 개**만으로 t2.micro의
+    유일한 vCPU가 찬다는 것이 확인됐다. 요청 수를 세는 리밋으로는 못 막는다 —
+    세야 하는 건 요청이 아니라 CPU 시간이다.
+
+    기다리지 않고 튕기는 것이 핵심이다. 핸들러가 전부 sync `def`라 대기하면 anyio
+    스레드 칸을 붙들어, CPU 대신 스레드가 마르는 것으로 고장 모양만 바뀐다.
+    """
+    from app.routers import auth as auth_router
+
+    user = make_user(role="writer", password="password123")
+
+    # 칸을 전부 밖에서 잡아둔다 = 다른 요청이 이미 bcrypt를 돌고 있는 상황
+    held = []
+    while auth_router._BCRYPT_SLOTS.acquire(blocking=False):
+        held.append(True)
+    assert held, "세마포어가 칸을 하나도 안 내줬다"
+
+    try:
+        r = client.post(
+            "/api/auth/login", json={"email": user.email, "password": "password123"}
+        )
+        assert r.status_code == 503
+        assert r.json()["detail"]  # text/plain이 아니라 JSON으로 나간다
+    finally:
+        for _ in held:
+            auth_router._BCRYPT_SLOTS.release()
+
+    # 칸이 돌아오면 정상 로그인이 된다 — 세마포어가 새는지도 함께 본다
+    r = client.post(
+        "/api/auth/login", json={"email": user.email, "password": "password123"}
+    )
+    assert r.status_code == 200
+
+
+def test_login_releases_bcrypt_slot_on_failure(client, make_user):
+    """실패한 로그인도 칸을 돌려준다. finally가 빠지면 몇 번 만에 영구히 막힌다."""
+    user = make_user(role="writer", password="password123")
+
+    for _ in range(4):  # 상한(2)보다 넉넉히 — 새면 여기서 503이 난다
+        r = client.post(
+            "/api/auth/login", json={"email": user.email, "password": "wrong-password"}
+        )
+        assert r.status_code == 401
+
+    r = client.post(
+        "/api/auth/login", json={"email": user.email, "password": "password123"}
+    )
+    assert r.status_code == 200

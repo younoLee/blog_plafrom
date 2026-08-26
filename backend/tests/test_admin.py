@@ -164,3 +164,44 @@ def test_admin_list_survives_a_malformed_email_row(client, make_user, auth_heade
     assert r.status_code == 200, r.text
     emails = [u["email"] for u in r.json()]
     assert "broken@test.local" in emails, "지울 수 있으려면 목록에 보여야 한다"
+
+
+def test_ban_does_not_touch_subscriptions(client, make_user, auth_headers, db):
+    """차단은 구독·기기 등록을 건드리지 않는다 — 발송을 막는 일은 수신자 조회가 한다.
+
+    한때 ban_user가 push_subscriptions를 지우고 notify를 False로 내렸다(2026-08-26에 넣었다
+    같은 날 뺐다). unban_user가 그걸 되돌리지 않아서, 차단이 풀린 사용자는 자기가 구독하던
+    모든 글쓴이의 알림이 꺼진 채 복귀했다. 상태를 두 군데 두면 회수 경로가 늘 때마다
+    어긋난다는 게 models/user.py의 PUBLIC_BLOG_ROLES 주석이 이미 내린 결론이다.
+    """
+    from app.models.author_subscription import AuthorSubscription
+    from app.models.push_subscription import PushSubscription
+
+    admin = make_user(role="admin")
+    author = make_user(role="writer")
+    victim = make_user(role="pending")
+
+    db.add_all(
+        [
+            AuthorSubscription(
+                subscriber_id=victim.id, author_id=author.id, approved=True, notify=True
+            ),
+            PushSubscription(
+                user_id=victim.id, endpoint="https://fcm.googleapis.com/fcm/send/v", p256dh="k", auth="a"
+            ),
+        ]
+    )
+    db.commit()
+
+    r = client.post(f"/api/admin/users/{victim.id}/ban", headers=auth_headers(admin))
+    assert r.status_code == 200
+
+    sub = db.query(AuthorSubscription).filter_by(subscriber_id=victim.id).one()
+    assert sub.notify is True, "차단이 알림 의사표시를 덮어썼다 — unban이 되돌리지 못한다"
+    assert db.query(PushSubscription).filter_by(user_id=victim.id).count() == 1
+
+    # 차단을 풀면 알림도 그대로 돌아온다 (services/push.py 주석이 약속하는 것)
+    r = client.post(f"/api/admin/users/{victim.id}/unban", headers=auth_headers(admin))
+    assert r.status_code == 200
+    db.refresh(sub)
+    assert sub.notify is True

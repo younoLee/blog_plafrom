@@ -320,6 +320,71 @@ def test_push_goes_only_to_approved_and_notifying_subscribers(
     assert sent == [base + "want"]
 
 
+def test_banned_subscriber_gets_no_push(
+    client, make_user, auth_headers, db, push_on, monkeypatch
+):
+    """차단된 구독자에게는 새 글 푸시가 가지 않는다.
+
+    2026-08-19 조치는 '차단된 사람의 글이 나가는' 방향만 막았다. 반대 방향 —
+    구독자 전용 글의 제목과 링크가 **차단된 사람의 기기로 밀려 들어가는** 것 — 은
+    2026-08-26까지 열려 있었다. 읽기는 404인데(deps.py가 차단 계정을 비로그인 취급)
+    알림은 계속 가는 상태였고, 본인은 로그인이 403이라 스스로 끌 수도 없었다.
+    """
+    from app.models.author_subscription import AuthorSubscription
+    from app.services import push as push_svc
+
+    author = make_user(role="writer")
+    ok = make_user(role="pending")
+    banned = make_user(role="pending")  # 구독·기기 등록은 차단 전에 해둔다
+
+    db.add_all(
+        [
+            AuthorSubscription(subscriber_id=ok.id, author_id=author.id, approved=True, notify=True),
+            AuthorSubscription(subscriber_id=banned.id, author_id=author.id, approved=True, notify=True),
+        ]
+    )
+    db.commit()
+    base = "https://fcm.googleapis.com/fcm/send/"
+    _sub(client, auth_headers(ok), base + "ok")
+    _sub(client, auth_headers(banned), base + "banned")
+
+    banned.role = "banned"  # 기기가 등록된 뒤에 차단된다 — 실제 순서다
+    db.commit()
+
+    sent = []
+    monkeypatch.setattr(push_svc, "send_push", lambda e, p, a, d: sent.append(e))
+    monkeypatch.setattr(push_svc, "SessionLocal", lambda: _KeepOpen(db))
+
+    push_svc.notify_new_post_push(1, "구독자 전용 글", author.id)
+    assert sent == [base + "ok"]
+
+
+def test_banned_post_owner_gets_no_comment_push(
+    client, make_user, auth_headers, db, push_on, monkeypatch
+):
+    """차단된 글쓴이의 기기로는 새 댓글 푸시가 가지 않는다.
+
+    새 글 알림과 수신자 조건이 달라(기기 등록 자체가 의사표시) 같은 누락이 따로 있었다.
+    """
+    from app.services import push as push_svc
+
+    owner = make_user(role="writer")
+    _sub(client, auth_headers(owner), "https://fcm.googleapis.com/fcm/send/owner")
+
+    sent = []
+    monkeypatch.setattr(push_svc, "send_push", lambda e, p, a, d: sent.append(e))
+    monkeypatch.setattr(push_svc, "SessionLocal", lambda: _KeepOpen(db))
+
+    push_svc.notify_new_comment_push(1, "글", "누군가", owner.id)
+    assert len(sent) == 1  # 차단 전에는 간다
+
+    owner.role = "banned"
+    db.commit()
+    sent.clear()
+    push_svc.notify_new_comment_push(1, "글", "누군가", owner.id)
+    assert sent == []
+
+
 def test_dead_subscription_is_removed_and_others_still_get_sent(
     client, make_user, auth_headers, db, push_on, monkeypatch
 ):

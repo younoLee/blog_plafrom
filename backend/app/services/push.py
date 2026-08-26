@@ -29,6 +29,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.author_subscription import AuthorSubscription
 from app.models.push_subscription import PushSubscription
+from app.models.user import BANNED_ROLE, User
 
 logger = logging.getLogger(__name__)
 
@@ -190,10 +191,20 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
                 AuthorSubscription,
                 AuthorSubscription.subscriber_id == PushSubscription.user_id,
             )
+            .join(User, User.id == PushSubscription.user_id)
             .where(
                 AuthorSubscription.author_id == author_id,
                 AuthorSubscription.approved.is_(True),
                 AuthorSubscription.notify.is_(True),
+                # 차단된 구독자에게는 보내지 않는다. 2026-08-19 조치는 '차단된 사람의 글이
+                # 나가는' 방향만 막았고, **차단된 사람에게 남의 글이 밀려 들어가는** 방향은
+                # 그대로였다. 그쪽은 읽기가 404인데도(deps.py의 get_current_user_optional이
+                # 차단 계정을 비로그인으로 취급) 구독자 전용 글의 제목과 링크가 기기로 갔다.
+                #
+                # 조회 조건으로 막는 이유는 PUBLIC_BLOG_ROLES와 같다 — 어느 경로로 차단해도
+                # 결과가 같고, 차단을 풀면 알림도 같이 돌아온다. ban_user는 구독·기기 등록을
+                # 건드리지 않는다(admin.py) — 지우면 그 '돌아온다'가 성립하지 않는다.
+                User.role != BANNED_ROLE,
             )
         ).all()
     finally:
@@ -218,7 +229,7 @@ def _deliver(subs: Sequence[Row[tuple[int, str, str, str]]], payload: dict) -> N
     """구독 목록에 payload를 보내고, 죽은 구독을 정리한다.
 
     **DB 세션을 안 들고 들어온다.** 호출부가 조회를 끝내고 세션을 닫은 뒤 부른다 —
-    발송은 기기 N대 × 최대 10초라, 세션을 쥔 채 돌면 풀 15칸 중 하나가 그동안
+    발송은 기기 N대 × 최대 10초라, 세션을 쥔 채 돌면 풀(core/database.py) 한 칸이 그동안
     `idle in transaction`으로 묶인다(2026-08-11 병목검사에서 실제로 그랬다).
     """
     if not subs:
@@ -270,7 +281,14 @@ def notify_new_comment_push(
                 PushSubscription.endpoint,
                 PushSubscription.p256dh,
                 PushSubscription.auth,
-            ).where(PushSubscription.user_id == owner_id)
+            )
+            .join(User, User.id == PushSubscription.user_id)
+            .where(
+                PushSubscription.user_id == owner_id,
+                # 차단된 글쓴이의 기기로 새 댓글 푸시가 계속 가던 자리. 위 새 글 알림과
+                # 같은 누락이다.
+                User.role != BANNED_ROLE,
+            )
         ).all()
     finally:
         db.close()

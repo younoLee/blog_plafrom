@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.ratelimit import limiter
+from app.core.textguard import has_nul
 from app.models.push_subscription import PushSubscription
 from app.models.user import User
 from app.schemas.push import PushKey, PushStatus, PushSubscribe
@@ -101,7 +102,9 @@ def subscribe(
 
 @router.delete("", status_code=204)
 def unsubscribe(
-    endpoint: str | None = None,
+    # max_length는 형제인 POST 본문(schemas/push.py의 endpoint)과 같은 값이다.
+    # 거기엔 SafeModel + Field 상한이 이중으로 걸려 있었는데 여기만 맨몸이었다.
+    endpoint: str | None = Query(default=None, max_length=2000),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -109,6 +112,12 @@ def unsubscribe(
 
     **남의 구독은 못 지운다** — user_id 조건을 항상 함께 건다. endpoint만으로
     지우게 두면 남의 기기 endpoint를 아는 사람이 그 사람 알림을 꺼버릴 수 있다."""
+    # has_nul 호출처가 지금까지 무인증 입구 세 곳뿐이었다(posts.py·main.py·skin.py).
+    # 인증이 필요한 이 라우트는 test_nul_guard.py의 목록 밖에 남아, NUL 한 글자로
+    # psycopg2가 ValueError를 던지고 500 text/plain이 나갔다.
+    if has_nul(endpoint):
+        raise HTTPException(status_code=400, detail="endpoint에 허용되지 않는 문자가 있어")
+
     stmt = delete(PushSubscription).where(PushSubscription.user_id == user.id)
     # `if endpoint:`가 아니라 `is not None`이다. 빈 문자열(`?endpoint=`)은 falsy라
     # **그 기기만 끄려던 요청이 전 기기를 지운다.** 프론트는 이미 이 사고를 겪고

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.author_subscription import AuthorSubscription
-from app.models.user import User
+from app.models.user import BANNED_ROLE, User
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,9 @@ def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:
                 AuthorSubscription.author_id == author_id,
                 AuthorSubscription.approved.is_(True),
                 AuthorSubscription.notify.is_(True),
+                # 푸시 쪽(services/push.py)과 같은 조건. 이미 User를 join하고 있었으면서도
+                # 역할을 안 봐서, 차단된 계정의 메일함으로 구독자 전용 글 제목이 계속 갔다.
+                User.role != BANNED_ROLE,
             )
         ).all()
     finally:

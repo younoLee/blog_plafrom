@@ -131,7 +131,11 @@ def validate_base_url(url: str) -> str:
     # 호스트네임을 실제 IP로 풀어서(별칭으로 내부 IP 가리키는 것까지) 전부 검사
     try:
         infos = socket.getaddrinfo(host, port or 443, proto=socket.IPPROTO_TCP)
-    except socket.gaierror:
+    except (socket.gaierror, UnicodeError):
+        # gaierror만 잡으면 샌다. getaddrinfo는 C 호출 전에 호스트를 idna로 인코딩하는데,
+        # DNS 라벨이 63자를 넘으면 gaierror가 아니라 UnicodeError('label empty or too long')가
+        # 나온다. 그건 ValueError의 하위라 위쪽 두 자리(urlparse·parsed.port)에서 이미 고쳤던
+        # 것과 같은 병인데 이 자리만 남아 있었다 — 그대로 500 text/plain이 나갔다.
         raise InvalidBaseURLError("base URL의 주소를 확인할 수 없어 (호스트명 확인)")
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])

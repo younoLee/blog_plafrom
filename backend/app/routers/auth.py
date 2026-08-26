@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -18,7 +19,7 @@ from app.core.security import (
     verify_password_or_dummy,
 )
 from app.models.invite import Invite
-from app.models.user import User
+from app.models.user import BANNED_ROLE, User
 from app.schemas.invite import InvitePreview, InviteRedeem, InviteToken
 from app.schemas.user import (
     DisplayNameUpdate,
@@ -245,8 +246,29 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 # 2026-08-09: 그때 "구조적으로 막으려면 lower(email) 유니크 인덱스가 필요하다"고
 # 적어둔 것을 실제로 걸었다(`uq_users_email_lower`, models/user.py). 이제 이 조회가
 # 두 행을 만날 수 없다 — 그전까지는 만나면 **둘 중 아무 행이나** 돌려줬다.
+
+
 def _find_user_by_email(db: Session, email: str) -> User | None:
     return db.scalar(select(User).where(func.lower(User.email) == email.lower()))
+
+
+# 동시에 돌 수 있는 bcrypt 검증 수. 초과분은 기다리지 않고 즉시 503으로 튕긴다.
+#
+# 왜 필요한가 — 2026-08-26 부하검사 실측. 로그인은 계정 유무와 무관하게 cost 12 bcrypt를
+# **항상 1회** 돌리고(아래 주석의 타이밍 공격 방어가 그 대가다), 그게 코어 하나를 통째로
+# ~1.5초 점유한다. 그래서 vCPU당 처리량이 30~40건/분뿐인데 경로 한도는 10/분/IP다.
+# 즉 **각자 한도를 완전히 지키는 IP 3~4개**만으로 t2.micro의 유일한 vCPU가 bcrypt로 찬다.
+# 요청 수를 세는 리밋으로는 이걸 못 막는다 — 세야 하는 건 요청이 아니라 CPU 시간이다.
+#
+# 왜 기다리지 않고 튕기는가 — 핸들러가 전부 sync `def`라 요청마다 anyio 스레드풀(정원 40)을
+# 쓴다. 세마포어를 blocking으로 잡으면 대기하는 동안에도 스레드 칸을 차지해서, CPU 대신
+# 스레드가 마르는 것으로 고장 모양만 바뀐다. 즉시 거절이 가장 싸다(429가 401보다 50~90배 싸다는
+# 것도 같은 실측에서 나왔다).
+#
+# 값 2의 근거: 운영은 vCPU 1개이고 같은 호스트에 Postgres가 얹혀 있다. 1이면 정상 사용자
+# 둘이 동시에 로그인만 해도 한 명이 503을 본다. 2면 로그인이 코어를 다 먹어도 나머지 요청이
+# 굶지 않을 만큼은 남는다. 개인 블로그의 정상 동시 로그인은 2를 거의 안 넘는다.
+_BCRYPT_SLOTS = threading.BoundedSemaphore(2)
 
 
 @router.post("/login", response_model=Token)
@@ -259,12 +281,24 @@ def login(request: Request, data: UserCreate, db: Session = Depends(get_db)):
     # 였는데, 그러면 없는 계정에는 bcrypt가 안 돌아 응답이 0.03초, 있는 계정은 1.9초였다
     # (2026-08-19 실측, 30~60배). 문구를 똑같이 맞춰놔도 시간이 답을 알려준다.
     # 아래는 사용자 유무와 관계없이 해시 검사를 **항상 한 번** 돈다.
-    ok = verify_password_or_dummy(data.password, user.hashed_password if user else None)
+    if not _BCRYPT_SLOTS.acquire(blocking=False):
+        # 여기서 막는 건 이 요청 하나가 아니라 CPU 예산이다. 정상 사용자는 재시도하면 되고,
+        # 그 사이 사이트의 나머지는 계속 돈다.
+        raise HTTPException(
+            status_code=503,
+            detail="지금 로그인 요청이 몰려 있어. 잠시 후 다시 시도해줘",
+        )
+    try:
+        ok = verify_password_or_dummy(
+            data.password, user.hashed_password if user else None
+        )
+    finally:
+        _BCRYPT_SLOTS.release()
     if not ok:
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 틀렸어")
     assert user is not None  # ok가 True면 user가 있다(mypy용)
     # 차단된 계정은 로그인 불가
-    if user.role == "banned":
+    if user.role == BANNED_ROLE:
         raise HTTPException(status_code=403, detail="차단된 계정이야")
     # 이메일 미인증이면 로그인 불가 (봇 대량가입 차단)
     if not user.email_verified:
@@ -282,7 +316,7 @@ def forgot_password(
 ):
     user = _find_user_by_email(db, data.email)
     # 가입돼 있고 차단 안 된 계정에만 실제 발송. 단 응답은 항상 동일(존재 여부 노출 안 함)
-    if user is not None and user.role != "banned":
+    if user is not None and user.role != BANNED_ROLE:
         # ver=현재 token_version → 재설정 후 token_version이 바뀌면 이 토큰은 무효(1회용)
         token = create_email_token(
             user.id, purpose="reset", expire_hours=1, ver=user.token_version

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import decode_access_token
-from app.models.user import User
+from app.models.user import BANNED_ROLE, User
 
 
 def _expire_pro_if_due(user: User, db: Session) -> None:
@@ -36,7 +36,7 @@ def get_current_user(
     if user.token_version != ver:
         raise HTTPException(status_code=401, detail="세션이 만료됐어 (다시 로그인)")
     # 차단된 계정은 토큰이 있어도 막음
-    if user.role == "banned":
+    if user.role == BANNED_ROLE:
         raise HTTPException(status_code=403, detail="차단된 계정이야")
     # 구독 만료 확인(지났으면 is_pro off) — 이후 모든 게이팅이 최신 상태로 동작
     _expire_pro_if_due(user, db)
@@ -57,7 +57,7 @@ def get_current_user_optional(
     if user is None or user.token_version != ver:
         return None
     # 차단된 계정은 비로그인 취급
-    if user.role == "banned":
+    if user.role == BANNED_ROLE:
         return None
     return user
 

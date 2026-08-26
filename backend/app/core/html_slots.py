@@ -257,6 +257,3 @@ def sanitize_slots(raw: dict[str, str] | None) -> dict[str, str]:
     raw = raw or {}
     return {k: sanitize_html(str(raw.get(k) or "")) for k in SLOT_KEYS}
 
-
-def has_any(slots: dict[str, str]) -> bool:
-    return any(slots.get(k) for k in SLOT_KEYS)

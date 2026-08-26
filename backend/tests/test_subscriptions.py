@@ -168,3 +168,45 @@ def test_approve_unknown_request_404(client, make_user, auth_headers):
         ).status_code
         == 404
     )
+
+
+def test_banned_subscriber_gets_no_new_post_mail(make_user, db, sent_mail, monkeypatch):
+    """차단된 구독자의 계정 메일함으로 새 글 알림이 가지 않는다.
+
+    푸시(test_push.py)와 쌍둥이인 경로다. 이쪽은 조회가 이미 User를 join하고 있었으면서도
+    역할을 안 봐서, 차단된 계정으로 구독자 전용 글의 제목이 계속 나갔다(2026-08-26).
+    """
+    from app.models.author_subscription import AuthorSubscription
+    from app.services import email as email_svc
+
+    author = make_user(role="writer")
+    ok = make_user(role="pending", email="ok-sub@test.com")
+    banned = make_user(role="banned", email="banned-sub@test.com")
+
+    db.add_all(
+        [
+            AuthorSubscription(subscriber_id=ok.id, author_id=author.id, approved=True, notify=True),
+            AuthorSubscription(subscriber_id=banned.id, author_id=author.id, approved=True, notify=True),
+        ]
+    )
+    db.commit()
+
+    monkeypatch.setattr(email_svc, "SessionLocal", lambda: _KeepOpenSession(db))
+    email_svc.notify_new_post(1, "구독자 전용 글", author.id)
+
+    recipients = [to for m in sent_mail for to in str(m["To"]).split(", ")]
+    assert "ok-sub@test.com" in recipients
+    assert "banned-sub@test.com" not in recipients
+
+
+class _KeepOpenSession:
+    """서비스가 자체 세션을 열고 close()하는데, 테스트는 롤백 트랜잭션을 살려둬야 한다."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def close(self):
+        pass
