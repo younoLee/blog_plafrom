@@ -15,6 +15,17 @@
 # 인증이 필요한 프로브는 토큰이 있으면 돌고 없으면 SKIP으로 남긴다.
 # **SKIP은 통과가 아니다.** 안 잰 것을 잰 것처럼 보이게 하지 않으려고 따로 표시한다.
 set -uo pipefail   # -e 없음: 프로브 하나가 실패해도 나머지를 계속 재야 한다
+# 레인 — 여러 훈련을 동시에 돌리려면 스택이 서로 격리돼야 한다.
+# 블랙홀 모드가 전역이라 한 스택을 공유하면 주입이 서로를 오염시킨다.
+: "${CHAOS_LANE:=0}"
+export COMPOSE_PROJECT_NAME="chaos${CHAOS_LANE}"
+export CHAOS_PORT_API=$((18000 + CHAOS_LANE * 100))
+export CHAOS_PORT_DB=$((15432 + CHAOS_LANE * 100))
+export CHAOS_PORT_SMTP=$((11025 + CHAOS_LANE * 100))
+export CHAOS_PORT_MAILUI=$((18025 + CHAOS_LANE * 100))
+export CHAOS_PORT_WEB=$((15173 + CHAOS_LANE * 100))
+export CHAOS_SUBNET="172.$((30 + CHAOS_LANE)).0"
+export CHAOS_BASE="http://localhost:$CHAOS_PORT_API"
 BASE="${CHAOS_BASE:-http://localhost:18000}"
 TOKEN="${CHAOS_TOKEN:-}"
 
@@ -62,6 +73,6 @@ probe "초대 발급"       POST /api/admin/invites '{}' yes
 echo
 echo "── 주입이 실제로 닿았는가 (blackhole 기록) ──"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-(cd "$ROOT" && docker compose -p chaos -f docker-compose.yml -f ops/chaos/docker-compose.chaos.yml \
+(cd "$ROOT" && docker compose -f docker-compose.yml -f ops/chaos/docker-compose.chaos.yml \
    exec -T blackhole sh -c 'tail -5 /state/hits.log 2>/dev/null || echo "  (기록 없음 — 주입이 안 닿았거나 아직 안 했다)"') 2>/dev/null \
   || echo "  (blackhole 미기동)"

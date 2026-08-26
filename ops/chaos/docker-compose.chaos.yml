@@ -20,7 +20,7 @@ services:
       default:
         # extra_hosts가 이 IP를 가리킨다. 고정하지 않으면 재기동마다 바뀌어
         # 주입이 조용히 안 닿는다 — 그걸 '앱이 견뎠다'로 읽으면 훈련이 거짓말을 한다.
-        ipv4_address: 172.30.0.9
+        ipv4_address: ${CHAOS_SUBNET:-172.30.0}.9
     healthcheck:
       test: ["CMD", "python", "-c", "import socket;socket.create_connection(('127.0.0.1',80),2)"]
       interval: 5s
@@ -29,26 +29,26 @@ services:
 
   db:
     ports: !override
-      - "15432:5432"
+      - "${CHAOS_PORT_DB:-15432}:5432"
 
   mailpit:
     ports: !override
-      - "11025:1025"
-      - "18025:8025"
+      - "${CHAOS_PORT_SMTP:-11025}:1025"
+      - "${CHAOS_PORT_MAILUI:-18025}:8025"
 
   backend:
     ports: !override
-      - "18000:8000"
+      - "${CHAOS_PORT_API:-18000}:8000"
     # 바깥 의존을 전부 blackhole로 돌린다. 컨테이너 안에서만 유효하므로
     # 호스트나 다른 스택에는 영향이 없다.
     extra_hosts:
-      - "fcm.googleapis.com:${CHAOS_BH_IP:-172.30.0.9}"
-      - "web.push.apple.com:${CHAOS_BH_IP:-172.30.0.9}"
-      - "api.tosspayments.com:${CHAOS_BH_IP:-172.30.0.9}"
-      - "api.anthropic.com:${CHAOS_BH_IP:-172.30.0.9}"
-      - "api.openai.com:${CHAOS_BH_IP:-172.30.0.9}"
-      - "generativelanguage.googleapis.com:${CHAOS_BH_IP:-172.30.0.9}"
-      - "api.cohere.com:${CHAOS_BH_IP:-172.30.0.9}"
+      - "fcm.googleapis.com:${CHAOS_SUBNET:-172.30.0}.9"
+      - "web.push.apple.com:${CHAOS_SUBNET:-172.30.0}.9"
+      - "api.tosspayments.com:${CHAOS_SUBNET:-172.30.0}.9"
+      - "api.anthropic.com:${CHAOS_SUBNET:-172.30.0}.9"
+      - "api.openai.com:${CHAOS_SUBNET:-172.30.0}.9"
+      - "generativelanguage.googleapis.com:${CHAOS_SUBNET:-172.30.0}.9"
+      - "api.cohere.com:${CHAOS_SUBNET:-172.30.0}.9"
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
@@ -60,13 +60,16 @@ services:
       # 컨테이너에서도 통하게 환경변수로 직접 가리킨다.
       REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/chaos-ca.crt
       SSL_CERT_FILE: /usr/local/share/ca-certificates/chaos-ca.crt
-      # 푸시가 꺼져 있으면 주입해도 아무 일이 안 난다 — 훈련이 무의미해진다.
-      # 훈련용 더미 키다(gen_vapid_keys.py로 만든 값을 넣어도 된다).
+      # 푸시가 꺼져 있으면(`push_enabled`가 두 키의 AND) 주입해도 아무 일이 안 나고,
+      # 훈련은 '견뎠다'가 아니라 '아무것도 안 했다'가 된다. up.sh가 훈련용 키쌍을
+      # 만들어 넣는다 — 운영 키와 무관한 일회용이다.
       VAPID_SUBJECT: mailto:chaos@example.com
+      VAPID_PUBLIC_KEY: ${CHAOS_VAPID_PUBLIC:-}
+      VAPID_PRIVATE_KEY: ${CHAOS_VAPID_PRIVATE:-}
 
   frontend:
     ports: !override
-      - "15173:80"
+      - "${CHAOS_PORT_WEB:-15173}:80"
 
 volumes:
   chaos_state:
@@ -75,4 +78,4 @@ networks:
   default:
     ipam:
       config:
-        - subnet: 172.30.0.0/24
+        - subnet: ${CHAOS_SUBNET:-172.30.0}.0/24

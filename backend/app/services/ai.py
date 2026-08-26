@@ -329,9 +329,17 @@ def _gemini(system: str, material: str, model: str, api_key: str) -> str:
     from google.genai import types
 
     # timeout은 밀리초 단위 (http_options)
+    # retry_options 를 명시한다. 안 주면 SDK 기본 재시도가 붙어 **정책의 1회가
+    # 여러 회**가 된다 — VENDOR_MAX_RETRIES=0 은 07-28 카오스 훈련이 115초를 실측하고
+    # 내린 결정인데, 그 결정이 _claude·_openai 에만 코드로 전달돼 있었다
+    # (2026-08-26 카오스 훈련에서 cohere 가 한 요청에 3번 나가는 것으로 드러났다).
+    # attempts 는 '총 시도 횟수'라 재시도 0회 = 1이다(max_retries 와 세는 단위가 다르다).
     client = genai.Client(
         api_key=api_key,
-        http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT * 1000),
+        http_options=types.HttpOptions(
+            timeout=REQUEST_TIMEOUT * 1000,
+            retry_options=types.HttpRetryOptions(attempts=VENDOR_MAX_RETRIES + 1),
+        ),
     )
     resp = client.models.generate_content(
         model=model,
@@ -347,7 +355,11 @@ def _gemini(system: str, material: str, model: str, api_key: str) -> str:
 def _cohere(system: str, material: str, model: str, api_key: str) -> str:
     import cohere
 
-    client = cohere.ClientV2(api_key=api_key, timeout=REQUEST_TIMEOUT)
+    # max_retries 를 명시한다 — 위 _gemini 와 같은 이유. 2026-08-26 훈련 실측:
+    # 이 인자가 없을 때 전송 오류에서 업스트림 호출이 1.0초 간격으로 **3회** 나갔다.
+    client = cohere.ClientV2(
+        api_key=api_key, timeout=REQUEST_TIMEOUT, max_retries=VENDOR_MAX_RETRIES
+    )
     resp = client.chat(
         model=model,
         max_tokens=MAX_TOKENS,

@@ -33,6 +33,24 @@ from app.models.user import BANNED_ROLE, User
 
 logger = logging.getLogger(__name__)
 
+# 발송 루프 전체의 시간 예산(초). 기기 하나가 아니라 **루프 전체**에 거는 상한이다.
+#
+# 왜 필요한가 — 2026-08-26 카오스 훈련 실측. 푸시 서비스가 무응답(hang)이면 기기마다
+# httpx timeout 10초를 꽉 채우고 직렬로 돌아 벽시계가 **기기수 × 10초**가 된다
+# (기기 3대에 28.75초 실측). 그동안 이 루프는 anyio 스레드 한 칸을 쥐고, 더 나쁘게는
+# **요청의 DB 세션이 살아 있어** 커넥션 한 칸이 `idle in transaction`으로 묶인다
+# (동시 4건이 커넥션 4개를 24초 넘게 잡는 것을 실측했다).
+#
+# 풀이 20이라(core/database.py) **스레드 40보다 커넥션이 먼저 마른다** — 동시 20건이면
+# DB를 타는 모든 요청이 pool_timeout 5초 뒤에 503이 된다. 구독자 기기가 늘수록
+# 최악 시간이 선형으로 늘어나므로 기기 수에 상한을 두는 것으로는 못 막는다.
+# 루프 전체에 데드라인을 걸어야 **기기 수와 무관하게** 붙드는 시간이 유한해진다.
+#
+# 45초의 근거: 정상 발송은 기기당 1초 미만이라 수십 대까지 여유가 있고, 장애 시에는
+# 4~5대에서 끊긴다(기기당 10초). 못 보낸 알림은 다음 발행 때 다시 기회가 있지만
+# 커넥션이 마르면 사이트 전체가 멈춘다 — 그 비대칭이 이 값을 정한다.
+DELIVER_BUDGET_SECONDS = 45
+
 # 푸시 서비스가 수신자를 못 만났을 때 메시지를 얼마나 붙들고 있을지(초).
 # 새 글 알림은 하루가 지나면 알림으로서 의미가 옅어지므로 24시간.
 TTL_SECONDS = 24 * 60 * 60
@@ -235,7 +253,18 @@ def _deliver(subs: Sequence[Row[tuple[int, str, str, str]]], payload: dict) -> N
     if not subs:
         return
     dead: list[int] = []
+    deadline = time.monotonic() + DELIVER_BUDGET_SECONDS
+    sent = 0
     for sub_id, endpoint, p256dh, auth in subs:
+        if time.monotonic() > deadline:
+            # 예산을 넘기면 남은 기기를 버린다. 알림 몇 개를 못 보내는 것보다
+            # 이 루프가 자원을 계속 쥐는 게 나쁘다 — 아래 상수 주석 참고.
+            logger.warning(
+                "푸시 발송 예산 초과 — %d/%d대에서 중단(남은 기기는 이번 발행을 못 받는다)",
+                sent,
+                len(subs),
+            )
+            break
         try:
             send_push(endpoint, p256dh, auth, payload)
         except PushGone:
@@ -243,6 +272,7 @@ def _deliver(subs: Sequence[Row[tuple[int, str, str, str]]], payload: dict) -> N
         except Exception:
             # 한 기기 실패가 나머지 발송을 막지 않게(email.py와 같은 방침)
             logger.exception("푸시 발송 중 예외")
+        sent += 1
 
     # 죽은 구독은 그 자리에서 지운다. 안 지우면 매 발행마다 같은 곳에 던지고
     # 실패하며, 사용자 목록의 '기기 수'도 영원히 틀린 값을 보여준다.

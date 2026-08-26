@@ -119,6 +119,20 @@ def confirm(
         raise HTTPException(status_code=502, detail="결제 승인 요청에 실패했어 (잠시 후 다시)")
 
     if resp.status_code != 200:
+        # **5xx 와 4xx 를 가른다.** 예전엔 한 갈래로 보내 둘 다 `failed` + 400 이었다.
+        # 2026-08-26 카오스 훈련에서 토스에 503 을 주입해 드러난 것:
+        #   ① 400 은 프론트의 isAsleepStatus(502/503/504)에 없어 '일시적 장애' 경로를
+        #      안 탄다. 게이트웨이가 아픈데 사용자는 "내 카드가 거절됐다"를 본다 —
+        #      돈 경로에서 원인을 정반대로 알려주는 셈이다.
+        #   ② 더 나쁜 건 장부다. 토스는 승인 여부를 **판단한 적이 없는데**
+        #      payments.status 가 failed 로 굳었다. 5xx 는 '거절'이 아니라 '모름'이다.
+        # 그래서 5xx 에서는 status 를 pending 그대로 둔다. status='paid' 만 멱등
+        # 단축경로라 pending 행은 그대로 재시도된다.
+        if resp.status_code >= 500:
+            raise HTTPException(
+                status_code=502,
+                detail="결제사가 일시적으로 응답하지 못했어. 잠시 후 다시 시도해줘",
+            )
         p.status = "failed"
         db.commit()
         detail = "결제 승인이 거절됐어"

@@ -59,3 +59,4 @@ docs/voice/ui-refs/*
 # 훈련 때마다 make_ca.sh가 새로 만든다(유효기간 30일) — 저장할 이유가 없고,
 # 커밋하면 '신뢰 저장소에 넣는 CA의 개인키'가 저장소에 남는다.
 ops/chaos/certs/
+ops/chaos/.env.chaos
