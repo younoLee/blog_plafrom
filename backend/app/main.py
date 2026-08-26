@@ -416,7 +416,14 @@ app.include_router(skin.router, prefix="/api")
 # ⚠️ 이건 **로컬 개발용 폴백**이다. 운영에서는 S3_BUCKET이 설정돼 있어 이미지가 S3에
 # 저장되고(routers/uploads.py), CloudFront의 /uploads/* 전용 동작은 2026-06-26에
 # 제거돼 기본 S3 오리진이 직접 서빙한다 — 즉 운영 트래픽은 이 마운트를 타지 않는다.
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# 폴더가 없으면 마운트하지 않는다. StaticFiles는 없는 디렉터리에 RuntimeError를 던지는데,
+# 그러면 **import가 실패해 컨테이너가 영원히 unhealthy**가 된다(routers/uploads.py 윗주석의
+# 그 고장이다). uploads.py는 mkdir 실패를 이미 '넘어간다'로 처리하는데 여기만 무조건
+# 마운트해서 의도가 어긋나 있었다 — 폴백이 없는 것과 앱이 안 뜨는 것은 다른 무게다.
+if uploads.UPLOAD_DIR.is_dir():
+    app.mount("/uploads", StaticFiles(directory=uploads.UPLOAD_DIR), name="uploads")
+else:
+    logger.warning("uploads/ 가 없어 /uploads 정적 서빙을 건너뛴다 — 이미지는 S3에서 온다")
 
 
 @app.get("/api/health")
