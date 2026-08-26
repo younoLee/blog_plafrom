@@ -195,7 +195,13 @@ sudo chown -R 10001:10001 ~/blog/uploads
 #    extra_forbidden으로 거부해 백엔드가 재시작 루프에 빠진다. 운영은 이미 파일이
 #    있어서 안 겪지만 새 인스턴스는 반드시 겪는다.
 #    로컬에서:
-tar czf /tmp/backend.tgz -C backend .dockerignore app alembic alembic.ini requirements.txt Dockerfile
+# ⚠️ `scripts` 를 반드시 넣는다. 가입이 초대제라 계정은 scripts/create_user.py 로만
+#    만든다 — 이게 빠지면 재건은 '성공'하고 /api/status 도 200인데 **첫 계정을 만들 수단이
+#    이미지에 없다**(프로드는 코드 볼륨 마운트가 없어 이미지에 구워진 것만 있다).
+#    2026-08-26까지 이 줄이 deploy_backend.sh:63-64 와 달랐다. 07-27 게임데이는
+#    초대제(08-07) 이전이라 이 자리를 밟을 수 없었고, 그래서 훈련으로는 안 잡혔다.
+#    지금은 check_runbook_drift.sh 의 검사 F 가 두 목록을 대조한다.
+tar czf /tmp/backend.tgz -C backend .dockerignore app alembic alembic.ini requirements.txt Dockerfile scripts
 scp -i ~/.ssh/blog-key.pem /tmp/backend.tgz docker-compose.prod.yml ec2-user@$DNS:~/blog/
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS 'cd ~/blog && tar xzf backend.tgz && rm backend.tgz'
 
@@ -206,6 +212,17 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS 'chmod 600 ~/blog/.env'
 # 이 PC까지 잃었다면 SSM 사본에서(계정이 살아 있는 한 여기 있다):
 #   aws ssm get-parameter --name /blog/prod/env --with-decryption \
 #     --query Parameter.Value --output text > /tmp/prod.env
+
+# 4-B) **.env 필수 키 확인.** 재조립에서 한 줄이 빠지는 것이 이 절차의 주된 실패 모양이다.
+#      아래 중 셋(SECRET_KEY·ORIGIN_SECRET·S3_BUCKET·PAYMENTS_REQUIRE_LIVE)은 main.py의
+#      기동 가드가 프로드에서 fail-closed로 막으므로 **빠지면 컨테이너가 안 뜬다** — 요란하다.
+#      나머지는 **빠져도 앱이 정상 기동한다.** 그게 더 위험하다(시나리오 D 표 참고).
+ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
+  'cd ~/blog && for k in SECRET_KEY ORIGIN_SECRET S3_BUCKET PAYMENTS_REQUIRE_LIVE \
+       DB_PASSWORD LLM_ENCRYPTION_KEY VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT \
+       ANTHROPIC_API_KEY SMTP_HOST SMTP_USER SMTP_PASSWORD PUBLIC_BASE_URL FRONTEND_BASE_URL; do
+     grep -q "^$k=" .env || echo "  빠짐: $k"
+   done; echo "  (아무것도 안 나오면 통과)"'
 
 # 5) DB만 먼저 띄운다
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
@@ -271,7 +288,10 @@ aws s3api list-object-versions --bucket blogplafromops --prefix uploads/ \
 | `LLM_ENCRYPTION_KEY` | `llm_credentials`의 BYOK 키를 **영원히 못 푼다** | 사본에서 복원(이 PC 또는 SSM). 셋 다 잃었으면 없음 — 해당 행을 지우고 사용자에게 재입력 요청 |
 | `SECRET_KEY` | 세션뿐 아니라 **발송 대기 중인 이메일 인증·비번재설정·구독확인 링크까지** 전부 무효 | 새 값 생성. 세션은 재로그인, 링크는 재발송. 미인증 계정은 24h 뒤 자동 삭제되므로 재가입 안내 필요 |
 | `DB_PASSWORD` | 컨테이너가 새로 뜨면 초기화됨 | 새 값으로 재설정 |
-| `ANTHROPIC_API_KEY` / 토스 키 | 해당 기능 정지 | 각 콘솔에서 재발급 |
+| `ANTHROPIC_API_KEY` / `TOSS_SECRET_KEY` | 해당 기능 정지 | 각 콘솔에서 재발급. **토스 키는 `PAYMENTS_REQUIRE_LIVE`와 짝이다** — 아래 참고 |
+| `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` | **푸시 전체 정지. 앱은 정상 기동하고 경보도 없다.** `push_enabled`가 두 키의 AND라 False가 되고, `/api/push/*`가 503을 내며 프론트가 '알림 켜기'를 아예 숨긴다. 백업에 `push_subscriptions` 행은 복원되므로 **구독자는 있는데 아무것도 안 나가는** 상태가 된다 | `backend/scripts/gen_vapid_keys.py`로 재발급. ⚠️ **재발급하면 기존 구독이 전부 무효**다 — 모든 사용자가 알림을 끄고 다시 켜야 한다 |
+| `ORIGIN_SECRET` | CloudFront가 헤더를 안 붙이는데 서버는 계속 검사한다 → **`/api/*`가 전부 403**. 증상이 그냥 403이라 원인과 안 닮았다 | terraform 변수와 서버 `.env`를 **같은 값으로** 다시 맞춘다(둘 중 하나만 고치면 계속 403) |
+| `PAYMENTS_REQUIRE_LIVE` | 이건 '잃는' 값이 아니라 **빠뜨리는** 값이다. 기본값이 `false`라 한 줄이 없으면 토스 **테스트 키로 승인된 결제가 Pro로 붙는다**(공짜 Pro) | `main.py`의 기동 가드가 프로드에서 이걸 막는다 — 재조립한 `.env`로 컨테이너가 안 뜨면 이 줄을 의심한다 |
 
 `LLM_ENCRYPTION_KEY`만 성격이 다르다 — 나머지는 새로 만들면 되지만 이건 **데이터를
 푸는 열쇠**라 잃으면 데이터가 같이 죽는다. 그래서 `scripts/env_escrow.sh save`가

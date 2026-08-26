@@ -22,6 +22,15 @@
 #   C. 런북의 `-target=` 주소가 실제 리소스인가
 #   D. 스크립트에 INSTANCE_ID가 **박혀 있지 않은가**   ← 태그 조회 강제
 #   E. 로컬 .env 템플릿이 compose 치환 변수를 전부 담는가  ← 조용히 꺼지는 기능 방지
+#   F. 런북의 tar 목록이 배포 스크립트의 것을 담는가        ← 재건 이미지에 파일 누락 방지
+#   G. 런북이 재조립 시 필수 키를 전부 나열하는가           ← .env 한 줄 누락 방지
+#
+# ⚠️ **이 검사가 안 보는 것** (초록이 "런북이 맞다"를 뜻하지 않는다):
+#   · 절차의 **순서**가 옳은지. B는 스크립트 존재만, C는 주소 유효성만 본다.
+#   · 런북에 **아예 없는 것**. 없는 것은 어긋날 수 없다 — 2026-08-26까지 VAPID가
+#     RECOVERY.md에 0건이었는데 이 검사는 4주 내내 초록이었다. 새 시크릿·새 절차가
+#     생겼을 때 그것이 런북에 들어갔는지는 **사람이 훈련에서** 확인해야 한다.
+#   · 명령이 실제로 도는지. 정적 검사라 실행하지 않는다.
 #
 # ⚠️ 여기 있던 D 설명은 2026-08-11까지 **폐기된 절차를 현재 규칙으로** 서술하고 있었다:
 #   "스크립트들의 INSTANCE_ID가 전부 같은가 / 재건하면 5곳을 손으로 고쳐야 한다".
@@ -197,6 +206,55 @@ if [ -n "$missing" ]; then
   echo "     안 적으면 그 기능이 로컬에서 조용히 꺼진 채로 개발하게 됩니다."
 else
   ok "치환 변수 $(printf '%s\n' "$compose_vars" | wc -l)개가 전부 템플릿에 있음"
+fi
+
+# ── F. 런북의 tar 목록 ⊇ 배포 스크립트의 tar 목록 ──────────────────────────
+# 왜 — 2026-08-26에 실제로 어긋나 있었다. deploy_backend.sh는 `scripts`를 tar에 넣고
+# 그 이유까지 적어놨는데(가입이 초대제라 계정은 scripts/create_user.py로만 만든다),
+# RECOVERY.md의 재건 절차는 그 인자가 빠져 있었다. 재건하면 **서버는 뜨고 /api/status도
+# 200인데 첫 계정을 만들 수단이 이미지에 없다.** 07-27 게임데이는 초대제(08-07) 이전이라
+# 이 자리를 밟을 수 없었다 — 즉 훈련으로는 못 잡고 이 검사만 잡을 수 있는 종류다.
+say "F. 런북의 tar 목록이 배포 스크립트의 것을 담는가"
+# `tar czf ... -C <경로> \` 로 줄이 끊기고 다음 줄에 항목이 오는 형태를 둘 다 처리한다.
+# 역슬래시 줄바꿈을 먼저 이어 붙인 뒤 `-C <경로>` 뒤쪽만 남긴다.
+# grep 실패가 이 스크립트를 죽이면 안 된다(set -e) — 못 찾은 것도 판정 대상이다.
+tar_items() {  # $1=파일
+  sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$1" \
+    | grep -m1 -oE 'tar czf .*-C [^ ]+ .*' \
+    | sed -E 's/.*-C [^ ]+ //; s/"//g' \
+    | tr ' ' '\n' | grep -v '^$' | LC_ALL=C sort -u || true
+}
+dep_items=$(tar_items "$ROOT/scripts/deploy_backend.sh")
+run_items=$(tar_items "$ROOT/RECOVERY.md")
+if [ -z "$dep_items" ] || [ -z "$run_items" ]; then
+  bad "tar 목록을 못 찾았습니다 (배포 항목수=$(printf '%s' "$dep_items" | grep -c . || true) / 런북=$(printf '%s' "$run_items" | grep -c . || true))."
+  echo "     둘 중 하나의 형태가 바뀌었으면 이 검사의 tar_items()를 같이 고쳐야 합니다."
+else
+  lack=$(LC_ALL=C comm -23 <(printf '%s\n' "$dep_items") <(printf '%s\n' "$run_items") | tr '\n' ' ')
+  if [ -n "$lack" ]; then
+    bad "배포는 tar에 넣는데 런북은 빠뜨린 것: $lack"
+    echo "     재건된 이미지에 그 파일이 없습니다. 프로드는 코드 볼륨 마운트가 없어"
+    echo "     이미지에 구워진 것만 있습니다 — 재해 한복판에서야 알게 됩니다."
+  else
+    ok "런북 tar 목록이 배포의 것을 전부 담음"
+  fi
+fi
+
+# ── G. 런북이 재조립 시 필수 키를 전부 나열하는가 ──────────────────────────
+# 왜 — 시나리오 B 4단계는 .env를 에스크로에서 되살린다. 거기서 한 줄이 빠지는 것이
+# 이 절차의 주된 실패 모양인데, 빠져도 **앱이 정상 기동하는** 키가 여럿이다
+# (VAPID를 빠뜨리면 푸시만 조용히 꺼진다 — 경보 없음). 그래서 목록이 런북에 있어야 한다.
+say "G. 런북이 재조립 필수 키를 나열하는가"
+need_keys="SECRET_KEY ORIGIN_SECRET S3_BUCKET PAYMENTS_REQUIRE_LIVE DB_PASSWORD LLM_ENCRYPTION_KEY VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT"
+miss_keys=""
+for k in $need_keys; do
+  grep -q "$k" "$ROOT/RECOVERY.md" || miss_keys="$miss_keys $k"
+done
+if [ -n "$miss_keys" ]; then
+  bad "RECOVERY.md가 언급하지 않는 필수 키:$miss_keys"
+  echo "     없는 것은 어긋날 수 없습니다 — 재조립에서 통째로 빠집니다."
+else
+  ok "필수 키 $(printf '%s' "$need_keys" | wc -w)개가 전부 런북에 있음"
 fi
 
 say "결과"

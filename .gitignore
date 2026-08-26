@@ -54,3 +54,8 @@ docs/voice/samples/*
 docs/voice/ui-refs/*
 !docs/voice/samples/.gitkeep
 !docs/voice/ui-refs/.gitkeep
+
+# 카오스 훈련용 사설 CA. **개인키가 들어 있다.**
+# 훈련 때마다 make_ca.sh가 새로 만든다(유효기간 30일) — 저장할 이유가 없고,
+# 커밋하면 '신뢰 저장소에 넣는 CA의 개인키'가 저장소에 남는다.
+ops/chaos/certs/

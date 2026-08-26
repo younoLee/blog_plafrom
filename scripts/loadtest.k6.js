@@ -38,8 +38,27 @@ export const options = {
 export default function () {
   // 대부분 글 목록(DB 쿼리+직렬화로 CPU 소모), 가끔 다른 읽기 경로 섞어 캐시·단조로움 회피.
   const r = Math.random()
-  const path = r < 0.8 ? '/api/posts' : r < 0.9 ? '/api/blog-owner' : '/api/status'
+  // `?q=`를 섞는다. 2026-08-26 병목검사 실측: 검색 한 건이 /api/health의 **203배**
+  // (약 2.6초)이고, `?limit=10` 기본 목록의 약 27배다. 그런데 이 스크립트는 08-26까지
+  // /api/posts·/api/blog-owner·/api/status 셋만 때려 **가장 비싼 경로를 정확히 비켜갔다.**
+  // 원인은 본문 전체 ILIKE인데 GIN 인덱스 3종이 idx_scan=0으로 한 번도 안 탄다
+  // (본문이 TOAST로 빠져 main heap이 11페이지라 플래너가 Seq Scan을 공짜로 오판한다).
+  //
+  // 비중을 10%로 낮게 잡은 이유: 이건 처리량을 재려는 게 아니라 **한 요청의 단가가
+  // 다른 것과 수십 배 다르다는 사실**을 부하에 반영하려는 것이다. 더 올리면 리미터가
+  // 먼저 걸려(60/분) 서버가 아니라 리미터를 재게 된다.
+  //
+  // 길이를 셋으로 나눈다 — trgm 인덱스는 3글자(trigram) 미만이면 원리적으로 못 탄다.
+  // 2글자와 3글자의 비용 차이가 인덱스가 살아났는지를 보는 신호다.
+  const Q = ['', '검색', '커넥션']
+  let path
+  if (r < 0.7) path = '/api/posts'
+  else if (r < 0.8) path = `/api/posts?limit=10&q=${encodeURIComponent(Q[1 + (Math.random() < 0.5 ? 0 : 1)])}`
+  else if (r < 0.9) path = '/api/blog-owner'
+  else path = '/api/status'
   const res = http.get(`${BASE}${path}`)
-  check(res, { 'status 200': (x) => x.status === 200 })
+  // 429는 실패가 아니라 **리미터가 동작한 것**이다. 섞어 세면 오리진 용량을 재는
+  // http_req_failed 임계가 리미터 때문에 깨져 무엇을 쟀는지 알 수 없게 된다.
+  check(res, { 'status 200 or 429': (x) => x.status === 200 || x.status === 429 })
   sleep(0.5 + Math.random()) // 유저당 0.5~1.5초 간격
 }

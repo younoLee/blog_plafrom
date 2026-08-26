@@ -107,6 +107,9 @@ echo "  내려받기+전송 $(( T1 - T0 ))ms"
 say "3/4 복원 → 대조 → 정리"
 cat > "$STAGE/remote.sh" <<'REMOTE'
 set -euo pipefail
+# $1 = 워크스테이션이 계산한 코드 head(alembic). 여기(EC2)에는 저장소 소스가 없어서
+# 직접 못 구한다 — 그래서 넘겨받는다. 비어 있으면 3자 대조를 WARN으로 낮춘다.
+LOCAL_HEAD="${1:-}"
 cd /home/ec2-user/blog
 DC="sudo docker compose -f docker-compose.prod.yml"
 src() { $DC exec -T db psql -U postgres -d postgres      -tAc "$1"; }
@@ -148,11 +151,22 @@ echo "  --- 스키마 버전 ---"
 # 행 수가 전부 맞아도 서비스는 안 돌아오므로, 개수 대조로는 절대 못 잡는 종류다.
 va=$(src "select version_num from alembic_version")
 vb=$(dst "select version_num from alembic_version")
-if [ "$va" = "$vb" ]; then
-  printf "  OK   %-22s %s\n" "alembic_version" "$va"
-else
+# 셋을 대조한다: 로컬 코드의 head · 운영 · 복원본. 둘만 보면 안 되는 이유가 있다 —
+# 운영과 복원본이 일치해도 **둘 다 낡았을 수 있고**, 그러면 훈련은 "지난달 스키마가
+# 잘 복원된다"를 증명하고 초록으로 끝난다. 2026-08-10 복원 훈련이 정확히 그 상태였다
+# (대상 테이블 12개 시절 기준으로 통과하고 있었다). 로컬 head가 그 기준선이다.
+# head 산출은 verify_deploy.sh가 쓰는 것과 같은 방법이다(down_revision 집합의 여집합).
+local_head="${LOCAL_HEAD:-}"
+if [ "$va" != "$vb" ]; then
   printf "  FAIL %-22s 운영 %s / 복원 %s → 앱이 이 DB 위에서 안 뜬다\n" "alembic_version" "$va" "$vb"
   FAIL=1
+elif [ -z "$local_head" ] || [ "${local_head#MULTI:}" != "$local_head" ]; then
+  printf "  WARN %-22s 운영=복원=%s 이지만 로컬 head를 못 구했다(%s)\n" "alembic_version" "$va" "${local_head:-빈값}"
+elif [ "$va" != "$local_head" ]; then
+  printf "  FAIL %-22s 운영=복원=%s 인데 코드 head는 %s — 훈련이 '지난달'을 증명하고 있다\n" "alembic_version" "$va" "$local_head"
+  FAIL=1
+else
+  printf "  OK   %-22s %s (코드 head와 일치)\n" "alembic_version" "$va"
 fi
 
 echo "  --- 스키마 구조 ---"
@@ -175,14 +189,32 @@ else
   FAIL=1
 fi
 
-# 인덱스가 빠진 복원본은 '되긴 되는데 느린' 상태라 개수 대조로는 안 걸린다.
-# 제약(FK/UNIQUE)이 빠지면 무결성이 조용히 깨진다. 둘 다 구조라 시점과 무관하다.
-for what in "인덱스:select count(*) from pg_indexes where schemaname='public'" \
-            "제약:select count(*) from information_schema.table_constraints where constraint_schema='public'"; do
+# 인덱스가 빠진 복원본은 '되긴 되는데 느린' 상태고, 제약(FK/UNIQUE)이 빠지면 무결성이
+# 조용히 깨진다. 둘 다 구조라 시점과 무관하다.
+#
+# **개수가 아니라 정의로 본다.** 개수 대조는 A가 빠지고 B가 생긴 경우를 통과시킨다.
+# 테이블 집합에는 이미 같은 이유로 이름 대조를 쓰고 있었는데 여기만 개수였다.
+# 특히 f2a3b4c5d6e7(posts.owner_id ondelete=CASCADE)처럼 **제약의 내용만 바뀌는**
+# 마이그레이션은 개수가 그대로라 원리적으로 안 보인다 — 그게 이 대조를 정의 집합으로
+# 바꾸는 이유다. 컬럼 집합도 같이 본다(handle·custom_css·custom_html이 조용히 빠지면
+# 스킨이 기본값으로 돌아가고 /@handle이 404가 되는데 /api/status는 200이다).
+for what in "인덱스:select indexdef from pg_indexes where schemaname='public'" \
+            "제약:select conrelid::regclass||' '||conname||' '||pg_get_constraintdef(oid) from pg_constraint where connamespace='public'::regnamespace" \
+            "컬럼:select table_name||'.'||column_name||' '||data_type||' '||is_nullable from information_schema.columns where table_schema='public'"; do
   label=${what%%:*}; q=${what#*:}
-  a=$(src "$q"); b=$(dst "$q")
-  if [ "$a" = "$b" ]; then printf "  OK   %-22s %s\n" "$label 수" "$a"
-  else printf "  FAIL %-22s 운영 %s / 복원 %s\n" "$label 수" "$a" "$b"; FAIL=1; fi
+  src "$q" | LC_ALL=C sort > /tmp/drill_def.src
+  dst "$q" | LC_ALL=C sort > /tmp/drill_def.dst
+  miss=$(LC_ALL=C comm -23 /tmp/drill_def.src /tmp/drill_def.dst | head -5 | tr '\n' '|')
+  extra=$(LC_ALL=C comm -13 /tmp/drill_def.src /tmp/drill_def.dst | head -5 | tr '\n' '|')
+  n=$(wc -l < /tmp/drill_def.src)
+  rm -f /tmp/drill_def.src /tmp/drill_def.dst
+  if [ -z "$miss" ] && [ -z "$extra" ]; then
+    printf "  OK   %-22s %s개 정의 전부 일치\n" "$label" "$n"
+  else
+    [ -n "$miss" ]  && printf "  FAIL 복원본에 없는 %s: %s\n" "$label" "$miss"
+    [ -n "$extra" ] && printf "  FAIL 복원본에만 있는 %s: %s\n" "$label" "$extra"
+    FAIL=1
+  fi
 done
 
 # 확장도 이름 집합으로 본다. pg_trgm이 없으면 검색이 깨지는데, 예전엔 pg_trgm '하나만'
@@ -263,7 +295,12 @@ if [ -z "$enc" ]; then
   # 살아남은 이유가 바로 이 줄이 `--`(정보)였기 때문이다. 훈련은 매번 초록으로 끝나면서
   # 정작 '행 수로는 원리적으로 안 보이는 손실'을 한 번도 안 본 상태로 지나갔다.
   # 조용한 생략은 통과처럼 읽힌다 — 검사를 안 한 것을 검사한 것처럼 보이게 하는 게 제일 나쁘다.
-  echo "  WARN 저장된 BYOK 자격증명이 0행이라 복호화를 **검사하지 못했다**(생략 아님, 미검증)."
+  # 2026-08-26에 WARN에서 FAIL로 올렸다. WARN은 훈련을 초록으로 끝내고, 그러면 이 검사가
+  # 있으나 마나가 된다 — 카나리아가 사라진 날 훈련은 조용히 08-10 이전 상태로 되돌아간다.
+  # '검사하지 못했다'는 통과가 아니다. 이 파일이 바로 아래 줄에서 그렇게 적어놓고도
+  # 판정만 WARN이었던 것이 앞뒤가 안 맞았다.
+  FAIL=1
+  echo "  FAIL 저장된 BYOK 자격증명이 0행이라 복호화를 **검사하지 못했다**(생략 아님, 미검증)."
   echo "       이 상태로는 LLM_ENCRYPTION_KEY가 백업과 어긋나도 훈련이 절대 못 잡는다."
   echo "       닫는 법 — 카나리아 한 줄을 등록하고 새 백업을 뜬 뒤 다시 돌린다:"
   echo "         docker compose -f docker-compose.prod.yml exec -T -e PYTHONPATH=/app backend python -c \\"
@@ -359,6 +396,24 @@ else
 fi
 REMOTE
 
+# 코드의 alembic head를 여기서 구해 원격에 넘긴다. 셋(코드·운영·복원)을 대조해야
+# "운영과 복원이 똑같이 낡은" 경우를 잡는다 — 둘만 보면 그건 통과다.
+LOCAL_HEAD=$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend/alembic/versions" && python3 - <<'PY'
+import re, pathlib
+revs, downs = {}, set()
+for f in pathlib.Path('.').glob('*.py'):
+    t = f.read_text(encoding='utf-8')
+    r = re.search(r'^revision(?::\s*str)?\s*=\s*["\']([0-9a-f]+)["\']', t, re.M)
+    # 타입 주석은 같은 줄에만 있다. `[^=]*`로 두면 개행을 먹어 파일이 자기 자신을 down으로
+    # 가리키게 되고 head가 사라진다(2026-08-19에 실제로 겪었다 — verify_deploy.sh와 같은 함정).
+    d = re.findall(r'^down_revision(?::[^=\n]*)?\s*=\s*["\']([0-9a-f]+)["\']', t, re.M)
+    if r: revs[r.group(1)] = f.name
+    downs.update(d)
+heads = sorted(set(revs) - downs)
+print(heads[0] if len(heads) == 1 else "MULTI:" + ",".join(heads))
+PY
+) || LOCAL_HEAD=""
+
 scp -q -o StrictHostKeyChecking=no -i "$SSH_KEY" \
   "$STAGE/remote.sh" "ec2-user@$DNS:/tmp/restore_drill_remote.sh"
 
@@ -369,7 +424,7 @@ scp -q -o StrictHostKeyChecking=no -i "$SSH_KEY" \
 # 훈련을 래퍼/cron/리다이렉션 안에서 돌릴 때 psql이 그걸 먹는다(2026-07-22 코드검사).
 rc=0
 ssh -n -o StrictHostKeyChecking=no -i "$SSH_KEY" "ec2-user@$DNS" \
-  'bash /tmp/restore_drill_remote.sh; rc=$?; rm -f /tmp/restore_drill_remote.sh; exit $rc' \
+  "bash /tmp/restore_drill_remote.sh '$LOCAL_HEAD'; rc=\$?; rm -f /tmp/restore_drill_remote.sh; exit \$rc" \
   | tee "$STAGE/remote.out" || rc=$?
 
 # ── 4. DB 바깥 검증 (워크스테이션 자격증명으로) ─────────────────────────────
@@ -466,8 +521,21 @@ else
 fi
 
 # ④-4 시크릿 사본. DB가 완벽해도 .env가 없으면 서비스는 못 뜬다.
+#
+# 예전엔 `|| true`였다. 그러면 **이 검사가 죽어도 훈련이 초록으로 끝난다** — 이 파일이
+# 위에서 BYOK 카나리아에 대해 길게 적어둔 바로 그 병(조용한 생략이 통과처럼 읽힌다)을
+# 정작 자기 마지막 줄에서 저지르고 있었다. 실제로 2026-08-26에 그 상태였다:
+# ~/.blog-secrets/ 가 통째로 없어 env_escrow.sh가 즉시 exit 1로 끝났고, 그 아래에 있는
+# '템플릿 대 실제 키 집합' 대조(08-10에 VAPID 누락을 잡아낸 검사)에 **도달조차 못 했다.**
+# 두 겹으로 은폐된 셈이라, 운영 .env 키 드리프트를 보는 장치가 0개인 채로 초록이었다.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"$SCRIPT_DIR/env_escrow.sh" check || true
+if ! "$SCRIPT_DIR/env_escrow.sh" check; then
+  echo "  FAIL 시크릿 사본 검사가 실패했다 — DB가 복원돼도 .env가 없으면 서비스는 못 뜬다."
+  echo "       사본이 아예 없으면: scripts/env_escrow.sh save (EC2가 running이어야 한다)"
+  # FAIL이 아니라 rc다. FAIL은 원격 스크립트(108~360줄) 안에서만 사는 변수라
+  # 여기서 세워봐야 아무 데도 안 닿는다 — ④ 절은 워크스테이션에서 돈다.
+  rc=1
+fi
 
 say "훈련 종료"
 exit "$rc"

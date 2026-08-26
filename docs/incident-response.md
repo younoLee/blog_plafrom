@@ -18,10 +18,15 @@
 | `~/.aws/credentials` (IAM_cli) | **AdministratorAccess** | 계정 전체. 백업 **영구 삭제 가능**(아래 참고) |
 | `prod.env`의 `SMTP_USER/PASSWORD` | SES 발송 그룹 IAM 키 | 도메인 사칭 발송·평판 훼손. **CloudTrail에 안 남는다** |
 | `prod.env`의 `SECRET_KEY` | 세션·이메일 링크 위조 | 임의 사용자로 로그인, 인증/비번재설정 링크 위조 |
-| `prod.env`의 `LLM_ENCRYPTION_KEY` | BYOK 복호화 | `llm_credentials` 평문화 (2026-07-27 기준 행 0) |
+| `prod.env`의 `LLM_ENCRYPTION_KEY` | BYOK 복호화 | `llm_credentials` 평문화. **행 수는 훈련 때마다 다시 센다** — 2026-07-27에 0행이었다는 사실이 이 표에 숫자로 굳어 있어서, 그 뒤 BYOK가 실사용에 들어가도 폭발반경이 계속 0으로 읽혔다 |
 | `prod.env`의 `DB_PASSWORD` | DB 계정 | 인터넷 미노출이라 SSH·서버 장악이 선행돼야 함 |
 | `prod.env`의 `ANTHROPIC_API_KEY` | Claude 청구 | 앱 캡과 무관하게 키 자체로 직접 호출 가능 |
 | `~/.ssh/blog-key.pem` | 서버 셸 | 서버 장악 → 단, EC2 역할 권한은 아래처럼 좁다 |
+| `prod.env`의 `VAPID_PRIVATE_KEY` | 푸시 발송 권한 | 등록된 **모든 기기로 임의 알림 발송**. 잠금화면에 뜨므로 피싱 경로가 된다. 폐기하면 기존 구독이 전부 무효가 된다(3-5) |
+| `prod.env`의 `TOSS_SECRET_KEY` | 결제 승인 API | 결제 조회·취소. 금전 경로라 콘솔에서 즉시 폐기 |
+| `prod.env`의 `ORIGIN_SECRET` | CloudFront 우회 | 오리진(EC2:8000)을 직접 칠 수 있게 된다 → 엣지의 WAF·요청크기 제한을 통째로 건너뛴다 |
+| **`~/.aws/credentials` → SSM `/blog/prod/env`** | **위 `prod.env` 전 항목** | 관리자 키 한 장이 이 표의 다른 행 **전부의 상위 집합**이다. 우선순위는 항상 이것이 먼저다 |
+| **`~/.blog-secrets/prod.env.<타임스탬프>`** | **옛 세대 키 전부** | 에스크로가 로테이션 이력을 보관하므로, 이 PC가 털리면 '이미 교체한 옛 키'까지 같이 나간다. 옛 암호문(BYOK)은 옛 키로 풀린다 |
 
 ### 서버가 털려도 백업은 산다 (`simulate-principal-policy`로 실증)
 
@@ -193,11 +198,17 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOK" \
   http://localhost:8000/api/auth/me
 ```
 
-### 3-4. 이번에 **일부러 안 한 것**
+### 3-4. 2026-07-27에 **일부러 안 한 것** (절차는 아래 3-5~3-8에 생겼다)
+
+> 2026-08-26 보강: 이 절의 항목들이 "안 한 것"으로만 남아 있어서, **로테이션 절차가
+> 아예 없는 시크릿**이 넷이 됐다(VAPID·TOSS·ORIGIN_SECRET·LLM). 훈련은 절차를
+> 검증하는 것이지 발명하는 것이 아니라, 절차가 없으면 IR 훈련이 돌 대상이 없다.
+> 아래에 뼈대를 먼저 썼다. **값과 실측은 다음 훈련에서 채운다.**
 
 - **`LLM_ENCRYPTION_KEY`** — 교체하면 옛 암호문을 못 푼다. 2026-07-27 기준 `llm_credentials`가
   0행이라 무해했지만, **재암호화 계획 없이는 손대지 않는다**가 원칙이다. 교체할 때도
   옛 에스크로 사본을 지우지 않는다(`env_escrow.sh save`가 타임스탬프로 보관한다).
+  → 재암호화 도구를 만들었다: `scripts/reencrypt_llm_keys.py`. 절차는 **3-6**.
 - **`ANTHROPIC_API_KEY` / 토스 키** — 각 콘솔에서 사람이 재발급해야 한다. 유출 시엔
   1순위로 폐기할 것(앱의 사용량 캡은 우리 앱을 지나가는 호출만 묶는다. 키를 직접 쥔
   공격자에겐 아무 제약이 없다).
@@ -232,3 +243,86 @@ curl -s https://checkip.amazonaws.com   # terraform.tfvars의 ssh_cidr와 비교
 - ~~CloudTrail 로그를 관리자 키로 지울 수 있다.~~ → **같은 날 Object Lock(COMPLIANCE 14일)을
   걸었다.** 로그파일 검증이 *변조*를 드러내고, Object Lock이 *삭제*를 막는다. 다만 보호는
   **적용 이후 쌓이는 로그**에만 걸린다(침해 후의 로그가 증거이므로 목적은 달성된다).
+
+### 3-5. VAPID 키페어 (푸시)
+
+**폐기 조건**: `VAPID_PRIVATE_KEY` 유출. 공개키만 나간 건 무해하다(원래 공개된다).
+
+⚠️ **이건 다른 로테이션과 성격이 다르다. 교체하면 기존 구독이 전부 죽는다.**
+브라우저가 구독할 때 서버 공개키를 `applicationServerKey`로 넣어 푸시 서비스에 등록한다
+(`frontend/src/api/push.ts:85`). 푸시 서비스는 그 키로 서명된 요청만 받으므로, 키를 바꾸면
+**등록된 모든 기기가 조용히 발송 거부**가 된다. 사용자가 알림을 끄고 다시 켜야 복구된다.
+사용자에게 알릴 방법이 알림뿐인데 그 알림이 안 가는 상황이라, **공지가 선행돼야 한다.**
+
+```bash
+# 1) 새 키페어 생성
+docker compose exec -T backend python scripts/gen_vapid_keys.py
+
+# 2) 서버 .env의 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY 교체 → 백엔드 재생성
+#    (VAPID_SUBJECT는 mailto: 연락처라 유출과 무관 — 바꾸지 않는다)
+
+# 3) 죽은 구독을 정리한다. 안 하면 발송 때마다 전 기기에 실패 요청이 나간다.
+#    services/push.py는 404/410을 받으면 행을 지우지만, 키 불일치는 403이라 안 지운다.
+docker compose exec -T db psql -U postgres -d blog -c "delete from push_subscriptions;"
+
+# 4) 검증 — 실기기 1대가 필요하다. 자동 수단이 없다(/api/status에 항목이 없다).
+docker compose exec -T backend python scripts/push_selftest.py
+```
+
+**미해결**: 3번을 자동화하려면 발송 실패 403을 '키 불일치'로 분류해 행을 지워야 한다.
+지금은 사람이 판단한다. 훈련에서 실제 403 응답 본문을 기록해 둘 것.
+
+### 3-6. `LLM_ENCRYPTION_KEY` (BYOK 재암호화)
+
+**폐기 조건**: `prod.env` 유출. 이 키는 데이터를 푸는 열쇠라 **먼저 재암호화하고 나중에 폐기**한다.
+순서를 뒤집으면 `llm_credentials`가 통째로 죽는다.
+
+```bash
+# 1) 새 키 생성 (Fernet)
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# 2) 먼저 dry-run — 몇 행이 바뀌는지, 옛 키로 안 풀리는 행이 있는지 본다
+scripts/reencrypt_llm_keys.py --dry-run --old "$OLD" --new "$NEW"
+
+# 3) 실행. MultiFernet.rotate라 옛 키로 풀어 새 키로 다시 잠근다
+scripts/reencrypt_llm_keys.py --old "$OLD" --new "$NEW"
+
+# 4) 서버 .env의 LLM_ENCRYPTION_KEY를 새 값으로 → 백엔드 재생성
+# 5) 검증: 복원 훈련의 BYOK 카나리아가 초록인지 (scripts/restore_drill.sh)
+```
+
+⚠️ **옛 에스크로 사본을 지우지 않는다.** 3번이 일부 행에서 실패했다면 그 행은 옛 키로만
+풀린다. `env_escrow.sh save`가 타임스탬프로 보관하는 이유가 이것이다.
+
+### 3-7. `TOSS_SECRET_KEY` (결제)
+
+**폐기 조건**: 유출 즉시. 금전 경로라 1순위다.
+
+토스 콘솔에서 사람이 재발급해야 한다(API 없음). 짝이 되는 클라이언트 키가 프론트에
+빌드타임으로 박히므로 **프론트 재빌드·재배포가 함께 필요**하다(`.github/workflows/deploy.yml`, 수동 실행).
+
+⚠️ `PAYMENTS_REQUIRE_LIVE=true`를 **같이 확인**한다. `config.py:83`의 코드 기본값이 실제
+토스 **테스트 키**이고 `:91`의 `payments_require_live` 기본값이 `False`라, `.env`에서 그 한 줄이
+빠지면 테스트 결제 승인이 Pro로 붙는다. `main.py`의 기동 가드가 프로드에서 이걸 막는다.
+
+### 3-8. `ORIGIN_SECRET` (오리진 보호)
+
+**폐기 조건**: 유출. 이걸 쥐면 CloudFront를 우회해 오리진을 직접 칠 수 있다 —
+엣지의 WAF와 요청 크기 제한을 통째로 건너뛴다.
+
+**두 곳을 같은 값으로 바꿔야 한다.** 하나만 고치면 `/api/*`가 전부 403이 된다.
+
+```bash
+# 1) 새 값 (32자 이상, [A-Za-z0-9_-])
+openssl rand -hex 32
+
+# 2) 서버 .env의 ORIGIN_SECRET 교체 → 백엔드 재생성
+# 3) terraform 변수도 같은 값으로 → apply (CloudFront 전파에 수 분)
+#    terraform.tfvars의 origin_secret을 고치고 apply
+# 4) 검증: scripts/verify_deploy.sh 의 '오리진 시크릿 가드' 항목
+```
+
+⚠️ **2와 3 사이에 창이 있다.** 그동안 CloudFront는 옛 값을 붙이고 서버는 새 값을 검사하므로
+`/api/*`가 403이다. 순서를 뒤집으면(3 먼저) 반대 방향으로 같은 창이 생긴다. 짧은 무중단이
+필요하면 서버가 **두 값을 모두 받아들이는** 과도기 코드가 있어야 하는데, 지금은 없다.
+훈련에서 실제 창의 길이를 재고 여기 적을 것.
