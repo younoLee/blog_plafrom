@@ -244,8 +244,13 @@ fi
 # 왜 — 시나리오 B 4단계는 .env를 에스크로에서 되살린다. 거기서 한 줄이 빠지는 것이
 # 이 절차의 주된 실패 모양인데, 빠져도 **앱이 정상 기동하는** 키가 여럿이다
 # (VAPID를 빠뜨리면 푸시만 조용히 꺼진다 — 경보 없음). 그래서 목록이 런북에 있어야 한다.
+# 이 목록은 검사 G 와 H-4 가 함께 쓴다 — 이 저장소의 **운영 키 목록**이다.
+# 두 곳에 복붙하면 갈라진다(2026-08-27 카오스 훈련에서 그 병을 세 파일에서 봤다).
 say "G. 런북이 재조립 필수 키를 나열하는가"
-need_keys="SECRET_KEY ORIGIN_SECRET S3_BUCKET PAYMENTS_REQUIRE_LIVE DB_PASSWORD LLM_ENCRYPTION_KEY VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT"
+# 2026-08-27 훈련에서 운영 .env 를 실제로 세어(키 21개) 넷을 더했다 — 전부 실재하는데
+# 이 목록에 없었고, 그래서 RECOVERY.md 에 없어도 검사가 초록이었다.
+# SMTP 자격증명과 DATABASE_URL 이 표에서 통째로 빠져 있던 게 그렇게 4주를 갔다.
+need_keys="SECRET_KEY ORIGIN_SECRET S3_BUCKET PAYMENTS_REQUIRE_LIVE DB_PASSWORD LLM_ENCRYPTION_KEY VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT ANTHROPIC_API_KEY DATABASE_URL SMTP_USER SMTP_PASSWORD"
 miss_keys=""
 for k in $need_keys; do
   grep -q "$k" "$ROOT/RECOVERY.md" || miss_keys="$miss_keys $k"
@@ -255,6 +260,122 @@ if [ -n "$miss_keys" ]; then
   echo "     없는 것은 어긋날 수 없습니다 — 재조립에서 통째로 빠집니다."
 else
   ok "필수 키 $(printf '%s' "$need_keys" | wc -w)개가 전부 런북에 있음"
+fi
+
+# ── H. 사고 대응 런북(docs/incident-response.md)이 운영에서 실제로 도는가 ────
+# **왜 이 검사가 생겼나 (2026-08-27).** 이 파일은 지금까지 RECOVERY.md 하나만 봤다.
+# 08-26에 IR 런북에 로테이션 절차 넷(3-5~3-8)을 새로 썼는데, 그 문서가 검사 대상이
+# 아니라서 넷 다 깨진 채로 CI 가 초록이었다. 훈련에서 밟아보니 3-5 한 절에서만 셋이
+# 나왔다 — 파일 위 :31 주석이 RECOVERY.md 에 대해 적어둔 것과 **글자 그대로 같은 모양**이다.
+# 검사 대상을 목록으로 들고 있으면 새로 생긴 것이 조용히 빠진다. 그래서 목록을 늘린다.
+#
+# 여기서 보는 것은 '문장이 맞나'가 아니라 **'그대로 쳤을 때 돌아가나'** 다.
+#
+# ⚠️ 이 절의 모든 파이프라인에 `|| true` 를 붙인다. 이 파일은 `set -euo pipefail` 이라
+#    grep 이 0건이면 **스크립트가 그 자리에서 조용히 죽는다** — 처음 쓸 때 실제로
+#    그래서 H-3·H-4 가 안 돌고 출력만 끊겼다. 검사기가 조용히 멈추는 건 통과처럼 읽힌다.
+# **아직 실재하지 않는 키.** 절차는 미리 써두되 사고 중에 쫓지는 않는다.
+# 산문으로 판별하지 않는다 — 문장을 조금만 고쳐도 면제가 조용히 풀리거나 조용히 걸린다.
+# 목록으로 두면 지우는 순간 검사가 바로 말한다.
+#   TOSS_SECRET_KEY — 결제가 라이브가 아니라 코드 기본값(테스트키)으로 돈다.
+#                     PAYMENTS_REQUIRE_LIVE=true 가 결제 자체를 503으로 막는다.
+#                     라이브 전환 시 이 줄에서 지우고 need_keys 로 옮긴다(IR 3-7 참고).
+not_yet="TOSS_SECRET_KEY"
+IR="$ROOT/docs/incident-response.md"
+say "H. 사고 대응 런북이 운영에서 그대로 도는가"
+if [ ! -f "$IR" ]; then
+  bad "docs/incident-response.md 가 없습니다"
+else
+  # H-1. 부르는 스크립트가 **그 명령이 도는 자리에** 실재하는가.
+  #      경로 하나가 문맥에 따라 두 곳을 가리킨다:
+  #        · `docker compose exec backend python scripts/X.py` → 컨테이너 /app/scripts
+  #          = 저장소의 backend/scripts/ (이미지에 구워지는 것)
+  #        · 그냥 `scripts/X.sh`                                → 워크스테이션의 저장소 scripts/
+  #      08-27 훈련이 잡은 3-6 이 정확히 이 틈이다 — reencrypt_llm_keys.py 는 저장소
+  #      scripts/ 에 있는데 런북은 컨테이너 안에서 부르라고 적었고, 이미지에는 없다.
+  #      "파일이 있다"와 "거기서 부를 수 있다"는 다른 명제다.
+  n=0
+  # **전체 줄**을 읽는다. 예전엔 `grep -o` 로 매치만 뽑아서 같은 줄의 `docker compose`
+  # 여부를 볼 수 없었고, 그래서 컨테이너 문맥 판별이 한 번도 발동하지 않았다
+  # (backend/scripts/ 에 멀쩡히 있는 파일 둘을 "저장소에 없다"고 오탐했다).
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    for ref in $(printf '%s' "$line" | grep -oE '(scripts|backend/scripts)/[A-Za-z0-9_-]+\.(sh|py)' || true); do
+      n=$((n + 1))
+      if printf '%s' "$line" | grep -q 'docker compose.*exec'; then
+        # 컨테이너 안에서 도는 명령 → 이미지에 구워지는 backend/scripts/ 를 본다
+        base=${ref##*/}
+        if [ -f "$ROOT/backend/scripts/$base" ]; then
+          :
+        elif [ -f "$ROOT/$ref" ]; then
+          bad "$ref — 컨테이너 안에서 부르는데 **이미지에 없습니다**(저장소 $ref 에만 있고 backend/scripts/ 엔 없음)"
+          echo "     08-27 훈련이 3-6 에서 실제로 밟은 자리입니다. '파일이 있다'와 '거기서 부를 수 있다'는 다릅니다."
+        else
+          bad "$ref — IR 런북이 부르는데 어디에도 없습니다"
+        fi
+      else
+        [ -f "$ROOT/$ref" ] || bad "$ref — IR 런북이 부르는데 저장소에 없습니다"
+      fi
+    done
+  # 백슬래시로 이어진 명령을 **한 줄로 합쳐서** 본다. 안 합치면 두 번째 줄에 있는
+  # 스크립트 이름이 같은 줄의 `docker compose exec` 를 못 보고 워크스테이션 경로로
+  # 오독된다(이 검사를 처음 쓸 때 실제로 그랬다 — 멀쩡한 3-5 를 빨간불로 만들었다).
+  done < <(sed -e ':a' -e '/\\$/{N;s/\\\n//;ta' -e '}' "$IR" \
+           | grep -nE '(scripts|backend/scripts)/[A-Za-z0-9_-]+\.(sh|py)' || true)
+  if [ "$n" -gt 0 ]; then
+    ok "부르는 스크립트 참조 $n건 검사"
+  else
+    bad "IR 런북이 부르는 스크립트가 0개입니다 — 패턴이 어긋났습니다"
+  fi
+
+  # H-2. docker compose 명령이 **운영 compose 파일을 지정하는가**
+  #      운영 ~/blog 에는 docker-compose.yml 이 없고 docker-compose.prod.yml 만 있다.
+  #      맨 `docker compose exec ...` 는 "no configuration file provided" 로 죽는다.
+  #      08-27 훈련에서 3-5 의 세 명령이 전부 이 상태였다.
+  bare=$(grep -nE '^[[:space:]]*(sudo )?docker compose ' "$IR" | grep -v 'docker-compose.prod.yml' || true)
+  if [ -n "$bare" ]; then
+    bad "compose 파일을 안 준 docker 명령 $(printf '%s\n' "$bare" | wc -l)줄 — 운영엔 docker-compose.yml 이 없어 그대로 치면 죽습니다"
+    printf '%s\n' "$bare" | sed 's/^/       /'
+  else
+    ok "docker 명령이 전부 -f docker-compose.prod.yml 을 지정함"
+  fi
+
+  # H-3. psql 이 **운영 DB 이름**을 쓰는가
+  #      운영 DATABASE_URL 의 DB 는 `postgres` 다(로컬 개발만 `blog`). 08-27 훈련에서
+  #      3-5 의 정리 명령이 `-d blog` 라 'database "blog" does not exist' 로 죽었다.
+  #      운영 .env 는 못 읽으므로 기준값을 박아둔다 — 바뀌면 이 줄도 같이 고쳐야 한다.
+  PROD_DB=postgres
+  wrongdb=$(grep -nE 'psql .* -d [A-Za-z0-9_]+' "$IR" | grep -v -- "-d $PROD_DB" || true)
+  if [ -n "$wrongdb" ]; then
+    bad "운영 DB 이름($PROD_DB)이 아닌 psql 명령 $(printf '%s\n' "$wrongdb" | wc -l)줄"
+    printf '%s\n' "$wrongdb" | sed 's/^/       /'
+  else
+    ok "psql 명령이 전부 운영 DB($PROD_DB)를 가리킴"
+  fi
+
+  # H-4. 로테이션 절차가 다루는 키가 **실재하는가** (검사 G 의 IR 판)
+  #      08-27 훈련: 3-7 이 TOSS_SECRET_KEY 를 교체하라는데 운영 .env 에 그 키가 없다
+  #      (일부러 없다 — 결제가 라이브가 아니라 코드 기본값인 테스트키로 돈다).
+  #      그런데 0장은 그 키를 유출자산 1순위로 세서, 사고 중에 없는 걸 쫓게 만든다.
+  #      기준은 검사 G 의 need_keys — 이 저장소가 스스로 관리하는 **운영 키 목록**이다.
+  #      .env.example 은 못 쓴다. 그건 **로컬 개발 템플릿**이라 운영 전용 시크릿
+  #      (SECRET_KEY·DB_PASSWORD·SMTP_PASSWORD…)이 없는 게 정상이고, 그걸 기준으로 삼으면
+  #      멀쩡한 절차 다섯이 한꺼번에 빨간불이 된다(처음 쓸 때 실제로 그랬다).
+  irkeys=$(grep -oE '`[A-Z][A-Z_0-9]{3,}`' "$IR" | tr -d '`' | sort -u \
+           | grep -vE '^(FAIL|WARN|DRIFT|CHECK|TODO|NOTE|HTTP|JSON|POST|HEAD|MULTI|BYOK)$' || true)
+  ghost=""
+  while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    printf '%s\n' $not_yet | grep -qx "$k" && continue
+    printf '%s\n' $need_keys | grep -qx "$k" || ghost="$ghost $k"
+  done < <(printf '%s\n' "$irkeys")
+  if [ -n "$ghost" ]; then
+    bad "IR 런북이 다루는데 운영 키 목록(need_keys)에 없는 키:$ghost"
+    echo "     둘 중 하나입니다 — 실재하지 않는 키라 절차를 지워야 하거나(사고 중에 없는 걸"
+    echo "     쫓게 된다), 실재하는데 need_keys 가 낡았거나. 어느 쪽인지 정하고 한쪽을 고치세요."
+  else
+    ok "IR 런북이 언급하는 키가 전부 운영 키 목록에 있음"
+  fi
 fi
 
 say "결과"

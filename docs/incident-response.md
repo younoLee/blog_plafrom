@@ -254,19 +254,33 @@ curl -s https://checkip.amazonaws.com   # terraform.tfvars의 ssh_cidr와 비교
 **등록된 모든 기기가 조용히 발송 거부**가 된다. 사용자가 알림을 끄고 다시 켜야 복구된다.
 사용자에게 알릴 방법이 알림뿐인데 그 알림이 안 가는 상황이라, **공지가 선행돼야 한다.**
 
+> **어디서 도는가**: 아래는 전부 **EC2 위에서** 친다(`ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS>`
+> 로 붙어 `cd ~/blog`). 2026-08-27 훈련에서 이 절의 세 명령이 **전부 그대로는 안 돌았다** —
+> 아래 세 주석이 그때 고친 자리다.
+
 ```bash
 # 1) 새 키페어 생성
-docker compose exec -T backend python scripts/gen_vapid_keys.py
+#    ⚠️ `-f docker-compose.prod.yml` 이 필수다. 운영 ~/blog 에는 docker-compose.yml 이
+#       없어서 맨 `docker compose` 는 "no configuration file provided" 로 죽는다.
+sudo docker compose -f docker-compose.prod.yml exec -T backend python scripts/gen_vapid_keys.py
 
 # 2) 서버 .env의 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY 교체 → 백엔드 재생성
 #    (VAPID_SUBJECT는 mailto: 연락처라 유출과 무관 — 바꾸지 않는다)
+#    재생성은 규칙7 — 앱 코드를 갈아끼우는 명령이라 사람이 직접 친다.
 
 # 3) 죽은 구독을 정리한다. 안 하면 발송 때마다 전 기기에 실패 요청이 나간다.
 #    services/push.py는 404/410을 받으면 행을 지우지만, 키 불일치는 403이라 안 지운다.
-docker compose exec -T db psql -U postgres -d blog -c "delete from push_subscriptions;"
+#    ⚠️ DB 이름은 **postgres** 다. `-d blog` 는 로컬 개발 이름이고 운영엔 그 DB가 없다
+#       ('database "blog" does not exist' 로 죽는다 — 08-27 훈련 실측).
+sudo docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U postgres -d postgres -c "delete from push_subscriptions;"
 
 # 4) 검증 — 실기기 1대가 필요하다. 자동 수단이 없다(/api/status에 항목이 없다).
-docker compose exec -T backend python scripts/push_selftest.py
+#    ⚠️ **이메일 인자를 반드시 준다.** 인자가 없으면 이 스크립트는 오발송 방지로
+#       "등록된 구독의 소유자 목록"만 찍고 끝난다(backend/scripts/push_selftest.py:43).
+#       그걸 검증으로 읽으면 아무것도 안 보낸 채 초록이 된다 — 08-27 훈련이 밟은 자리다.
+sudo docker compose -f docker-compose.prod.yml exec -T backend \
+  python scripts/push_selftest.py <실기기를_등록한_계정_이메일>
 ```
 
 **미해결**: 3번을 자동화하려면 발송 실패 403을 '키 불일치'로 분류해 행을 지워야 한다.
@@ -277,24 +291,71 @@ docker compose exec -T backend python scripts/push_selftest.py
 **폐기 조건**: `prod.env` 유출. 이 키는 데이터를 푸는 열쇠라 **먼저 재암호화하고 나중에 폐기**한다.
 순서를 뒤집으면 `llm_credentials`가 통째로 죽는다.
 
+> **어디서 도는가 — 2026-08-27 훈련 전까지 이 문서에 0줄이었고, 어느 쪽으로 읽어도 안 됐다.**
+> `reencrypt_llm_keys.py` 는 `DATABASE_URL` 로 DB에 붙는데,
+> · 워크스테이션에서 돌리면 → 운영 DB는 compose 네트워크 **안에만** 있고 호스트 포트가 없다.
+> · 컨테이너에서 돌리면 → **이미지에 그 파일이 없다.** 이미지의 `/app/scripts` 에는
+>   `create_user.py`·`gen_vapid_keys.py`·`push_selftest.py` 셋뿐이다(08-27 훈련 실측).
+> 그래서 **EC2로 파일을 올려서 컨테이너에 넣고** 돌린다. 아래 0)이 그 단계다.
+
 ```bash
+# 0) 도구를 서버로 올린다 (이미지에 없다 — 위 설명)
+scp -i ~/.ssh/blog-key.pem scripts/reencrypt_llm_keys.py ec2-user@<DNS>:/tmp/
+ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS>
+cd ~/blog
+sudo docker compose -f docker-compose.prod.yml cp /tmp/reencrypt_llm_keys.py backend:/tmp/
+
 # 1) 새 키 생성 (Fernet)
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
+# 1-b) ⚠️ **암호문 스냅샷을 먼저 뜬다.** 아래 3)이 일부 행에서 실패하면 성공한 행은
+#      이미 커밋돼 있다(도구가 행 단위로 돈다). 되돌릴 원본이 없으면 그 상태가 고착된다.
+#      위 ⚠️ 문단이 지키라는 건 *키* 에스크로이지 *데이터* 사본이 아니다 — 둘 다 필요하다.
+sudo docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U postgres -d postgres -c "\copy llm_credentials to '/tmp/llm_cred_backup.csv' csv header"
+
 # 2) 먼저 dry-run — 몇 행이 바뀌는지, 옛 키로 안 풀리는 행이 있는지 본다
-scripts/reencrypt_llm_keys.py --dry-run --old "$OLD" --new "$NEW"
+#    ⚠️ **키를 인자로 주지 말고 환경변수로 준다.** --old/--new 는 전체 키가 `ps`·셸 히스토리에
+#       남는다. 스크립트가 OLD_KEY/NEW_KEY 를 지원한다.
+#    ⚠️ dry-run 은 **방향을 검증하지 않는다.** OLD 와 NEW 를 뒤집어 줘도 정방향과
+#       글자까지 같은 출력을 낸다(08-27 훈련 실측). 되돌리기 전에 사람이 두 번 읽어라.
+sudo docker compose -f docker-compose.prod.yml exec -T \
+  -e OLD_KEY="$OLD" -e NEW_KEY="$NEW" backend python /tmp/reencrypt_llm_keys.py --dry-run
 
 # 3) 실행. MultiFernet.rotate라 옛 키로 풀어 새 키로 다시 잠근다
-scripts/reencrypt_llm_keys.py --old "$OLD" --new "$NEW"
+#    종료코드 1 = 부분 실패다. **무변경이 아니다** — 성공한 행은 커밋돼 있다.
+#    그때는 1-b 의 스냅샷과 옛 키가 유일한 회수 수단이다.
+sudo docker compose -f docker-compose.prod.yml exec -T \
+  -e OLD_KEY="$OLD" -e NEW_KEY="$NEW" backend python /tmp/reencrypt_llm_keys.py
 
-# 4) 서버 .env의 LLM_ENCRYPTION_KEY를 새 값으로 → 백엔드 재생성
-# 5) 검증: 복원 훈련의 BYOK 카나리아가 초록인지 (scripts/restore_drill.sh)
+# 4) 서버 .env의 LLM_ENCRYPTION_KEY를 새 값으로 → 백엔드 재생성(규칙7 — 사람이 직접)
+# 5) 검증: **전 행이 풀리는지 직접 센다.**
+#    복원 훈련의 BYOK 카나리아는 `order by id limit 1` 이라 첫 행 하나만 본다
+#    (scripts/restore_drill.sh:291). 그것만 보고 옛 키를 폐기하면 나머지가 죽는다.
+sudo docker compose -f docker-compose.prod.yml exec -T backend python - <<'PY'
+from app.core.database import SessionLocal
+from app.models.llm_credential import LlmCredential
+from app.services.llm_keys import decrypt_key
+db = SessionLocal(); ok = bad = 0
+for r in db.scalars(__import__("sqlalchemy").select(LlmCredential)):
+    try: decrypt_key(r.encrypted_key); ok += 1
+    except Exception: bad += 1
+print(f"복호화 성공 {ok} · 실패 {bad}")
+PY
+# 6) 위가 '실패 0' 일 때만 옛 키를 폐기한다. 하나라도 실패면 폐기하지 않는다.
 ```
 
 ⚠️ **옛 에스크로 사본을 지우지 않는다.** 3번이 일부 행에서 실패했다면 그 행은 옛 키로만
 풀린다. `env_escrow.sh save`가 타임스탬프로 보관하는 이유가 이것이다.
 
 ### 3-7. `TOSS_SECRET_KEY` (결제)
+
+> ⚠️ **2026-08-27 기준 이 키는 운영 `.env` 에 없다.** 결제가 라이브가 아니라
+> 코드 기본값(토스 공개 문서용 테스트키)으로 돌고, `PAYMENTS_REQUIRE_LIVE=true` 가
+> `_guard_live()` 로 결제 자체를 503으로 막고 있다(PROGRESS 2026-08-15).
+> 사고 중에 **없는 키를 쫓지 마라** — 0장의 유출자산 목록에서도 같은 유보를 읽어라.
+> 라이브 전환(사업자등록)으로 이 키가 실제로 들어오면 이 문단을 지우고,
+> `check_runbook_drift.sh` 의 `need_keys` 에도 추가해야 검사가 지켜준다.
 
 **폐기 조건**: 유출 즉시. 금전 경로라 1순위다.
 

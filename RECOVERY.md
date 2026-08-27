@@ -290,6 +290,8 @@ aws s3api list-object-versions --bucket blogplafromops --prefix uploads/ \
 | `DB_PASSWORD` | 컨테이너가 새로 뜨면 초기화됨 | 새 값으로 재설정 |
 | `ANTHROPIC_API_KEY` / `TOSS_SECRET_KEY` | 해당 기능 정지 | 각 콘솔에서 재발급. **토스 키는 `PAYMENTS_REQUIRE_LIVE`와 짝이다** — 아래 참고 |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` | **푸시 전체 정지. 앱은 정상 기동하고 경보도 없다.** `push_enabled`가 두 키의 AND라 False가 되고, `/api/push/*`가 503을 내며 프론트가 '알림 켜기'를 아예 숨긴다. 백업에 `push_subscriptions` 행은 복원되므로 **구독자는 있는데 아무것도 안 나가는** 상태가 된다 | `backend/scripts/gen_vapid_keys.py`로 재발급. ⚠️ **재발급하면 기존 구독이 전부 무효**다 — 모든 사용자가 알림을 끄고 다시 켜야 한다 |
+| `SMTP_USER` · `SMTP_PASSWORD` | **메일이 통째로 안 나간다** — 가입 인증·비번재설정·구독확인 링크가 전부 발송 실패한다. 그런데 앱은 정상 기동하고 `/api/*`도 200이라, 알아채는 건 사용자가 "메일이 안 와요"라고 말할 때다(발송 실패는 202를 유지한다 — 07-28의 의도된 선택). `/api/status`의 `mail`이 유일한 신호다 | SES 콘솔에서 SMTP 자격증명 재발급. **재발급하면 옛 값은 못 되살린다** — 새로 만들어 `.env`와 에스크로를 같이 갱신한다 |
+| `DATABASE_URL` | 컨테이너가 아예 안 뜬다(가장 시끄러운 부류라 오래 안 숨는다). **다만 DB 이름이 `postgres`라는 걸 잊으면 재조립 때 `blog`로 적고, 그러면 빈 DB가 새로 만들어져 "복구했는데 글이 0편"이 된다** | `postgresql://postgres:<DB_PASSWORD>@db:5432/postgres`. `DB_PASSWORD`와 짝이라 둘을 같이 맞춘다 |
 | `ORIGIN_SECRET` | CloudFront가 헤더를 안 붙이는데 서버는 계속 검사한다 → **`/api/*`가 전부 403**. 증상이 그냥 403이라 원인과 안 닮았다 | terraform 변수와 서버 `.env`를 **같은 값으로** 다시 맞춘다(둘 중 하나만 고치면 계속 403) |
 | `PAYMENTS_REQUIRE_LIVE` | 이건 '잃는' 값이 아니라 **빠뜨리는** 값이다. 기본값이 `false`라 한 줄이 없으면 토스 **테스트 키로 승인된 결제가 Pro로 붙는다**(공짜 Pro) | `main.py`의 기동 가드가 프로드에서 이걸 막는다 — 재조립한 `.env`로 컨테이너가 안 뜨면 이 줄을 의심한다 |
 
