@@ -41,7 +41,7 @@ function NotFoundPage() {
 
       {/* 서버가 꺼져 있으면 위 두 링크의 목적지도 비어 보인다. 그때도 읽히는 길을 같이 준다. */}
       <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
-        서버가 절전 중이어도 읽을 수 있는 곳 —{' '}
+        서버가 절전 중이어도 읽을 수 있는 곳:{' '}
         <a href="/devlog.html" className="text-accent hover:underline">
           개발일지 아카이브
         </a>

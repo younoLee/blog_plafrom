@@ -28,7 +28,7 @@ import SkinPicker from './SkinPicker'
 const PRESETS: { name: string; hint: string; css: string }[] = [
   {
     name: 'velog풍 (카드 격자)',
-    hint: '초록 강조 + 목록을 2열 카드 격자로. 커버 이미지가 많은 블로그에 맞는다',
+    hint: '초록 강조 + 목록을 2열 카드 격자로. 커버 이미지가 많은 블로그에 어울려',
     css: `:root {
   --color-accent: #20c997;
   --color-accent-hi: #12b886;
@@ -189,7 +189,7 @@ function SkinEditor() {
         <code>--color-canvas</code> <code>--color-ink</code> <code>--radius-card</code>{' '}
         <code>--radius-field</code> <code>--radius-btn</code>
         <br />
-        아래 '내 문장'에 쓴 <code>class</code>도 여기서 잡힌다.
+        아래 '내 문장'에 쓴 <code>class</code>도 여기서 잡혀.
       </p>
 
       {/* 잡을 수 있는 자리. 스물다섯 개라 한 줄에 늘어놓으면 벽이 되고, 접어두면
@@ -228,7 +228,7 @@ function SkinEditor() {
         <button
           type="button"
           onClick={() => edit('')}
-          title="누른 것까지 전부 지운다"
+          title="누른 것까지 전부 지워져"
           className={ui.btnGhost}
         >
           전부 기본으로

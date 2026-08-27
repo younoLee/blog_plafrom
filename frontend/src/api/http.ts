@@ -97,3 +97,30 @@ export async function fetchWithTimeout(
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   return request(url, init, null)
 }
+
+/**
+ * 실패한 응답에서 **서버가 보낸 이유**를 꺼내 던진다. 없으면 fallback.
+ *
+ * **왜 (2026-08-27)** — 백엔드는 거절 이유를 한국어 문장으로 보낸다. `admin.py:171`의
+ * "관리자 계정은 차단할 수 없어", `subscriptions.py:125`의 "자기 자신은 구독할 수
+ * 없어" 같은 것이다. 그런데 호출부 대부분이 `res.ok`만 보고 "차단에 실패했어"로
+ * 덮어써서, 원인을 아는 쪽이 말을 하는데 듣는 쪽이 버리고 있었다. 사용자는 무엇을
+ * 고쳐야 하는지 알 수 없고, 다시 눌러도 같은 결과가 나온다.
+ *
+ * 새 규칙이 아니라 **이미 있던 선례를 퍼뜨리는 것**이다. `api/skin.ts`의 `put` 헬퍼가
+ * 진작 이렇게 하고 있었다(422의 배열 형태까지 다룬다). 한 곳에만 있으면 새 호출을
+ * 추가할 때마다 다시 샌다 — 이 파일이 401 처리를 여기 모은 것과 같은 이유다.
+ *
+ * 422는 FastAPI가 `detail`을 **배열**로 준다(필드별 오류 목록). 첫 항목의 `msg`를 쓴다.
+ * 본문이 JSON이 아닐 수도 있으므로(504는 CloudFront가 HTML을 준다) 파싱 실패는 삼킨다.
+ */
+export async function failWith(res: Response, fallback: string): Promise<never> {
+  const parsed = await res.json().catch(() => null)
+  const detail = (parsed as { detail?: unknown } | null)?.detail
+  const msg = Array.isArray(detail)
+    ? (detail[0] as { msg?: string } | undefined)?.msg
+    : typeof detail === 'string'
+      ? detail
+      : undefined
+  throw new Error(msg || fallback)
+}

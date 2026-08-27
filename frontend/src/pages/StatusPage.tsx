@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AsleepNotice, ArchiveLink } from '../components/AsleepNotice'
 import {
   fetchStatus,
   fetchHistory,
@@ -156,12 +157,11 @@ function StatusPage() {
           이 화면의 업타임 막대·통계는 서버에서 오는 값이라 절전 중엔 없는 게 정상이다 —
           '데이터 없음'이 곧 이 사이트가 어떻게 사는지를 보여주는 값이기도 하다. */}
       {asleep && (
-        <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 그래서 지금 상태와 통계는
-          깨어난 뒤에 보여. 글은 서버 없이도 읽을 수 있어:{' '}
-          <a href="/devlog.html" className="underline">개발일지 아카이브</a> ·{' '}
-          <a href="/lessons.html" className="underline">함정과 교훈</a>
-        </div>
+        <AsleepNotice>
+          그래서 지금 상태와 통계는 깨어난 뒤에 보여. 글은 서버 없이도 읽을 수 있어:{' '}
+          <ArchiveLink /> ·{' '}
+          <a href="/lessons.html" className="font-medium underline">함정과 교훈</a>
+        </AsleepNotice>
       )}
       {error && !asleep && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">

@@ -177,6 +177,26 @@ jobs:
       - name: 발행물에 실제 값이 없는가
         run: python3 scripts/check_publish_secrets.py
 
+      # 글투 지침(docs/voice/style-guide.md)이 실제로 지켜지는가.
+      #
+      # 2026-08-27까지 이 측정기는 **CI 어디에도 없었다.** 지침은 08-18에 생겼는데
+      # 재는 것은 사람이 기억할 때만 돌았다. 붙이지 못한 이유가 있었다 — 인자 없이
+      # 돌리면 36편 전부를 재서 고칠 자리 107곳으로 영원히 빨간불이고, 영원히
+      # 빨간불인 검사는 잡으로 만들 수 없다.
+      #
+      # `--since-guide`가 그 매듭을 푼다. 지침의 "이미 발행된 33편은 소급하지 않는다"를
+      # **코드로 표현**해서(GUIDE_EFFECTIVE), 발효일 이후 글만 본다. 지금은 3편이고
+      # 새 글을 쓸 때마다 늘어난다.
+      #
+      # `--selftest`를 먼저 돌리는 이유: 삼항 반복 탐지기가 08-27까지 역참조 정규식이라
+      # **아무것도 못 잡고 있었는데**, 잡히는 건수가 0이 아니어서(오탐 3건) 죽은 줄
+      # 몰랐다. 규칙이 있는데 한 번도 측정된 적이 없는 게 규칙이 없는 것보다 나쁘다.
+      # 탐지기가 다시 죽으면 여기서 걸린다.
+      - name: 글투 (자가검증 → 발효일 이후 글)
+        run: |
+          python3 scripts/writing_style_check.py --selftest
+          python3 scripts/writing_style_check.py --since-guide
+
   runbook:
     runs-on: ubuntu-latest
     # 복구 런북이 코드와 어긋났는지. 2026-07-27 DR 게임데이의 첫 블로커(F1)가

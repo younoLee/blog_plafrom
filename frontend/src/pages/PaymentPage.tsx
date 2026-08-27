@@ -15,7 +15,7 @@ const TOSS_CLIENT_KEY =
 // Pro 구독에서 해금되는 것들 (AI 초안의 상위 모델)
 const PERKS = [
   { title: 'Claude Opus 4.8', desc: '고품질 장문·복잡한 글 구조 초안' },
-  { title: 'Claude Fable 5', desc: '가장 강력한 최신 모델 — 어려운 주제도 정돈' },
+  { title: 'Claude Fable 5', desc: '가장 강력한 최신 모델. 어려운 주제도 정돈해준다' },
   { title: '기본 모델도 그대로', desc: 'Sonnet·Haiku는 무료로 계속 사용' },
 ]
 

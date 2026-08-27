@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { AsleepNotice, ArchiveLink } from '../components/AsleepNotice'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import type { PostSummary } from '../types/post'
 import { fetchPosts, deletePost, POSTS_PAGE_SIZE } from '../api/posts'
@@ -135,16 +136,12 @@ function AuthorPage() {
       </section>
 
       {asleep && (
-        <p className="mb-4 rounded-card bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든. 이 화면은 서버가 있어야
-          누구의 글인지 가릴 수 있어서 지금은 목록을 못 그려 —{' '}
-          <a href="/devlog.html" className="underline">
-            개발일지 아카이브
-          </a>
-          는 서버 없이도 열려.
-        </p>
+        <AsleepNotice className="mb-4">
+          이 화면은 서버가 있어야 누구의 글인지 가릴 수 있어서 지금은 목록을 못 그려.{' '}
+          <ArchiveLink />는 서버 없이도 열려.
+        </AsleepNotice>
       )}
-      {error && !asleep && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
+      {error && !asleep && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
 
       {loaded && !asleep && posts.length === 0 && (
         <p className="rounded-card border border-dashed border-black/10 p-12 text-center text-gray-500 dark:border-white/15 dark:text-gray-400">

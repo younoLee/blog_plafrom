@@ -1,5 +1,5 @@
 import { authHeaders } from './auth'
-import { apiFetch, fetchWithTimeout } from './http'
+import { apiFetch, failWith, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -37,14 +37,14 @@ export async function approveRequest(subscriberId: number): Promise<void> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('승인 실패')
+  if (!res.ok) await failWith(res, '승인 실패')
 }
 export async function rejectRequest(subscriberId: number): Promise<void> {
   const res = await apiFetch(`${BASE}/subscriptions/requests/${subscriberId}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('거절 실패')
+  if (!res.ok) await failWith(res, '거절 실패')
 }
 
 // 구독한 글쓴이의 새 글 이메일 알림 켜기/끄기 (구독한 뒤에만 가능 — 아니면 404)
@@ -54,7 +54,7 @@ export async function setNotify(authorId: number, notify: boolean): Promise<void
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ notify }),
   })
-  if (!res.ok) throw new Error('알림 설정 실패')
+  if (!res.ok) await failWith(res, '알림 설정 실패')
 }
 export async function fetchMySubscriptionsDetail(): Promise<SubscribedAuthor[]> {
   const res = await fetchWithTimeout(`${BASE}/subscriptions/detail`, { headers: authHeaders() })
@@ -86,7 +86,7 @@ export async function subscribeAuthor(authorId: number): Promise<void> {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ author_id: authorId }),
   })
-  if (!res.ok) throw new Error('구독 실패')
+  if (!res.ok) await failWith(res, '구독 실패')
 }
 
 export async function unsubscribeAuthor(authorId: number): Promise<void> {
@@ -94,5 +94,5 @@ export async function unsubscribeAuthor(authorId: number): Promise<void> {
     method: 'DELETE',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('구독 해제 실패')
+  if (!res.ok) await failWith(res, '구독 해제 실패')
 }

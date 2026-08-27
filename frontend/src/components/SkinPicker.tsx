@@ -248,8 +248,8 @@ function SkinPicker({ value: o, onChange }: Props) {
           value={o.list}
           onChange={(v) => set('list', v)}
           options={[
-            { v: 'list', label: '한 줄씩', title: '제목이 먼저 읽힌다. 커버 없는 글이 많으면 이쪽' },
-            { v: 'grid', label: '카드 2열', title: '커버 이미지가 있는 글이 많을 때 어울린다' },
+            { v: 'list', label: '한 줄씩', title: '제목이 먼저 읽혀. 커버 없는 글이 많으면 이쪽' },
+            { v: 'grid', label: '카드 2열', title: '커버 이미지가 있는 글이 많을 때 어울려' },
           ]}
         />
       </Row>
@@ -271,8 +271,8 @@ function SkinPicker({ value: o, onChange }: Props) {
           onChange={(v) => set('hero', v)}
           options={[
             { v: 'show', label: '그대로' },
-            { v: 'mine', label: '내 문장만', title: "사이트가 넣은 '글'과 안내 두 줄을 숨긴다" },
-            { v: 'hide', label: '숨기기', title: '내가 쓴 머리말까지 같이 사라진다' },
+            { v: 'mine', label: '내 문장만', title: "사이트가 넣은 '글'과 안내 두 줄을 숨겨" },
+            { v: 'hide', label: '숨기기', title: '내가 쓴 머리말까지 같이 사라져' },
           ]}
         />
       </Row>

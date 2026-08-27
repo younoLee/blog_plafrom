@@ -48,7 +48,7 @@ export default function AboutPage() {
       <article className="mx-auto max-w-3xl">
         <h1 className="text-3xl font-semibold tracking-tight">소개</h1>
         <p className="mt-4 text-gray-500 dark:text-gray-400">
-          소개글을 불러오지 못했어. 정적 페이지로 열어볼 수 있어 —{' '}
+          소개글을 불러오지 못했어. 정적 페이지로 열어볼 수 있어:{' '}
           <a href="/about.html" className="text-accent hover:underline">
             /about.html
           </a>

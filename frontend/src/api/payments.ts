@@ -1,4 +1,4 @@
-import { apiFetch } from './http'
+import { apiFetch, failWith } from './http'
 import { authHeaders, type User } from './auth'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -21,7 +21,7 @@ export async function createCheckout(): Promise<Checkout> {
     throw new Error(d?.detail ?? '결제를 시작할 수 없어')
   }
   if (res.status === 429) throw new Error('요청이 너무 잦아. 잠시 후 다시 해줘')
-  if (!res.ok) throw new Error('결제를 시작하지 못했어')
+  if (!res.ok) await failWith(res, '결제를 시작하지 못했어')
   return res.json()
 }
 
@@ -48,6 +48,6 @@ export async function unsubscribe(): Promise<User> {
   })
   if (res.status === 401) throw new Error('로그인이 필요해')
   if (res.status === 429) throw new Error('요청이 너무 잦아. 잠시 후 다시 해줘')
-  if (!res.ok) throw new Error('구독 해지에 실패했어')
+  if (!res.ok) await failWith(res, '구독 해지에 실패했어')
   return res.json()
 }

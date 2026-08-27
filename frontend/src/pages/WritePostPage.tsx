@@ -505,7 +505,7 @@ function WritePostPage() {
                   <optgroup label="직접 입력 (내 키)">
                     {byokProviders.map((prov) => (
                       <option key={`custom:${prov}`} value={`custom:${prov}`}>
-                        {PROVIDER_LABEL[prov] ?? prov} — 모델 직접 입력
+                        {PROVIDER_LABEL[prov] ?? prov} 모델 직접 입력
                       </option>
                     ))}
                   </optgroup>
@@ -583,7 +583,7 @@ function WritePostPage() {
         {/* 연재: 같은 이름을 쓴 글끼리 한 시리즈가 되고, 순서는 작성일 */}
         <div className="grid gap-2">
           <label htmlFor="series-input" className="text-sm text-gray-500 dark:text-gray-400">
-            연재 (선택) — 같은 이름을 쓴 글끼리 묶여 이전/다음 편이 생겨:
+            연재 (선택). 같은 이름을 쓴 글끼리 묶여 이전/다음 편이 생겨:
           </label>
           <input
             id="series-input"
@@ -637,7 +637,7 @@ function WritePostPage() {
               <button type="button" title="가로 구분선" onClick={() => insertAt('\n\n---\n\n')} className={toolBtn}>구분선</button>
             </>
           ) : (
-            <span className="px-1 text-xs text-gray-500 dark:text-gray-400">미리보기 중 — 꾸미려면 ‘편집으로’ 눌러</span>
+            <span className="px-1 text-xs text-gray-500 dark:text-gray-400">미리보기 중이야. 꾸미려면 ‘편집으로’ 눌러</span>
           )}
           <button
             type="button"
@@ -662,7 +662,7 @@ function WritePostPage() {
         ) : (
           <textarea
             ref={contentRef}
-            placeholder="내용 — 위 버튼으로 꾸미거나 마크다운 직접 입력 (이미지 첨부하면 ![](url) 삽입)"
+            placeholder="내용 (위 버튼으로 꾸미거나 마크다운 직접 입력, 이미지 첨부하면 ![](url) 삽입)"
             rows={14}
             value={content}
             onChange={(e) => setContent(e.target.value)}

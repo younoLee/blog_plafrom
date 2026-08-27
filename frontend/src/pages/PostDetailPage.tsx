@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef } from 'react'
+import { AsleepNotice, ArchiveLink } from '../components/AsleepNotice'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeSlug from 'rehype-slug'
@@ -340,21 +341,17 @@ function PostDetailPage() {
           여기만 빨간 "에러:"로 보여서, 링크를 타고 글로 바로 들어온 사람에게는
           이 사이트가 망가진 것처럼 보였다. 정적 아카이브로 안내해 읽을 길을 준다. */}
       {asleep && (
-        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 글은 깨어난 뒤에 보여.{' '}
-          <a href="/devlog.html" className="font-medium underline">
-            개발일지 아카이브
-          </a>
-          는 서버 없이도 읽을 수 있어.
-        </p>
+        <AsleepNotice className="mt-4">
+          글은 깨어난 뒤에 보여. <ArchiveLink />는 서버 없이도 읽을 수 있어.
+        </AsleepNotice>
       )}
       {invalidId && (
         <p role="alert" className="mt-4 text-sm text-red-600">
-          글을 찾을 수 없어 — 주소가 올바른지 확인해줘.
+          글을 찾을 수 없어. 주소가 올바른지 확인해줘.
         </p>
       )}
       {!invalidId && error && !asleep && (
-        <p role="alert" className="mt-4 text-sm text-red-600">에러: {error}</p>
+        <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>
       )}
 
       {/* 아직 안 왔고 실패도 아니면 로딩이다. 예전엔 이 자리가 통째로 비어

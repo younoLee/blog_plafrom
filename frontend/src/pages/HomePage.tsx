@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { AsleepNotice, ArchiveLink } from '../components/AsleepNotice'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { PostSummary } from '../types/post'
 import type { PostMetaResult } from '../api/posts'
@@ -191,23 +192,21 @@ function HomePage() {
 
       {/* 절전은 '고장'이 아니라 의도된 비용 절약이라 톤을 구분한다(빨강 에러 X). */}
       {asleep && (
-        <p className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든 — 댓글·로그인은 깨어난 뒤에
-          되고,{' '}
+        <AsleepNotice className="mb-4">
+          댓글·로그인은 깨어난 뒤에 되고,{' '}
           {sleepList.length > 0 ? (
             '개발일지는 아래에서 지금 바로 읽을 수 있어.'
           ) : (
             <>
-              개발일지는{' '}
-              <a href="/devlog.html" className="underline">
-                정적 아카이브
-              </a>
-              에서 지금 바로 읽을 수 있어.
+              개발일지는 <ArchiveLink>정적 아카이브</ArchiveLink>에서 지금 바로 읽을 수 있어.
             </>
           )}
-        </p>
+        </AsleepNotice>
       )}
-      {error && !asleep && <p className="mb-4 text-sm text-red-600">에러: {error}</p>}
+      {/* '에러:' 접두사를 지웠다 (2026-08-27). 콘솔 라벨은 개발자가 로그를 훑을 때
+          쓰는 것이고, 화면에서는 뒤에 오는 문장이 이미 무슨 일인지 말한다. 서버가
+          보낸 이유를 그대로 쓰게 된 지금은 접두사가 문장을 한 번 더 끊기만 한다. */}
+      {error && !asleep && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
 
       {/* 본문 + 우측 사이드바 2단. md(768px)+ = 옆으로(PC/태블릿), 그 아래(폰) = 세로 스택 */}
       <div data-skin="layout" className="grid gap-8 md:grid-cols-[1fr_18rem]">

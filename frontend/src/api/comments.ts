@@ -1,6 +1,6 @@
 import type { Comment } from '../types/comment'
 import { authHeaders } from './auth'
-import { apiFetch, fetchWithTimeout } from './http'
+import { apiFetch, failWith, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -9,7 +9,7 @@ const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 // 로그인 토큰을 보내야 소유자/구독자가 댓글을 읽을 수 있음(없으면 익명 취급 → 404).
 export async function fetchComments(postId: number): Promise<Comment[]> {
   const res = await fetchWithTimeout(`${BASE}/posts/${postId}/comments`, { headers: authHeaders() })
-  if (!res.ok) throw new Error('댓글 불러오기 실패')
+  if (!res.ok) await failWith(res, '댓글 불러오기 실패')
   return res.json()
 }
 
@@ -28,7 +28,7 @@ export async function addComment(
   })
   if (res.status === 422) throw new Error('이름(50자)·내용(2000자) 길이를 확인해줘. 빈칸은 안 돼')
   if (res.status === 429) throw new Error('댓글이 너무 잦아. 잠시 후 다시 해줘')
-  if (!res.ok) throw new Error('댓글 작성 실패')
+  if (!res.ok) await failWith(res, '댓글 작성 실패')
   return res.json()
 }
 
@@ -38,5 +38,5 @@ export async function deleteComment(postId: number, commentId: number): Promise<
     method: 'DELETE',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('댓글 삭제 실패')
+  if (!res.ok) await failWith(res, '댓글 삭제 실패')
 }

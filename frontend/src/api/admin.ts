@@ -1,12 +1,12 @@
 import { authHeaders, type User } from './auth'
-import { apiFetch, fetchWithTimeout } from './http'
+import { apiFetch, failWith, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
 // 가입자 전원 목록 (관리자만 호출 가능 — 백엔드가 require_admin으로 검사)
 export async function listUsers(): Promise<User[]> {
   const res = await fetchWithTimeout(`${BASE}/admin/users`, { headers: authHeaders() })
-  if (!res.ok) throw new Error('가입자 목록을 불러오지 못했어')
+  if (!res.ok) await failWith(res, '가입자 목록을 불러오지 못했어')
   return res.json()
 }
 
@@ -16,7 +16,7 @@ export async function approveUser(id: number): Promise<User> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('승인에 실패했어')
+  if (!res.ok) await failWith(res, '승인에 실패했어')
   return res.json()
 }
 
@@ -26,7 +26,7 @@ export async function revokeUser(id: number): Promise<User> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('승인 취소에 실패했어')
+  if (!res.ok) await failWith(res, '승인 취소에 실패했어')
   return res.json()
 }
 
@@ -36,7 +36,7 @@ export async function banUser(id: number): Promise<User> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('차단에 실패했어')
+  if (!res.ok) await failWith(res, '차단에 실패했어')
   return res.json()
 }
 
@@ -46,7 +46,7 @@ export async function unbanUser(id: number): Promise<User> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('차단 해제에 실패했어')
+  if (!res.ok) await failWith(res, '차단 해제에 실패했어')
   return res.json()
 }
 
@@ -56,7 +56,7 @@ export async function toggleProUser(id: number): Promise<User> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('유료 토글에 실패했어')
+  if (!res.ok) await failWith(res, '유료 토글에 실패했어')
   return res.json()
 }
 
@@ -66,7 +66,7 @@ export async function deleteUser(id: number): Promise<void> {
     method: 'DELETE',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('삭제에 실패했어')
+  if (!res.ok) await failWith(res, '삭제에 실패했어')
 }
 
 // --- 초대 (초대제 가입의 실제 절차) ---
@@ -95,7 +95,7 @@ export interface InviteCreated extends Invite {
 
 export async function listInvites(): Promise<Invite[]> {
   const res = await fetchWithTimeout(`${BASE}/admin/invites`, { headers: authHeaders() })
-  if (!res.ok) throw new Error('초대 목록을 불러오지 못했어')
+  if (!res.ok) await failWith(res, '초대 목록을 불러오지 못했어')
   return res.json()
 }
 
@@ -115,7 +115,7 @@ export async function createInvite(
     throw new Error(d?.detail ?? '초대를 발급하지 못했어')
   }
   if (res.status === 422) throw new Error('이메일 형식을 확인해줘')
-  if (!res.ok) throw new Error('초대를 발급하지 못했어')
+  if (!res.ok) await failWith(res, '초대를 발급하지 못했어')
   return res.json()
 }
 
@@ -124,7 +124,7 @@ export async function revokeInvite(id: number): Promise<void> {
     method: 'DELETE',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('초대를 취소하지 못했어')
+  if (!res.ok) await failWith(res, '초대를 취소하지 못했어')
 }
 
 // 관리자 인프라 대시보드: 서버(EC2)+DB 실측 지표
@@ -145,7 +145,7 @@ export async function fetchInfra(): Promise<InfraStatus> {
   // 이 저장소 유일의 재시도 폭주로 지목됐다). 8초 < 10초라 붙이는 순간 겹치지 않는다
   // — NotificationBell이 30초 간격에 같은 8초를 쓰는 것과 같은 불변식이다.
   const res = await fetchWithTimeout(`${BASE}/admin/infra`, { headers: authHeaders() })
-  if (!res.ok) throw new Error('인프라 상태를 불러오지 못했어')
+  if (!res.ok) await failWith(res, '인프라 상태를 불러오지 못했어')
   return res.json()
 }
 
@@ -166,6 +166,6 @@ export interface AiUsageSummary {
 
 export async function fetchAiUsage(): Promise<AiUsageSummary> {
   const res = await fetchWithTimeout(`${BASE}/admin/ai-usage`, { headers: authHeaders() })
-  if (!res.ok) throw new Error('AI 사용량을 불러오지 못했어')
+  if (!res.ok) await failWith(res, 'AI 사용량을 불러오지 못했어')
   return res.json()
 }

@@ -236,7 +236,7 @@ function SlotEditor() {
                 안 씻긴 HTML을 실행하는 경로를 만들지 않는다. */}
             {draft[f.key].trim() !== '' && (
               <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">
-                저장을 누르면 씻은 결과가 이 칸에 다시 채워져 — 그게 실제로 나가는 내용이야.
+                저장을 누르면 씻은 결과가 이 칸에 다시 채워져. 그게 실제로 나가는 내용이야.
               </p>
             )}
           </div>

@@ -157,7 +157,14 @@ describe('HomePage — 절전 중에도 읽을 것이 있다', () => {
     await mount()
 
     expect(container.textContent).not.toContain('처방이 이 집에서만 안 들었다')
-    expect(container.textContent).toContain('에러')
+    // **오류가 화면에 뜨는가**를 본다. 예전엔 '에러'라는 낱말을 찾았는데, 그건 화면에
+    // 붙어 있던 `에러:` 접두사를 단언한 것이라 문구를 고치면 같이 깨진다(2026-08-27에
+    // 그 접두사를 지우면서 실제로 깨졌다). 이 테스트가 지키려는 것은 낱말이 아니라
+    // '고장을 조용히 덮지 않는다'이므로, 경고 역할이 있는 자리에 서버가 준 이유가
+    // 들어 있는지를 본다.
+    const alert = container.querySelector('[role="alert"]')
+    expect(alert).not.toBeNull()
+    expect(alert?.textContent).toContain('목록 불러오기 실패')
     // 읽으러 가지도 않아야 한다(절전일 때만 읽는다).
     const urls = fetchMock.mock.calls.map((c) => String(c[0]))
     expect(urls.some((u) => u.includes('/devlog-index.json'))).toBe(false)
