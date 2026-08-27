@@ -17,9 +17,34 @@ const ROLE_META: Record<Role, { label: string; badge: string }> = {
 const ACTIONS = { approve: approveUser, revoke: revokeUser, ban: banUser, unban: unbanUser, pro: toggleProUser }
 
 // 서버 부하 미터: 값에 따라 초록(<60)/노랑(<85)/빨강(>=85)
-function Meter({ label, percent, detail }: { label: string; percent: number; detail: string }) {
+//
+// `ok` 를 주면 **그 판정이 이긴다** (2026-08-27). 디스크가 그렇다 — 서버가
+// services/status.py 의 disk_is_ok 로 판정한 값을 실어 보낸다. 미터가 스스로 85% 로
+// 판정하면 /api/status 와 같은 순간에 다른 답을 낸다(8GiB 루트 기준 81.25~85% 구간).
+// CPU·메모리는 그대로 미터가 판정한다. 저 둘은 '혼잡도'라 임계가 취향이지만 디스크는
+// 꽉 차면 Postgres 가 죽는 자리라 판정에 주인이 있어야 한다.
+function Meter({
+  label,
+  percent,
+  detail,
+  ok,
+}: {
+  label: string
+  percent: number
+  detail: string
+  ok?: boolean
+}) {
   const p = Math.min(100, Math.max(0, Math.round(percent)))
-  const color = p >= 85 ? 'bg-red-500' : p >= 60 ? 'bg-amber-500' : 'bg-emerald-500'
+  const color =
+    ok === false
+      ? 'bg-red-500'
+      : ok === true
+        ? 'bg-emerald-500'
+        : p >= 85
+          ? 'bg-red-500'
+          : p >= 60
+            ? 'bg-amber-500'
+            : 'bg-emerald-500'
   return (
     <div className={ui.card}>
       <div className="flex items-baseline justify-between">
@@ -410,7 +435,7 @@ function AdminPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Meter label="CPU" percent={infra.cpu_percent} detail={`부하 ${infra.load_avg['1m']} · ${infra.cpu_count}코어`} />
             <Meter label="메모리" percent={infra.memory.percent} detail={`${infra.memory.used_mb} / ${infra.memory.total_mb} MB`} />
-            <Meter label="디스크" percent={infra.disk.percent} detail={`${infra.disk.used_gb} / ${infra.disk.total_gb} GB`} />
+            <Meter label="디스크" percent={infra.disk.percent} detail={`${infra.disk.used_gb} / ${infra.disk.total_gb} GB`} ok={infra.disk.ok} />
             <Meter
               label="DB 커넥션"
               percent={infra.db.max_connections ? ((infra.db.connections ?? 0) / infra.db.max_connections) * 100 : 0}

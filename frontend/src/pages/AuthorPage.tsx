@@ -33,6 +33,11 @@ function AuthorPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const page = Math.max(1, Number(searchParams.get('page') ?? 1) || 1)
+  // 태그·연재 필터 (2026-08-27). 이 화면이 이걸 안 받아서, 목록의 태그 칩이
+  // `/blog?tag=` 로 나가 **그 사람의 블로그를 떠나게** 하고 있었다. 누른 사람은
+  // 좁히려고 눌렀는데 넓어진다. 서버는 author+tag+series 를 함께 거를 수 있다.
+  const tag = searchParams.get('tag') || undefined
+  const series = searchParams.get('series') || undefined
 
   // `/@yuno` → 'yuno'. @가 없으면 이 화면의 주소가 아니다.
   const handle = raw?.startsWith('@') ? raw.slice(1) : null
@@ -68,13 +73,13 @@ function AuthorPage() {
 
   // 조회는 effect 밖에서 정의한다 — HomePage의 loadPosts와 같은 이유다.
   // (deps에 넣으면 매 렌더 재생성으로 무한 루프가 되고, 안 넣으면 lint가 경고한다)
-  async function load(h: string, p: number) {
+  async function load(h: string, p: number, t?: string, sr?: string) {
     const seq = ++reqSeq.current
     setLoaded(false)
     try {
       const [who, list] = await Promise.all([
         fetchAuthor(h),
-        fetchPosts({ author: h, offset: (p - 1) * POSTS_PAGE_SIZE }),
+        fetchPosts({ author: h, tag: t, series: sr, offset: (p - 1) * POSTS_PAGE_SIZE }),
       ])
       if (seq !== reqSeq.current) return
       setMissing(who === null)
@@ -96,8 +101,8 @@ function AuthorPage() {
     if (!handle) return
     // setState는 전부 await 뒤에 일어난다(실제로는 비동기다). HomePage와 같은 처리.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load(handle, page)
-  }, [handle, page])
+    load(handle, page, tag, series)
+  }, [handle, page, tag, series])
 
   useDocumentTitle(author ? `${author.name}의 블로그` : null)
 
@@ -143,9 +148,24 @@ function AuthorPage() {
       )}
       {error && !asleep && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
 
+      {/* 필터가 걸렸으면 화면이 그 사실을 말하고 풀 길을 준다. 안 그러면 목록이
+          짧아진 이유를 알 수 없고, 주소를 손으로 고치는 수밖에 없다. */}
+      {(tag || series) && (
+        <p className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-gray-500 dark:text-gray-400">{tag ? '태그' : '연재'}</span>
+          <span className="font-medium text-accent">{tag ? `#${tag}` : series}</span>
+          <Link
+            to={`/${raw}`}
+            className="text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
+          >
+            ✕ 전체보기
+          </Link>
+        </p>
+      )}
+
       {loaded && !asleep && posts.length === 0 && (
         <p className="rounded-card border border-dashed border-black/10 p-12 text-center text-gray-500 dark:border-white/15 dark:text-gray-400">
-          아직 쓴 글이 없어.
+          {tag || series ? '조건에 맞는 글이 없어.' : '아직 쓴 글이 없어.'}
         </p>
       )}
 
@@ -157,6 +177,9 @@ function AuthorPage() {
           <PostRow
             key={post.id}
             post={post}
+            // 칩이 이 사람의 블로그 안에 머문다. raw 는 `@yuno` 처럼 @ 가 붙은 원본이라
+            // 그대로 붙이면 지금 주소와 같은 모양이 된다.
+            basePath={`/${raw}`}
             canEdit={!!user && (post.owner_id === user.id || user.role === 'admin')}
             onDelete={async (id) => {
               // try/catch가 없어서 실패하면 화면에 아무 말도 안 나왔다. 목록에서 글이

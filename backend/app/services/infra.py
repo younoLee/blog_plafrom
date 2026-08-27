@@ -9,6 +9,8 @@ import time
 
 import psutil
 
+from app.services.status import disk_is_ok
+
 
 def gather_infra() -> dict:
     vm = psutil.virtual_memory()
@@ -40,6 +42,17 @@ def gather_infra() -> dict:
             "percent": du.percent,
             "used_gb": round(du.used / (1024 ** 3), 1),
             "total_gb": round(du.total / (1024 ** 3), 1),
+            # **판정은 서버가 한다** (services/status.py 의 disk_is_ok).
+            #
+            # 2026-08-27까지 관리자 화면의 미터가 사용률 85% 로 스스로 판정했다.
+            # 그런데 /api/status 는 '여유 15% 또는 1.5GiB' 로 판정한다. 8GiB 루트에서
+            # 1.5GiB 여유는 사용률 81.25% 라, 81.25~85% 구간에서 **상태 페이지는
+            # 빨간불인데 관리자 미터는 노란불**이었다. 같은 순간에 두 화면이 다른 답을
+            # 낸다. 여기서 같은 함수를 불러 그 갈림을 없앤다.
+            #
+            # CPU·메모리는 그대로 미터가 판정한다. 저 둘은 '혼잡도'라 임계가 취향이지만
+            # 디스크는 **꽉 차면 Postgres 가 죽는** 자리라 판정에 주인이 있어야 한다.
+            "ok": disk_is_ok(du),
         },
         "uptime_seconds": int(time.time() - psutil.boot_time()),
     }

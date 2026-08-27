@@ -24,11 +24,20 @@ export function PostRow({
   post,
   canEdit,
   onDelete,
+  basePath = '/blog',
 }: {
   post: PostSummary
   /** 수정·삭제 버튼을 보일지. 본인 글이거나 관리자일 때 참. */
   canEdit: boolean
   onDelete: (id: number) => void
+  /**
+   * 태그·연재 칩이 돌아갈 목록 주소. 기본은 전체 모아보기.
+   *
+   * **왜 필요한가 (2026-08-27)** — `/@handle` 에서 태그를 누르면 `/blog?tag=` 로
+   * 나가서 **그 사람의 블로그를 떠났다.** 누른 사람은 좁히려고 눌렀는데 넓어진다.
+   * 칩이 어디로 갈지는 지금 어느 목록을 보고 있느냐에 달렸으므로 화면이 알려준다.
+   */
+  basePath?: string
 }) {
   return (
     <article
@@ -66,7 +75,7 @@ export function PostRow({
       {post.series && (
         <div data-skin="post-series" className="mt-2">
           <Link
-            to={`/blog?series=${encodeURIComponent(post.series)}`}
+            to={`${basePath}?series=${encodeURIComponent(post.series)}`}
             className="inline-flex items-center gap-1 rounded-btn bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent transition hover:bg-accent/20"
           >
             연재 · {post.series}
@@ -85,7 +94,7 @@ export function PostRow({
           {post.tags.slice(0, 4).map((t) => (
             <Link
               key={t}
-              to={`/blog?tag=${encodeURIComponent(t)}`}
+              to={`${basePath}?tag=${encodeURIComponent(t)}`}
               className="rounded-btn bg-black/[0.05] px-2 py-0.5 text-xs text-gray-600 transition hover:bg-accent/10 hover:text-accent dark:bg-white/10 dark:text-gray-300"
             >
               #{t}

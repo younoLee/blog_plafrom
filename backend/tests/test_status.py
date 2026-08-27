@@ -176,3 +176,59 @@ def test_stale_boundary_is_three_intervals(client, monkeypatch):
     assert status_svc.STALE_AFTER == status_svc.RECORD_INTERVAL * 3
     _freeze_latest(monkeypatch, status_svc.STALE_AFTER - 5)
     assert client.get("/api/status").json()["stale"] is False
+
+
+# ── 디스크 판정에 주인이 하나인가 (2026-08-27) ───────────────────────────────
+#
+# 08-27까지 같은 판정이 두 곳에 있었다. status.py 는 '여유 15% 또는 1.5GiB' 로,
+# 관리자 화면의 미터는 '사용률 85%' 로 판정했다. 8GiB 루트에서 1.5GiB 여유는 사용률
+# 81.25% 라, 그 사이 구간에서 상태 페이지는 빨간불인데 관리자 미터는 노란불이었다.
+#
+# 둘 다 안전한 방향으로 틀려서 사고는 안 났지만, 판정이 두 곳에 살면 한쪽만 고쳐진다.
+# 여기서 잠그는 것은 **경계값**이다 — 임계를 조용히 바꾸면 걸린다.
+from types import SimpleNamespace  # noqa: E402
+
+GIB = 1024**3
+
+
+def _du(total_gib: float, free_gib: float):
+    total = int(total_gib * GIB)
+    free = int(free_gib * GIB)
+    return SimpleNamespace(total=total, free=free, used=total - free)
+
+
+def test_disk_ok_when_plenty_free():
+    assert status_svc.disk_is_ok(_du(8, 4)) is True
+
+
+def test_disk_not_ok_below_absolute_floor():
+    """8GiB 루트에서 1.5GiB 미만이면 안 괜찮다 — 비율로는 아직 81% 대다.
+
+    이게 두 판정이 갈리던 바로 그 구간이다. 사용률로만 보면 85% 를 안 넘어서
+    미터는 노란불이었다.
+    """
+    assert status_svc.disk_is_ok(_du(8, 1.4)) is False
+    # 같은 상황을 사용률로 환산하면 82.5% — 옛 미터 기준(85%)으로는 통과였다.
+    assert 81 < (1 - 1.4 / 8) * 100 < 85
+
+
+def test_disk_not_ok_below_ratio_on_large_volume():
+    """큰 볼륨에서는 절대값이 아니라 비율이 먼저 걸린다.
+
+    100GiB 에서 여유 10GiB 는 1.5GiB 를 훨씬 넘지만 비율이 10% 라 안 괜찮다.
+    두 조건을 max 로 묶은 이유가 이것이다 — 루트 볼륨 크기가 terraform 에 없어서
+    어느 쪽이 먼저 걸릴지 미리 알 수 없다.
+    """
+    assert status_svc.disk_is_ok(_du(100, 10)) is False
+    assert status_svc.disk_is_ok(_du(100, 16)) is True
+
+
+def test_infra_carries_the_same_judgment():
+    """관리자 화면이 받는 값도 같은 함수를 통과했는가.
+
+    미터가 스스로 판정하던 것을 서버 판정으로 바꾼 자리다. 키가 사라지면 미터가
+    조용히 옛 기준으로 되돌아간다(프론트가 선택값으로 다루기 때문에).
+    """
+    from app.services.infra import gather_infra
+
+    assert "ok" in gather_infra()["disk"]

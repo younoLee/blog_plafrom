@@ -133,7 +133,11 @@ export interface InfraStatus {
   cpu_count: number
   load_avg: { '1m': number; '5m': number; '15m': number }
   memory: { percent: number; used_mb: number; total_mb: number }
-  disk: { percent: number; used_gb: number; total_gb: number }
+  // `ok` 는 **서버가 내린 판정**이다(backend services/status.py 의 disk_is_ok).
+  // 미터가 스스로 85% 로 판정하면 상태 페이지와 같은 순간에 다른 답을 낸다 —
+  // 8GiB 루트에서 1.5GiB 여유는 사용률 81.25% 라 그 사이 구간이 갈렸다.
+  // 옛 백엔드는 이 키를 안 보내므로 선택값이다. 없으면 미터가 원래대로 판정한다.
+  disk: { percent: number; used_gb: number; total_gb: number; ok?: boolean }
   uptime_seconds: number
   db: { connections: number | null; max_connections: number | null }
 }

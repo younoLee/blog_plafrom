@@ -38,6 +38,28 @@ RECORD_INTERVAL = 60
 # 바로 걸린다. 셋이면 '한 번 놓친 것'과 '멈춘 것'이 갈린다.
 STALE_AFTER = RECORD_INTERVAL * 3
 
+
+# 디스크가 '괜찮은가'의 판정. **여기 한 곳에만 둔다.**
+#
+# 임계: 여유 15% 미만 또는 1.5GiB 미만이면 안 괜찮다. Postgres 는 볼륨이 꽉 차기 전에
+# WAL·체크포인트에서 먼저 죽으므로 여유를 둔다. 루트 볼륨 크기가 terraform 에 없어서
+# (ec2.tf 의 root_block_device 에 volume_size 가 없다) 비율과 절대값을 둘 다 건다.
+#
+# **왜 함수로 뽑았나 (2026-08-27)** — 같은 판정이 두 곳에 있었다. 여기는 여유 용량으로,
+# 관리자 화면의 미터는 사용률 85% 로 판정했다. 8GiB 루트에서 1.5GiB 여유는 사용률
+# 81.25% 라, 81.25~85% 구간에서 **상태 페이지는 빨간불인데 관리자 미터는 노란불**이다.
+# 같은 순간에 두 화면이 다른 답을 낸다.
+#
+# 둘 다 안전한 방향으로 틀려서(상태 쪽이 더 엄격) 사고는 안 나지만, 판정이 두 곳에
+# 살면 한쪽만 고쳐지는 것이 이 저장소가 반복해서 겪은 일이다. 같은 날 /api/status 의
+# stale 판정을 서버가 소유하게 만든 것과 같은 이유로 여기서 한 번 정한다.
+DISK_MIN_FREE_BYTES = 1.5 * 1024**3
+DISK_MIN_FREE_RATIO = 0.15
+
+
+def disk_is_ok(du) -> bool:  # noqa: ANN001  (psutil의 sdiskusage — 타입 스텁이 없다)
+    return bool(du.free >= max(DISK_MIN_FREE_BYTES, du.total * DISK_MIN_FREE_RATIO))
+
 # ── 점검 전용 엔진 (2026-08-27 카오스 훈련) ──────────────────────────────────────
 # **왜 앱 엔진을 안 쓰나.** 08-27 훈련에서 `db hang`(연결은 받고 무응답)을 걸었더니
 # `/api/status`가 **884초 동안** `"database":"ok"`라고 답했다. 원인은 캐시가 아니라
@@ -132,8 +154,7 @@ def run_checks() -> dict:
     # 체크포인트에서 먼저 죽으므로 여유를 둔다. 루트 볼륨 크기가 terraform에 없어서
     # (ec2.tf의 root_block_device에 volume_size가 없다) 비율과 절대값을 둘 다 건다.
     try:
-        du = psutil.disk_usage("/")
-        disk_ok = du.free >= max(1.5 * 1024**3, du.total * 0.15)
+        disk_ok = disk_is_ok(psutil.disk_usage("/"))
     except Exception:
         disk_ok = False  # 못 쟀으면 초록으로 넘기지 않는다
 
