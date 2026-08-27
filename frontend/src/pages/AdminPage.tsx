@@ -1,7 +1,26 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { listUsers, approveUser, revokeUser, banUser, unbanUser, deleteUser, toggleProUser, fetchInfra, fetchAiUsage, listInvites, createInvite, revokeInvite, type InfraStatus, type AiUsageSummary, type Invite, type InviteCreated } from '../api/admin'
+import {
+  listUsers,
+  approveUser,
+  revokeUser,
+  banUser,
+  unbanUser,
+  deleteUser,
+  toggleProUser,
+  fetchInfra,
+  fetchAiUsage,
+  listInvites,
+  createInvite,
+  revokeInvite,
+  type InfraStatus,
+  type AiUsageSummary,
+  type Invite,
+  type InviteCreated,
+  fetchAiGuard,
+  type AiGuardSummary,
+} from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 
@@ -83,6 +102,69 @@ const nf = new Intl.NumberFormat('ko-KR')
  *
  *  왜 이 화면이 필요한가: Anthropic 청구는 AWS 밖이라 watch.sh가 보는 AWS Budgets가
  *  원리적으로 못 본다. 이 숫자를 안 보면 다음 명세서까지 아무도 모른다. */
+/**
+ * AI 가드에 걸린 시도와, 그 때문에 자동 제한된 계정.
+ *
+ * **왜 화면에 내놓나 (2026-08-27)** — `ai_guard_violation` 테이블은 진작 있었고 임계를
+ * 넘으면 서버가 429로 막는데, **그 사실이 화면에 한 줄도 없었다.** 남는 건 로그 한 줄
+ * 뿐이라 "왜 초안 생성이 안 되냐"는 문의가 오면 psql을 켜야 알 수 있었다.
+ *
+ * 그리고 제한은 사용자에게 뭉뚱그려 안내된다 — 몇 번 걸렸고 몇 번 남았는지 알려주면
+ * 공격자에겐 계기판이 되기 때문이다(routers/ai.py 주석). 그래서 **관리자조차 못 보면
+ * 아무도 못 본다.**
+ *
+ * 정상 사용자는 평생 0이라 이 목록은 대개 비어 있다. 비어 있음 자체가 정보다.
+ */
+function AiGuardSection() {
+  const [data, setData] = useState<AiGuardSummary | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    fetchAiGuard()
+      .then(setData)
+      .catch(() => setFailed(true))
+  }, [])
+
+  if (failed || !data) return null
+
+  return (
+    <section className="mt-8">
+      <h2 className="mb-1 text-xl font-semibold tracking-tight">AI 가드</h2>
+      <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+        프롬프트 인젝션 가드에 걸린 시도야. 시간당 {data.cap}번을 넘기면 그 시간 동안
+        초안 생성이 자동으로 막혀. 정상 사용자는 여기 안 나와.
+      </p>
+      {data.items.length === 0 ? (
+        <p className={`${ui.card} text-sm text-gray-500 dark:text-gray-400`}>
+          이번 시간창에 걸린 시도가 없어.
+        </p>
+      ) : (
+        <ul className={`${ui.card} divide-y divide-black/[0.06] dark:divide-white/10`}>
+          {data.items.map((it) => (
+            <li key={it.user_id} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <span className="truncate">{it.name}</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="text-gray-500 dark:text-gray-400">{it.count}회</span>
+                {/* 판정은 서버가 한다 — 화면이 cap과 비교해 스스로 정하면 백엔드가
+                    임계를 바꿔도 여기는 옛 기준으로 그린다. */}
+                {it.blocked && (
+                  <span className="rounded-btn bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-950 dark:text-red-300">
+                    제한 중
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        지금 시간창({new Date(data.hour).toLocaleString('ko-KR')} 기준)만 보여줘. 자동 제한도
+        그 창을 기준으로 걸려.
+      </p>
+    </section>
+  )
+}
+
 function AiUsageSection() {
   const [data, setData] = useState<AiUsageSummary | null>(null)
   const [failed, setFailed] = useState(false)
@@ -446,12 +528,62 @@ function AdminPage() {
             서버 가동시간: {formatUptime(infra.uptime_seconds)}
             {infraAt && ` · 갱신 ${infraAt.toLocaleTimeString()}`}
           </p>
+
+          {/* 마지막 알림 발송 (2026-08-27). 이 숫자는 여태 **로그에만** 있었고, 그
+              로그는 대부분 꺼져 있는 EC2 안에 있었다. "알림이 안 왔다"는 말이 나왔을 때
+              서버를 켜고 SSH로 들어가야만 확인할 수 있었다.
+              08-26 훈련이 찾은 '앞 5대만 계속 받는' 불공정도 로그를 사람이 읽어야 보였다. */}
+          {infra.last_push && (
+            <div className={`${ui.card} mt-3`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                  마지막 알림 발송
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {new Date(infra.last_push.at).toLocaleString('ko-KR')}
+                </span>
+              </div>
+              <p className="mt-1 text-sm">
+                기기 {infra.last_push.targets}대 중 {infra.last_push.tried}대에 보내
+                {' '}
+                <span
+                  className={
+                    infra.last_push.ok < infra.last_push.tried
+                      ? 'font-semibold text-red-500'
+                      : 'font-semibold text-emerald-600 dark:text-emerald-400'
+                  }
+                >
+                  {infra.last_push.ok}대 성공
+                </span>
+                {infra.last_push.gone > 0 && ` · 만료 ${infra.last_push.gone}대 정리`}
+              </p>
+              {/* 예산에 걸리면 남은 기기는 그 발행을 못 받는다. 아무 에러도 안 나는
+                  자리라 여기서 말하지 않으면 아무도 모른다. */}
+              {infra.last_push.budget_hit && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  45초 예산에 걸려 {infra.last_push.targets - infra.last_push.tried}대는 이번
+                  발행을 못 받았어. 벤더가 느리거나 응답이 없다는 뜻이야.
+                </p>
+              )}
+              {infra.last_push.ok < infra.last_push.tried && !infra.last_push.budget_hit && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  시도한 {infra.last_push.tried}대 중 {infra.last_push.tried - infra.last_push.ok}
+                  대가 실패했어.
+                </p>
+              )}
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                마지막 한 건만 기억해. 서버를 재시작하면 사라져.
+              </p>
+            </div>
+          )}
         </section>
       )}
 
       {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
 
       <AiUsageSection />
+
+      <AiGuardSection />
 
       <InviteSection />
 

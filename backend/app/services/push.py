@@ -17,6 +17,7 @@ import logging
 import os
 import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import http_ece
@@ -50,6 +51,30 @@ logger = logging.getLogger(__name__)
 # 4~5대에서 끊긴다(기기당 10초). 못 보낸 알림은 다음 발행 때 다시 기회가 있지만
 # 커넥션이 마르면 사이트 전체가 멈춘다 — 그 비대칭이 이 값을 정한다.
 DELIVER_BUDGET_SECONDS = 45
+
+
+# 마지막 발송의 결과. **프로세스 메모리다.**
+#
+# **왜 화면에 내놓는가 (2026-08-27)** — 아래 루프가 시도·성공·버려진 기기 수를 정확히
+# 세는데(08-27에 tried/ok 를 가른 자리), 그 숫자가 **로그에만** 남는다. 로그는 EC2 안에
+# 있고 이 서버는 대부분 꺼져 있어서, "알림이 안 왔다"는 말이 나왔을 때 확인하려면
+# 서버를 켜고 SSH 로 들어가야 한다. 08-26 훈련이 찾은 '앞 5대만 계속 받는' 불공정도
+# 로그를 사람이 읽어야만 보였다.
+#
+# **왜 테이블이 아닌가** — 발행마다 한 줄씩 쌓으면 보존 기간과 정리를 정해야 하고,
+# 그건 이 값이 주는 것보다 비싸다. 여기서 답해야 할 질문은 "지금 알림이 나가고 있나"
+# 하나이고, 그건 마지막 한 건이면 된다. status.py 가 점검 결과를 같은 방식으로
+# 프로세스 메모리에 두는 것과 같은 판단이다.
+#
+# **한계를 그대로 적어둔다**: 재시작하면 사라지고, 워커가 여럿이면 워커마다 다르다
+# (지금 uvicorn 워커는 1개다). 화면도 이걸 '마지막 발송'이라고만 말하고 통계라고
+# 말하지 않는다.
+_last_delivery: dict | None = None
+
+
+def last_delivery() -> dict | None:
+    """마지막 새 글 알림 발송의 결과. 아직 없으면 None."""
+    return _last_delivery
 
 # 푸시 서비스가 수신자를 못 만났을 때 메시지를 얼마나 붙들고 있을지(초).
 # 새 글 알림은 하루가 지나면 알림으로서 의미가 옅어지므로 24시간.
@@ -305,6 +330,22 @@ def _deliver(
         except Exception:
             # 한 기기 실패가 나머지 발송을 막지 않게(email.py와 같은 방침)
             logger.exception("푸시 발송 중 예외")
+
+    # 결과를 남긴다. 관리자 화면이 이걸 읽는다(위 _last_delivery 주석).
+    # `budget_hit` 이 참이면 남은 기기가 이번 발행을 못 받았다는 뜻이다.
+    global _last_delivery
+    _last_delivery = {
+        "at": datetime.now(UTC).isoformat(),
+        # 무엇에 대한 발송이었나. payload 는 이미 화면에 나가는 값이라 여기 담아도
+        # 새로 새는 것이 없다(제목·본문 한 줄). 발송 대상의 신원은 안 담는다.
+        "kind": payload.get("tag") or "?",
+        "title": payload.get("body"),
+        "targets": len(subs),
+        "tried": tried,
+        "ok": ok,
+        "gone": len(dead),
+        "budget_hit": tried < len(subs),
+    }
 
     # 죽은 구독은 그 자리에서 지운다. 안 지우면 매 발행마다 같은 곳에 던지고
     # 실패하며, 사용자 목록의 '기기 수'도 영원히 틀린 값을 보여준다.

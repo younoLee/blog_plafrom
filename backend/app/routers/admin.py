@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.deps import require_admin
 from app.core.display import display_name_of
 from app.core.security import hash_invite_token, new_invite_token
-from app.models.ai_usage import AiUsage
+from app.models.ai_usage import AiGuardViolation, AiUsage
 from app.models.invite import Invite
 from app.models.post import Post
 from app.models.user import BANNED_ROLE, User
@@ -17,6 +17,7 @@ from app.schemas.invite import InviteCreate, InviteCreated, InviteOut
 from app.schemas.user import UserRead
 from app.services.ai_usage import count_today_all_users, today, tokens_today_all_users
 from app.services.infra import gather_infra
+from app.services.push import last_delivery
 from app.services.ses_status import recipient_status
 
 # 관리자 전용 라우터 — 모든 엔드포인트가 require_admin 통과해야 함
@@ -35,7 +36,62 @@ def infra_status(db: Session = Depends(get_db)):
         data["db"] = {"connections": int(conns or 0), "max_connections": maxc}
     except Exception:
         data["db"] = {"connections": None, "max_connections": None}
+    # 마지막 새 글·새 댓글 알림 발송의 결과 (services/push.py 의 _last_delivery 주석).
+    # 여태 이 숫자는 로그에만 있었고, 로그는 대부분 꺼져 있는 EC2 안에 있었다.
+    data["last_push"] = last_delivery()
     return data
+
+
+@router.get("/ai-guard")
+def ai_guard_summary(db: Session = Depends(get_db)):
+    """AI 가드에 걸린 시도와, 그 때문에 자동 제한된 계정 — 관리자 화면용.
+
+    **왜 화면에 내놓는가 (2026-08-27).** `ai_guard_violation` 테이블은 진작 있었고
+    임계를 넘으면 `routers/ai.py:236` 이 429로 막는데, **그 사실이 화면에 한 줄도 없었다.**
+    남는 것은 로그 한 줄뿐이라 "왜 초안 생성이 안 되냐"는 문의가 오면 psql 을 켜야
+    알 수 있었다. 그리고 제한은 사용자에게 뭉뚱그려 안내되므로(그 함수 주석: 몇 번
+    걸렸고 몇 번 남았는지 알려주면 공격자에겐 계기판이 된다) **관리자조차 못 보면
+    아무도 못 본다.**
+
+    지금 시간창(UTC 정시 내림)만 본다. 자동 제한이 그 창을 기준으로 걸리므로
+    '지금 막혀 있는 사람'과 화면이 일치한다. 지난 기록을 쌓아 보여주려면 보존 기간을
+    정해야 하는데, 그건 개인정보 성격이라 따로 판단할 일이다.
+    """
+    hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    rows = db.execute(
+        # ⚠️ `count` 에 라벨을 붙인다. SQLAlchemy 의 Row 는 tuple 을 물려받아서
+        #    `r.count` 가 **tuple.count 메서드**를 가리킨다 — 숫자가 아니라 함수다.
+        #    이 파일이 위에서 User.id ↔ Notification.id 겹침에 대해 적어둔 것과 같은
+        #    부류인데, 그쪽은 이름이 겹친 것이고 이쪽은 내장 메서드와 겹친 것이다.
+        #    mypy 가 잡았다(pytest 는 못 잡는다 — 값이 함수여도 JSON 직렬화 전까지 안 터진다).
+        select(
+            AiGuardViolation.user_id,
+            AiGuardViolation.count.label("hits"),
+            User.email,
+            User.display_name,
+        )
+        .join(User, User.id == AiGuardViolation.user_id)
+        .where(AiGuardViolation.hour == hour)
+        .order_by(AiGuardViolation.count.desc(), AiGuardViolation.user_id)
+    ).all()
+    cap = settings.ai_guard_violation_cap
+    return {
+        "hour": hour.isoformat(),
+        "cap": cap,
+        "items": [
+            {
+                "user_id": r.user_id,
+                # 이메일이 아니라 표시명 규칙을 따른다 — 관리자 화면의 다른 목록과 같다
+                # (그쪽 주석: "이메일은 안 보여준다").
+                "name": display_name_of(r.user_id, r.display_name),
+                "count": r.hits,
+                # 지금 막혀 있는가. 임계와 개수를 둘 다 보내면 화면이 스스로 판정하게
+                # 되는데, 그러면 백엔드가 임계를 바꿔도 화면이 옛 기준으로 그린다.
+                "blocked": r.hits >= cap,
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/ai-usage")

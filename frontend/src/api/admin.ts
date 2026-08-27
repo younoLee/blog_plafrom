@@ -138,8 +138,34 @@ export interface InfraStatus {
   // 8GiB 루트에서 1.5GiB 여유는 사용률 81.25% 라 그 사이 구간이 갈렸다.
   // 옛 백엔드는 이 키를 안 보내므로 선택값이다. 없으면 미터가 원래대로 판정한다.
   disk: { percent: number; used_gb: number; total_gb: number; ok?: boolean }
+  // 마지막 알림 발송의 결과. **프로세스 메모리라 재시작하면 사라진다** —
+  // 화면도 이걸 '마지막 발송'이라고만 말하고 통계라고 말하지 않는다.
+  // 여태 이 숫자는 로그에만 있었고, 로그는 대부분 꺼져 있는 EC2 안에 있었다.
+  last_push?: {
+    at: string
+    kind: string
+    title: string | null
+    targets: number // 보낼 대상이던 기기 수
+    tried: number // 실제로 시도한 수 (예산에 걸리면 targets보다 작다)
+    ok: number // 성공한 수. tried와 다르면 벤더 쪽이 아프다
+    gone: number // 만료로 정리된 구독 수
+    budget_hit: boolean // 45초 예산에 걸려 남은 기기를 버렸는가
+  } | null
   uptime_seconds: number
   db: { connections: number | null; max_connections: number | null }
+}
+
+export type AiGuardSummary = {
+  hour: string
+  cap: number
+  items: { user_id: number; name: string; count: number; blocked: boolean }[]
+}
+
+/** AI 가드에 걸린 시도와 자동 제한된 계정. 지금 시간창만 본다. */
+export async function fetchAiGuard(): Promise<AiGuardSummary> {
+  const res = await fetchWithTimeout(`${BASE}/admin/ai-guard`, { headers: authHeaders() })
+  if (!res.ok) await failWith(res, '가드 기록을 불러오지 못했어')
+  return res.json()
 }
 
 export async function fetchInfra(): Promise<InfraStatus> {
