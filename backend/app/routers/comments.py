@@ -58,7 +58,19 @@ def _read(c: Comment, owner_id: int | None, post_owner_id: int) -> CommentRead:
 
 
 @router.get("", response_model=list[CommentRead])
+# **이 저장소에서 무인증으로 가장 크게 부풀 수 있는 응답이다.** 바로 아래 상한 주석이
+# 스스로 계산해뒀다 — 댓글 하나가 최대 2000자, 상한이 1000개라 한 요청이 약 10MB를
+# 메모리에 만들어 내보내고, t2.micro(1GB)에서 그 GET이 동시 20개면 200MB다.
+# 그런데 2026-08-27 훈련까지 **그 경로에 한도가 하나도 없었다** — 상한은 응답 크기를
+# 묶었지만 '몇 번 부를 수 있나'는 아무도 안 묶고 있었다. 크기 상한과 호출 상한은 다른 방어다.
+# 무인증 + DB 조회라 08-19 보안검사가 `/api/skin`·`/api/blog-owner`·`/api/authors/{h}`에
+# 건 것과 같은 한도를 건다. 그때 셋만 쓸리고 이 자리는 남았다 — CloudFront의 `/api/*`는
+# CachingDisabled라 엣지가 흡수하는 게 0이고 WAF에도 rate 룰이 없어서, 노트북 한 대로
+# t2.micro 크레딧을 태울 수 있다(그때 44 req/s 실측). 120/분인 이유도 그때와 같다 —
+# 낮게 걸면 정상 방문자가 먼저 걸린다(skin.py 주석).
+@limiter.limit("120/minute")
 def list_comments(
+    request: Request,
     post_id: int,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),

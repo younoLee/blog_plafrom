@@ -16,7 +16,10 @@ router = APIRouter(prefix="/push", tags=["push"])
 
 
 @router.get("/key", response_model=PushKey)
-def public_key():
+# 응답이 상수 하나라 비용은 거의 0이다. 그래도 거는 이유는 **계기판**이다 —
+# 무인증 경로에 한도가 하나도 없으면 두드림이 로그에 남지 않는다.
+@limiter.limit("120/minute")
+def public_key(request: Request):
     """브라우저가 구독할 때 쓰는 VAPID 공개키.
 
     **비밀이 아니다** — 이 값으로 구독해야 우리 서버가 보낸 알림임을 브라우저가

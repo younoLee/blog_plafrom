@@ -223,7 +223,16 @@ def list_posts(
 # 주의: 이 라우트는 반드시 "/{post_id}"보다 위에 있어야 한다.
 # 아래에 두면 'meta'를 post_id(int)로 파싱하려다 422가 난다. (07-15 /subscribers/me와 같은 함정)
 @router.get("/meta", response_model=PostMeta)
+# 사이드바가 첫 페인트 전에 부르고, 아래에서 보듯 **태그를 unnest 해 집계**한다 —
+# 무인증 경로 중 이 파일에서 가장 비싼 축이다.
+# 무인증 + DB 조회라 08-19 보안검사가 `/api/skin`·`/api/blog-owner`·`/api/authors/{h}`에
+# 건 것과 같은 한도를 건다. 그때 셋만 쓸리고 이 자리는 남았다 — CloudFront의 `/api/*`는
+# CachingDisabled라 엣지가 흡수하는 게 0이고 WAF에도 rate 룰이 없어서, 노트북 한 대로
+# t2.micro 크레딧을 태울 수 있다(그때 44 req/s 실측). 120/분인 이유도 그때와 같다 —
+# 낮게 걸면 정상 방문자가 먼저 걸린다(skin.py 주석).
+@limiter.limit("120/minute")
 def posts_meta(
+    request: Request,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -259,7 +268,14 @@ def posts_meta(
 
 
 @router.get("/{post_id}/series", response_model=SeriesNav | None)
+# 무인증 + DB 조회라 08-19 보안검사가 `/api/skin`·`/api/blog-owner`·`/api/authors/{h}`에
+# 건 것과 같은 한도를 건다. 그때 셋만 쓸리고 이 자리는 남았다 — CloudFront의 `/api/*`는
+# CachingDisabled라 엣지가 흡수하는 게 0이고 WAF에도 rate 룰이 없어서, 노트북 한 대로
+# t2.micro 크레딧을 태울 수 있다(그때 44 req/s 실측). 120/분인 이유도 그때와 같다 —
+# 낮게 걸면 정상 방문자가 먼저 걸린다(skin.py 주석).
+@limiter.limit("120/minute")
 def post_series(
+    request: Request,
     post_id: int,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -366,7 +382,17 @@ def create_post(
 
 
 @router.get("/{post_id}", response_model=PostRead)
+# 글 본문 읽기 — 사이트에서 가장 정상적으로 많이 불리는 경로다. 그래서 한도를 낮추면
+# 안 된다. 그래도 0(무제한)과 120/분은 다르다: 무제한이면 한 IP가 크레딧을 태울 때
+# 남는 신호가 하나도 없다.
+# 무인증 + DB 조회라 08-19 보안검사가 `/api/skin`·`/api/blog-owner`·`/api/authors/{h}`에
+# 건 것과 같은 한도를 건다. 그때 셋만 쓸리고 이 자리는 남았다 — CloudFront의 `/api/*`는
+# CachingDisabled라 엣지가 흡수하는 게 0이고 WAF에도 rate 룰이 없어서, 노트북 한 대로
+# t2.micro 크레딧을 태울 수 있다(그때 44 req/s 실측). 120/분인 이유도 그때와 같다 —
+# 낮게 걸면 정상 방문자가 먼저 걸린다(skin.py 주석).
+@limiter.limit("120/minute")
 def get_post(
+    request: Request,
     post_id: int,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
