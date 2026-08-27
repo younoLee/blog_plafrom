@@ -115,8 +115,13 @@ jobs:
         # find로 바꿨는데 **이 스텝만 안 쓸려 있었다.** 그래서 5개 스크립트의 공통 입구인
         # scripts/lib/ec2.sh에 문법 오류가 들어가도 CI가 초록이었다. 바로 아래 주석이
         # "구멍을 닫았다"고 적어둔 그 구멍이 윗줄에 열려 있던 셈이다(2026-08-11 공백검사).
+        #
+        # 2026-08-27: `ops/`를 더한다. 카오스 훈련 하네스(ops/chaos/*.sh)가 08-26에
+        # 생겼는데 **검사 대상에 한 번도 안 들어와 있었다.** 이 잡의 주석 셋이 전부
+        # "검사 대상이 새로 생겼는데 조용히 빠진다"를 경고하고 있었는데, 경고한 그
+        # 모양이 새 디렉터리로 또 일어났다. 대상을 디렉터리 목록으로 두는 한 반복된다.
         run: |
-          find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          find scripts ops -name '*.sh' -print0 | xargs -0 -n1 bash -n
       # 주석은 "glob으로 전부 잡는다"고 했는데 실제 args는 하드코딩된 6개 목록이었다
       # (`uses: docker://…`의 args는 glob을 확장해주지 않는다). 그래서 그 주석이 경고한
       # 바로 그 상태가 그대로 있었다 — 2026-07-28에 세어보니 스크립트 7개 중 6개만
@@ -129,11 +134,11 @@ jobs:
       # 이미지도 다이제스트로 고정한다. `:stable`은 언제 무엇으로 바뀌는지 알 수 없고,
       # 린터가 조용히 바뀌면 어제 초록이던 코드가 오늘 빨간불이 되거나 그 반대가 된다.
       # 어느 쪽이든 검사를 못 믿게 된다. 갱신은 사람이 판단해서. (현재 v0.11.0)
-      - name: shellcheck (scripts/*.sh 전부)
+      - name: shellcheck (scripts·ops의 *.sh 전부)
         run: |
           docker run --rm -v "$PWD":/mnt -w /mnt \
             koalaman/shellcheck@sha256:bb596a0d169b85ddd81d8b6d3a2ff6d5baf5fca10b97f575ebc647c3dff62b3d \
-            -S warning $(find scripts -name '*.sh' | sort)
+            -S warning $(find scripts ops -name '*.sh' | sort)
 
       # CloudFront Function은 이 사이트의 모든 정적 요청이 지나가는 자리인데
       # 여태 아무도 검사하지 않았다 — terraform validate는 이 .js를 문자열로만 보고
