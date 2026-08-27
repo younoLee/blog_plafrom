@@ -148,6 +148,17 @@ TFVARS
 #    재해 복구에서 필요한 건 EC2 하나다. 범위를 안 좁히면 apply가 이 저장소의 다른
 #    리소스까지 손대려 든다(2026-07-27 게임데이에서 tear down한 ECS 스택이 부활할 뻔했다.
 #    지금은 enable_ecs=false로 막혀 있지만, 좁히는 습관 자체가 사고 중의 안전장치다).
+#
+#    ⚠️ **이 명령은 대화형이다.** 계획을 보여준 뒤 `Enter a value:` 로 yes 를 기다린다.
+#    stdin 이 없는 자리(스크립트·CI·에이전트)에서 그냥 부르면
+#    `error asking for approval: EOF` 로 죽고 **아무것도 적용되지 않는다.**
+#    자동으로 밟으려면 `-auto-approve` 를 붙이되, 붙이기 전에 반드시 `plan` 으로 계획을
+#    먼저 확인한다. 2026-08-27 게임데이에서 이 자리가 첫 삽에서 그대로 났다.
+#
+#    ⚠️ 이 저장소는 S3 원격 백엔드를 쓴다. 새 클론이면 `init` 이 먼저다 —
+#    없으면 `Backend initialization required` 로 즉시 실패한다. 런북에 이 줄이
+#    한 번도 없었다(2026-08-27 감사에서 발견).
+terraform -chdir=terraform init
 terraform -chdir=terraform apply -target=aws_instance.backend
 
 # ⚠️ 새 인스턴스는 ID가 다르다. 옛 ID로 조회하면 InvalidInstanceID.NotFound가 난다.
@@ -161,8 +172,16 @@ IID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=blog-backend" \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 # ⚠️ 태그값에 공백이 섞이면 이 축약 필터는 조용히 아무것도 못 찾는다(CLI가 뒤 공백을
 #    잘라낸다). 2026-07-27에 실제로 여기서 20분을 잃었다. IID가 비면 태그부터 의심할 것.
-#    지금은 스크립트도 같은 방식으로 찾으므로, **여기서 못 찾으면 스크립트도 전부 못 찾는다.**
 #    태그를 고치는 것이 곧 복구다(스크립트를 고치는 게 아니라).
+#
+#    ⚠️ (2026-08-27 정정) 이 자리에 "지금은 스크립트도 같은 방식으로 찾으므로, 여기서
+#    못 찾으면 스크립트도 전부 못 찾는다"고 적혀 있었는데 **사실이 아니다.**
+#    scripts/lib/ec2.sh:49 는 `Values=pending,running,stopping,stopped` 전수에
+#    `Reservations[].Instances[]` 로 다중 매치까지 보고 2건 이상이면 거부한다.
+#    위 축약 조회는 `Values=running` 하나에 `Reservations[0].Instances[0]` 이라
+#    **필터도 다르고 다중 매치를 조용히 하나로 고른다.** 즉 여기서 못 찾아도 스크립트는
+#    찾을 수 있고, 그 반대도 된다. 특히 새 인스턴스가 `pending` 인 동안 위 조회는
+#    None 을 뱉어 아래 가드가 exit 1 을 낸다 — 잠시 기다렸다 다시 치면 된다.
 [ -n "$IID" ] && [ "$IID" != "None" ] || { echo "인스턴스를 못 찾았다 — 태그 확인"; exit 1; }
 DNS=$(aws ec2 describe-instances --instance-ids "$IID" \
   --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
@@ -217,12 +236,18 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS 'chmod 600 ~/blog/.env'
 #      아래 중 셋(SECRET_KEY·ORIGIN_SECRET·S3_BUCKET·PAYMENTS_REQUIRE_LIVE)은 main.py의
 #      기동 가드가 프로드에서 fail-closed로 막으므로 **빠지면 컨테이너가 안 뜬다** — 요란하다.
 #      나머지는 **빠져도 앱이 정상 기동한다.** 그게 더 위험하다(시나리오 D 표 참고).
+# ⚠️ (2026-08-27 정정) 여기 있던 15키 하드코딩 목록을 지운다. 에스크로는 21키인데
+#      목록은 15키였고, 안 보던 여섯이 ADMIN_EMAIL·AWS_REGION·DATABASE_URL·MAIL_FROM·
+#      SMTP_PORT·SMTP_USE_TLS 였다. 전부 코드 기본값이 있어 빠져도 앱이 정상 기동한다.
+#      MAIL_FROM 이 특히 나쁘다 — 기본값 blog@localhost 로 조용히 채워지고,
+#      services/status.py 의 _check_mail() 은 mail_from 을 안 쓰므로 /api/status 가
+#      mail=ok 라고 답한다. 발송만 SES 에서 거부되고 그 예외는 뒤로 삼켜진다.
+#      **목록을 늘리지 말고 없앤다.** 사본이 늘면 갈라지고, 갈라진 건 아무도 모른다 —
+#      check_runbook_drift.sh 가 자기 주석에 적어둔 그 교훈이다.
+sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p' ~/.blog-secrets/prod.env | sort > /tmp/escrow.keys
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
-  'cd ~/blog && for k in SECRET_KEY ORIGIN_SECRET S3_BUCKET PAYMENTS_REQUIRE_LIVE \
-       DB_PASSWORD LLM_ENCRYPTION_KEY VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT \
-       ANTHROPIC_API_KEY SMTP_HOST SMTP_USER SMTP_PASSWORD PUBLIC_BASE_URL FRONTEND_BASE_URL; do
-     grep -q "^$k=" .env || echo "  빠짐: $k"
-   done; echo "  (아무것도 안 나오면 통과)"'
+  'sed -n "s/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p" ~/blog/.env | sort' > /tmp/server.keys
+diff /tmp/escrow.keys /tmp/server.keys && echo "  키 집합 일치 ($(wc -l < /tmp/escrow.keys)개)"
 
 # 5) DB만 먼저 띄운다
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
@@ -234,6 +259,27 @@ scp -i ~/.ssh/blog-key.pem /tmp/restore.sql.gz ec2-user@$DNS:/tmp/
 ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
   'cd ~/blog && gunzip -c /tmp/restore.sql.gz | sudo docker compose -f docker-compose.prod.yml \
      exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1'
+
+# 6-B) **기준선 대조 — 여기서 어긋나면 7단계로 넘어가지 않는다.**
+#      (2026-08-27 신설) 이 런북에는 '복원이 됐는가'를 세는 단계가 한 줄도 없었다.
+#      빈 DB 위에서도 alembic upgrade head 는 성공하고, 오리진 전환도 통과하고,
+#      /api/status 는 200을 준다. 즉 6단계가 통째로 실패해도 절차 전체가 초록으로 끝난다.
+#      이 문서 스스로 시나리오 B 서두에서 "복원했는데 글이 하나도 없다"를 최우선 경고로
+#      적어놓고 정작 세는 단계가 없었다.
+#      ⚠️ /api/status 의 stats.posts 로 대신하면 안 된다 — services/status.py 는
+#         visibility='public' 만 세므로 전체보다 작게 나오는 것이 정상이고, 그걸로
+#         판정하면 멀쩡한 복원을 실패로 오진한다.
+ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
+  'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T db \
+     psql -U postgres -d postgres -tAc "select
+       (select count(*) from users)||\" users, \"||
+       (select count(*) from posts)||\" posts, \"||
+       (select count(*) from comments)||\" comments, \"||
+       (select count(*) from llm_credentials)||\" byok, \"||
+       (select count(*) from payments)||\" payments, alembic \"||
+       (select version_num from alembic_version)"'
+# 파괴 직전에 적어둔 값과 같아야 한다. 다르면 멈추고 백업을 의심한다.
+# (파괴 전에 이 숫자를 반드시 적어둘 것. 비교 대상이 없으면 이 단계도 무의미하다.)
 
 # 7) 이제 백엔드.
 #    ⚠️ 여기서 `alembic upgrade head`가 돈다. **"어차피 no-op"이라고 믿지 말 것** —
@@ -247,8 +293,29 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@$DNS \
   'cd ~/blog && sudo docker compose -f docker-compose.prod.yml logs backend | grep -i "running upgrade\|error"'
 
 # 8) 오리진을 새 주소로 (주차 해제). 여기도 -target으로 좁힌다.
-terraform -chdir=terraform apply -target=aws_cloudfront_distribution.main \
-  -var="backend_origin_dns=$DNS"
+# ⚠️ **반드시 한 줄로 친다.** 예전엔 이 명령이 백슬래시로 이어진 두 줄이었는데,
+#    이어짐이 깨져 -var 가 떨어지면 backend_origin_dns 가 기본값 "" 이 되어
+#    **주차 해제가 주차로 뒤집힌다.** terraform 은 정상 종료하고(0 changed 또는
+#    1 changed) 사이트만 계속 죽어 있다. 증상이 원인을 전혀 안 가리킨다.
+#    2026-08-27 게임데이에서 실제로 밟았다 — 그날 1단계에서도 같은 이유로
+#    -target 이 떨어져 범위를 안 좁힌 apply 가 돌았다. 하루에 두 번 났다.
+#    붙여넣기가 못 미더우면 파일에 적어 bash 로 돌린다.
+terraform -chdir=terraform apply -auto-approve -target=aws_cloudfront_distribution.main -var="backend_origin_dns=$DNS"
+
+# 8-B) **알람을 새 인스턴스로 옮긴다 — 런북에 없던 단계.**
+#      (2026-08-27 신설) 위 -target 두 개는 CloudWatch 알람을 건드리지 않는다.
+#      -target 은 대상이 *의존하는* 것만 끌어오고, 알람은 인스턴스에 *의존하는* 쪽이라
+#      범위 밖이다. 그래서 재건이 끝나도 알람 둘은 사라진 인스턴스 ID 를 계속 본다.
+#      게다가 treat_missing_data = "notBreaching" 이라 지표가 아예 안 와도 OK 로
+#      눌러앉는다 — **EC2 상태검사와 CPU 크레딧 경보가 통째로 죽는데 화면은 초록이다.**
+#      07-27 게임데이가 결함 F5 로 고친 "박힌 인스턴스 ID" 의 terraform 판이고,
+#      스크립트 쪽만 고쳐서 이 둘이 남아 있었다. 2026-08-27 에 라이브로 확인했다.
+#      ⚠️ 여기서 범위를 안 좁힌 apply 를 쓰면 안 된다 — backend_origin_dns 가
+#         빈 값이 되어 방금 푼 주차가 다시 걸린다(위 함정과 같은 자리).
+terraform -chdir=terraform apply -auto-approve -target=aws_cloudwatch_metric_alarm.ec2_status_check -target=aws_cloudwatch_metric_alarm.cpu_credit_low
+# 확인: 새 인스턴스 ID 가 찍혀야 한다
+aws cloudwatch describe-alarms --alarm-names blog-ec2-status-check-failed blog-cpu-credit-low \
+  --query 'MetricAlarms[].Dimensions[0].Value' --output text
 
 # 9) 확인
 curl -s https://d2j66m9udyg9yq.cloudfront.net/api/status

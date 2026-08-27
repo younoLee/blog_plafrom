@@ -11,9 +11,24 @@
 # 사용법 — 순서가 중요하다:
 #   EC2 켤 때:  ① 인스턴스 start → stopped에서 벗어나 퍼블릭 DNS가 생긴 뒤
 #               ② terraform apply -var="backend_origin_dns=$(aws ec2 describe-instances \
-#                    --instance-ids i-06da19f44d1f38eff \
+#                    --filters "Name=tag:Name,Values=blog-backend" \
+#                    "Name=instance-state-name,Values=running" \
 #                    --query 'Reservations[0].Instances[0].PublicDnsName' --output text)"
 #               ※ IP는 켤 때마다 바뀐다. 어디에도 적어두지 말고 항상 이 명령으로 읽을 것.
+#
+#               ⚠️ **이 명령은 한 줄로 들어가야 한다.** 백슬래시 이어짐이 깨져서 -var 가
+#                  떨어지면 backend_origin_dns 가 기본값 "" 이 되어 **주차 해제가 주차로
+#                  뒤집힌다.** terraform 은 정상 종료하고 사이트만 죽는다.
+#                  2026-08-27 DR 게임데이에서 실제로 두 번 밟았다(1단계에서 -target 이,
+#                  8단계에서 -var 가 각각 떨어졌다. 둘 다 종료코드 0 이었다).
+#
+#               ⚠️ 2026-08-27 정정: 이 자리에 `--instance-ids i-06da…8eff` 가 (ID를 줄여 적는다 —
+#                  온전히 적으면 검사 D가 이 주석 자체를 박힌 ID로 잡는다)
+#                  그 인스턴스는 **존재하지 않는다**(InvalidInstanceID.NotFound).
+#                  07-27 게임데이가 결함 F5 로 "박힌 ID 5곳"을 스크립트에서 태그 조회로
+#                  고쳤는데, **절차를 적어둔 이 주석은 아무도 안 봤다.** 그대로 따르면
+#                  조회가 실패해 DNS 가 비고, 그러면 바로 위 함정에 그대로 빠진다.
+#                  스크립트가 쓰는 것과 같은 태그 조회로 바꿨다(scripts/lib/ec2.sh).
 #   EC2 끌 때:  scripts/stop_server.sh  ← 아래 ①~③을 순서대로 하고 검증까지 한다
 #               ① terraform apply   # 기본값 "" → 주차. 반드시 정지보다 '먼저'.
 #               ② DB 백업(pg_dump → S3). 끄면 다음에 켤 때까지 사본을 만들 기회가 없다.

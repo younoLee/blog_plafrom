@@ -20,7 +20,7 @@
 #   A. 기본값 없는 변수가 런북의 tfvars 블록에 있는가   ← F1 그 자체
 #   B. 런북이 부르는 스크립트가 실제로 있는가
 #   C. 런북의 `-target=` 주소가 실제 리소스인가
-#   D. 스크립트에 INSTANCE_ID가 **박혀 있지 않은가**   ← 태그 조회 강제
+#   D. 스크립트·terraform·런북에 INSTANCE_ID가 **박혀 있지 않은가**  ← 태그 조회 강제
 #   E. 로컬 .env 템플릿이 compose 치환 변수를 전부 담는가  ← 조용히 꺼지는 기능 방지
 #   F. 런북의 tar 목록이 배포 스크립트의 것을 담는가        ← 재건 이미지에 파일 누락 방지
 #   G. 런북이 재조립 시 필수 키를 전부 나열하는가           ← .env 한 줄 누락 방지
@@ -189,6 +189,27 @@ else
   else
     ok "스크립트 5개가 전부 resolve_instance_id로 찾는다"
   fi
+fi
+
+# 2026-08-27 DR 게임데이: 위 둘을 통과하는데도 **박힌 ID가 살아 있었다.**
+# terraform/variables.tf:14 가 "EC2 켤 때" 절차의 명령으로 i-06da19f44d1f38eff 를
+# 들고 있었고, 그 인스턴스는 이미 존재하지 않았다(InvalidInstanceID.NotFound).
+# 위 검사가 `scripts/` 만 보기 때문이다 — **검사가 대상을 안 보면 그 자리는 없는 것과
+# 같다.** 07-27 이 F5 로 스크립트를 고칠 때 절차를 적어둔 주석은 아무도 안 봤다.
+# 그대로 따르면 조회가 실패해 DNS 가 비고, 그러면 오리진 주차 해제가 주차로 뒤집힌다.
+#
+# 대상은 terraform/ 과 RECOVERY.md 다. 코드가 아니라 **주석과 문서**를 보는 검사다.
+# 개발일지(content/)와 docs/ 의 훈련 기록은 뺀다 — 그건 그날의 사실을 적은 것이라
+# 낡는 게 정상이고, 절차로 읽히지 않는다.
+# 앞에 글자가 붙은 것은 인스턴스 ID가 아니다 — `ami-0436b3a61a7a7e22a` 안의
+# `i-0436b3a61a7a7e22a` 가 그대로 매치돼서 ec2.tf 의 AMI 를 오탐했다(만들자마자 걸렸다).
+stale=$(grep -rnE '(^|[^[:alnum:]-])i-0[0-9a-f]{16}' "$ROOT"/terraform/ "$ROOT"/RECOVERY.md 2>/dev/null || true)
+if [ -n "$stale" ]; then
+  bad "terraform/ 또는 런북에 인스턴스 ID가 박혀 있습니다 — 재건하면 거짓이 됩니다:"
+  printf '%s\n' "$stale" | sed 's/^/       /'
+  echo "       → 태그 조회로 바꾸세요: --filters \"Name=tag:Name,Values=blog-backend\"" >&2
+else
+  ok "terraform/ 과 런북에도 박힌 인스턴스 ID 없음"
 fi
 
 # ── E. 로컬 .env 템플릿이 compose가 치환하는 변수를 전부 담고 있는가 ────────
