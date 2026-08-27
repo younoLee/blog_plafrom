@@ -111,8 +111,37 @@ SELFTEST_MISSES = [
 ]
 
 
+# --ui 추출기의 픽스처. **추출은 정규식이라 조용히 망가지기 쉽다** — 태그 처리를
+# 한 줄만 바꿔도 조각이 어긋나고, 그러면 위반이 안 잡히는데 종료코드는 0이다.
+# 잡아야 할 것과 **잡으면 안 되는 것**을 둘 다 박는다.
+UI_SELFTEST = [
+    # (소스 조각, 이 안에 em대시가 몇 개로 세어져야 하는가)
+    ('<p>안녕 — 반가워</p>', 1),
+    # 주석 안의 대시는 화면 문구가 아니다. 이 저장소의 코드 주석은 대시를 많이 쓴다.
+    ('{/* 설명 — 주석이다 */}\n<p>안녕</p>', 0),
+    ('// 줄 주석 — 이것도 아니다\n<p>안녕</p>', 0),
+    ('<p>주소는 https://a.b 야</p>', 0),  # `//` 를 주석으로 오인하면 문장이 잘린다
+]
+
+# 인라인 태그가 문장을 끊으면 안 된다. 끊기면 앞 조각이 엉뚱한 어미로 끝난 것처럼
+# 보여 말투 판정이 오판한다(2026-08-27에 `보다` 를 평서체로 잡았다 — 조사인데).
+UI_INLINE_FIXTURE = '<p>여기 쓴 건 위에서 누른 것보다 <strong>뒤에</strong> 붙어.</p>'
+
+
 def selftest() -> int:
     fail = 0
+    for src, want in UI_SELFTEST:
+        got = sum(f.count("—") for f in ui_fragments(src))
+        if got != want:
+            print(f"❌ --ui 추출: em대시 {want}개여야 하는데 {got}개 — {src!r}", file=sys.stderr)
+            fail += 1
+    m = measure_ui(UI_INLINE_FIXTURE)
+    if m["평서체"]:
+        print(f"❌ --ui 말투: 인라인 태그가 문장을 끊었다 — {m['평서체']}", file=sys.stderr)
+        fail += 1
+    if not m["반말"]:
+        print("❌ --ui 말투: 반말 종결을 못 잡는다", file=sys.stderr)
+        fail += 1
     for t in SELFTEST_HITS:
         if not triads(t):
             print(f"❌ 잡아야 하는데 놓쳤다: {t}", file=sys.stderr)
@@ -148,9 +177,135 @@ def after_guide(path: str) -> bool:
     return m.group(1) >= GUIDE_EFFECTIVE if m else True
 
 
+# ── 화면 문구 모드(--ui) ─────────────────────────────────────────────────────
+#
+# **왜 (2026-08-27)** — 지침이 개발일지에만 걸려 있었다. 그런데 AI 티가 나는 문장은
+# 화면에도 있고, 그쪽이 더 많은 사람에게 더 자주 읽힌다. 08-27에 화면 문구의 em 대시
+# 12곳과 톤 혼용 8곳을 손으로 고쳤는데, **손으로 고치면 샌다** — 바로 다음에 이 모드를
+# 만들어 재보니 놓친 em 대시가 6개 더 있었다.
+#
+# 개발일지와 다른 지표를 쓴다:
+#   · em대시는 **0개**가 목표다. 1만 자 환산이 무의미하다 — 화면 문구는 조각조각이고
+#     길이 합이 글 한 편에도 못 미친다. 그리고 여기서는 대시를 쓸 이유가 아예 없다.
+#   · 굵게는 **안 센다.** 화면의 font-weight 는 강조가 아니라 배치다. 세면 정상적인
+#     디자인이 위반으로 잡히고, 그러면 이 검사를 끄게 된다.
+#   · 대신 **평서체와 반말 혼용**을 본다. 이 저장소의 화면은 반말이 기본인데
+#     ("~해줘", "~할까?") 군데군데 평서체가 섞여 있었다. 한 화면 안에서 말투가 바뀌면
+#     사람이 쓴 글로 안 읽힌다.
+#
+# 추출은 파서가 아니라 정규식이다. 그래서 **완벽하지 않다** — 그 한계를 아래 주석에
+# 적어뒀다. 완벽한 추출보다 '새 화면이 들어올 때 걸리는 것'이 목적이다.
+
+_HANGUL = re.compile(r"[가-힣]")
+# 평서체 종결(~다). 화면에서는 이게 소수파다.
+_PLAIN_END = re.compile(r"[가-힣]다[.!?]?$")
+# 반말 종결. 이 저장소 화면의 기본 말투다.
+_CASUAL_END = re.compile(r"[가-힣](?:야|어|해|줘|아|자)[.!?]?$")
+
+
+def _strip_code_comments(src: str) -> str:
+    """주석을 걷어낸다. **주석은 화면 문구가 아니다.**
+
+    줄 끝 주석은 `//` 앞에 `:` 가 없을 때만 지운다 — 안 그러면 `https://` 가 잘린다.
+    """
+    src = re.sub(r"(?s)\{/\*.*?\*/\}", "", src)  # JSX 주석
+    src = re.sub(r"(?s)/\*.*?\*/", "", src)  # 블록 주석
+    kept = []
+    for line in src.split("\n"):
+        t = line.strip()
+        if t.startswith("//") or t.startswith("*"):
+            continue
+        kept.append(re.sub(r"(?<!:)//.*$", "", line))
+    return "\n".join(kept)
+
+
+def _clean_fragment(v: str) -> str:
+    """템플릿 보간(${…})과 이스케이프 개행을 지운다 — 둘 다 화면에 그 모양으로 안 나간다."""
+    v = re.sub(r"\$\{[^{}]*\}", " ", v)
+    return re.sub(r"\\n", " ", v).strip()
+
+
+def ui_fragments(src: str) -> list[str]:
+    """소스에서 **사람에게 보이는 한글 조각**을 뽑는다.
+
+    두 갈래로 모은다: 따옴표 문자열과 JSX 텍스트 노드.
+
+    **한계** — 정규식이라 다음을 못 가른다:
+      · 화면에 안 나가는 문자열(로그 메시지, 테스트 픽스처)도 같이 잡힌다.
+        테스트 파일은 호출부에서 제외한다.
+      · JSX 텍스트는 태그와 `{표현식}` 을 걷어낸 뒤 남은 것으로 근사한다. 중첩이 깊으면
+        조각이 어긋날 수 있다.
+    둘 다 **놓치는 쪽이 아니라 더 잡는 쪽**의 오차라, 검사가 조용히 통과하지는 않는다.
+    """
+    src = _strip_code_comments(src)
+    found: list[str] = []
+    for m in re.finditer(r"""(['"`])((?:\\.|(?!\1)[^\\])*)\1""", src):
+        v = _clean_fragment(m.group(2))
+        if _HANGUL.search(v):
+            found.append(v)
+    body = re.sub(r"""(['"`])(?:\\.|(?!\1)[^\\])*\1""", "", src)
+    body = re.sub(r"(?s)\{[^{}]*\}", " ", body)
+    # **인라인 태그는 문장을 안 끊는다.** 전부 개행으로 바꾸면 `<strong>` 하나가
+    # 문장을 반으로 잘라, 앞 조각이 엉뚱한 어미로 끝난 것처럼 보인다. 실제로
+    # "…누른 것보다 <strong>뒤에</strong> 붙어." 가 "…누른 것보다" 에서 잘려
+    # 평서체(~다)로 오판됐다. `보다` 는 조사지 종결어미가 아니다.
+    body = re.sub(r"(?is)</?(?:code|strong|em|b|i|span|a|small|kbd|mark)(?:\s[^<>]*)?>", " ", body)
+    body = re.sub(r"(?s)<[^<>]*>", "\n", body)
+    for line in body.split("\n"):
+        t = _clean_fragment(line)
+        if t and _HANGUL.search(t):
+            found.append(t)
+    return found
+
+
+def measure_ui(src: str) -> dict:
+    frags = ui_fragments(src)
+    # 말투 판정은 **문장에만** 한다. 버튼 라벨("삭제")이나 한 낱말은 종결어미가 없다.
+    sentences = [f for f in frags if len(f) >= 8 and " " in f]
+    return {
+        "조각": len(frags),
+        "em대시": sum(f.count("—") for f in frags),
+        "평서체": [f for f in sentences if _PLAIN_END.search(f)],
+        "반말": [f for f in sentences if _CASUAL_END.search(f)],
+    }
+
+
+def run_ui(paths: list[str]) -> int:
+    files = [f for p in paths for f in sorted(glob.glob(p, recursive=True)) if ".test." not in f]
+    if not files:
+        print("파일이 없다", file=sys.stderr)
+        return 2
+    bad = 0
+    total_frags = 0
+    for path in files:
+        with open(path, encoding="utf-8") as fh:
+            m = measure_ui(fh.read())
+        total_frags += m["조각"]
+        problems = []
+        if m["em대시"]:
+            problems.append(f"em대시 {m['em대시']}개 (목표 0)")
+        # **둘 다 있을 때만** 잡는다. 전부 반말인 화면은 정상이고, 전부 평서체인 화면도
+        # (드물지만) 일관되면 정상이다. 문제는 한 화면 안에서 갈리는 것이다.
+        if m["평서체"] and m["반말"]:
+            problems.append(f"말투 혼용 (평서체 {len(m['평서체'])} · 반말 {len(m['반말'])})")
+        if not problems:
+            continue
+        bad += 1
+        print(f"\n{path}")
+        for x in problems:
+            print(f"  ← {x}")
+        for f in m["평서체"][:3]:
+            print(f"     평서체: {f[:72]}")
+    print(f"\n화면 문구 {total_frags}조각 · 파일 {len(files)}개")
+    print("고칠 파일 %d개" % bad if bad else "화면 문구도 지침 안에 있다")
+    return 1 if bad else 0
+
+
 def main(paths: list[str]) -> int:
     if paths and paths[0] == "--selftest":
         return selftest()
+    if paths and paths[0] == "--ui":
+        return run_ui(paths[1:] or ["frontend/src/**/*.tsx", "frontend/src/**/*.ts"])
     since = paths and paths[0] == "--since-guide"
     if since:
         paths = paths[1:] or ["content/devlog/*.md"]

@@ -137,7 +137,7 @@ function SettingsPage() {
       <section className={`${ui.card} mt-6`}>
         <h2 className="text-lg font-semibold tracking-tight">표시명</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          댓글·구독 목록에 보이는 이름이야. <span className="font-medium">공개돼</span> —
+          댓글·구독 목록에 보이는 이름이야. <span className="font-medium">공개돼.</span>{' '}
           이메일은 어디에도 안 쓰이니 아무 이름이나 정하면 돼.
           <br />
           <span className="text-xs">비워서 저장하면 '안 정함'으로 돌아가고, 화면엔 `회원 #{user.id}`로 보여.</span>

@@ -174,7 +174,7 @@ function SlotEditor() {
       <h2 className="text-lg font-semibold tracking-tight">내 문장</h2>
       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
         블로그 세 자리에 직접 쓴 문장을 넣어. 스킨이 '어떻게 보이나'라면 이건 '무엇이
-        적히나'야 — <code>&lt;p class="인사"&gt;</code>처럼 클래스를 붙이고 스킨에서{' '}
+        적히나'야. <code>&lt;p class="인사"&gt;</code>처럼 클래스를 붙이고 스킨에서{' '}
         <code>.인사</code>를 꾸미면 둘이 이어져.
         <br />
         <span className="text-xs">

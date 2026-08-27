@@ -192,10 +192,18 @@ jobs:
       # **아무것도 못 잡고 있었는데**, 잡히는 건수가 0이 아니어서(오탐 3건) 죽은 줄
       # 몰랐다. 규칙이 있는데 한 번도 측정된 적이 없는 게 규칙이 없는 것보다 나쁘다.
       # 탐지기가 다시 죽으면 여기서 걸린다.
-      - name: 글투 (자가검증 → 발효일 이후 글)
+      #
+      # `--ui` 는 **화면 문구**를 잰다. 지침이 개발일지에만 걸려 있었는데, AI 티가 나는
+      # 문장은 화면에도 있고 그쪽이 더 많은 사람에게 더 자주 읽힌다. 08-27에 화면의
+      # em 대시 12곳을 손으로 고쳤는데, 바로 뒤에 이 모드를 만들어 재보니 **놓친 것이
+      # 6개 더 있었다.** 손으로 고치면 샌다는 게 그 자리에서 증명됐다.
+      # 여기는 em대시 목표가 0이다 — 화면 문구는 조각조각이라 1만 자 환산이 무의미하고,
+      # 대시를 쓸 이유도 없다. 굵게는 안 센다(화면의 font-weight 는 강조가 아니라 배치다).
+      - name: 글투 (자가검증 → 발효일 이후 글 → 화면 문구)
         run: |
           python3 scripts/writing_style_check.py --selftest
           python3 scripts/writing_style_check.py --since-guide
+          python3 scripts/writing_style_check.py --ui
 
   runbook:
     runs-on: ubuntu-latest

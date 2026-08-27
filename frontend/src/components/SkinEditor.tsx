@@ -54,7 +54,7 @@ const PRESETS: { name: string; hint: string; css: string }[] = [
   },
   {
     name: 'D2풍',
-    hint: '민트 강조 · 모서리 없음 · 썸네일과 제목을 키운다. 기본 목록 형태를 그대로 쓴다',
+    hint: '민트 강조 · 모서리 없음 · 썸네일과 제목을 키워. 기본 목록 형태를 그대로 써',
     css: `:root {
   --color-accent: #00c9b7;
   --color-accent-hi: #00b3a3;
@@ -158,7 +158,7 @@ function SkinEditor() {
     <section className={`${ui.card} mt-6`}>
       <h2 className="text-lg font-semibold tracking-tight">블로그 스킨</h2>
       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        눌러서 바꿔. 지금 보고 있는 이 화면이 곧 미리보기야 — 누르는 즉시 바뀌고,
+        눌러서 바꿔. 지금 보고 있는 이 화면이 곧 미리보기야. 누르는 즉시 바뀌고,
         저장하지 않고 다른 화면으로 가면 저장된 스킨으로 되돌아가.
       </p>
 
@@ -197,7 +197,7 @@ function SkinEditor() {
           온다(마크업·index.css 주석과 어긋나면 테스트가 잡는다). */}
       <details className="mt-2">
         <summary className="cursor-pointer text-xs text-gray-500 select-none dark:text-gray-400">
-          잡을 수 있는 자리 {SKIN_HANDLE_NAMES.length}개 — <code>[data-skin="이름"]</code>
+          잡을 수 있는 자리 {SKIN_HANDLE_NAMES.length}개. <code>[data-skin="이름"]</code>
         </summary>
         <div className="mt-2 space-y-1.5">
           {SKIN_HANDLES.map((g) => (

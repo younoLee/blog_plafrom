@@ -234,7 +234,7 @@ function StatusPage() {
               고장만 잡는다). 그러니 지우지 말고, 무슨 뜻인지 적어둔다. */}
           <p className="mt-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
             이 기록은 서버 안에서 만들어져. 서버는 비용을 아끼려고 평소 꺼두는데, 꺼져 있는
-            동안은 점검 자체가 없어서 회색(데이터 없음)으로 남아 — 그래서 백엔드 줄의 비율은
+            동안은 점검 자체가 없어서 회색(데이터 없음)으로 남아. 그래서 백엔드 줄의 비율은
             &lsquo;한 번도 안 죽었다&rsquo;가 아니라 &lsquo;재는 동안 켜져 있었다&rsquo;는 뜻이야.
           </p>
         </div>

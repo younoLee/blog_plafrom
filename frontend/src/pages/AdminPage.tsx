@@ -328,7 +328,7 @@ function InviteSection() {
     <section className="mt-8">
       <h2 className="mb-1 text-xl font-semibold tracking-tight">초대</h2>
       <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-        발급한 링크를 직접 건네줘(카톡·메일 등). 링크를 연 사람은 비밀번호만 정하면 가입돼 —
+        발급한 링크를 직접 건네줘(카톡·메일 등). 링크를 연 사람은 비밀번호만 정하면 가입돼.
         확인 메일이 없어서 SES 샌드박스에서도 그대로 동작해.
       </p>
 
