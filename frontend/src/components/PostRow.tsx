@@ -12,6 +12,13 @@ import { IconLock } from './icons'
  *
  * `data-skin` 이름은 index.css 주석의 목록과 짝이다. 여기서 이름을 바꾸면 이미 저장된
  * 사용자 스킨이 깨진다 — 클래스는 마음대로 바꿔도 되지만 이 속성은 계약이다.
+ *
+ * **삭제 확인창이 왜 이 파일에 있나 (2026-08-27)** — 호출부는 둘인데(HomePage,
+ * AuthorPage) 둘 다 확인 없이 바로 지우고 있었다. 소프트 삭제가 아니고 되돌리는 UI도
+ * 없으므로 '수정' 바로 옆의 오터치 한 번이 영구 삭제였다. 되돌릴 수 있는 동작들
+ * (구독 취소·Pro 해지·초대 취소·계정 삭제)에는 이미 확인창이 있어서 규칙이 뒤집혀
+ * 있었다. 확인을 호출부에 두면 세 번째 목록 화면이 생길 때 또 빠지므로, 버튼과 같은
+ * 자리에 둔다. 마크업 계약을 한 곳에 모은 것과 같은 이유다.
  */
 export function PostRow({
   post,
@@ -80,7 +87,14 @@ export function PostRow({
         {canEdit && (
           <div className="flex gap-3 text-sm">
             <Link to={`/blog/posts/${post.id}/edit`} className="text-accent hover:underline">수정</Link>
-            <button type="button" onClick={() => onDelete(post.id)} className="text-red-500 hover:underline">
+            <button
+              type="button"
+              onClick={() => {
+                if (!window.confirm(`‘${post.title}’ 글을 정말 삭제할까?\n댓글까지 같이 지워지고 되돌릴 수 없어.`)) return
+                onDelete(post.id)
+              }}
+              className="text-red-500 hover:underline"
+            >
               삭제
             </button>
           </div>

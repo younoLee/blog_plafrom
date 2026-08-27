@@ -31,9 +31,21 @@ function Layout() {
               읽힌다. 참고로 본 D2·velog는 둘 다 글자만 쓴다 — 이름이 곧 표식이다.
               탭 아이콘(favicon)과 PWA 아이콘은 그대로 둔다. 그건 이름을 정한 뒤에
               같이 만드는 게 맞고, 지금 지우면 탭에 빈 칸이 남는다. */}
-          <Link to="/" data-skin="brand" className="flex shrink-0 items-center font-semibold tracking-tight">
-            블로그 만들기
-          </Link>
+          <div className="flex shrink-0 items-center gap-3">
+            <Link to="/" data-skin="brand" className="flex items-center font-semibold tracking-tight">
+              블로그 만들기
+            </Link>
+            {/* **글 목록 입구 (2026-08-27).** 브랜드는 포털(`/`)로 가므로, 이 사이트의
+                본체인 글 목록으로 돌아가려면 포털 카드를 한 번 더 눌러야 했다. 헤더에도
+                푸터에도 `/blog` 링크가 없어서, 글 상세에서 목록으로 가는 유일한 길이
+                브라우저 뒤로가기였다. 라우트는 App.tsx에 원래부터 있었다. */}
+            <Link
+              to="/blog"
+              className="text-sm text-gray-600 transition hover:text-accent dark:text-gray-300"
+            >
+              글
+            </Link>
+          </div>
           {/* 버튼이 많아 좁은 화면에선 넘침 → flex-wrap으로 다음 줄로 자연스럽게 줄바꿈 */}
           <nav data-skin="nav" className="flex flex-wrap items-center justify-end gap-1.5">
             {/* 테마 토글 — 동그란 아이콘 버튼 */}
@@ -63,14 +75,18 @@ function Layout() {
                 {user.role === 'admin' && (
                   <Link to="/admin" className={ui.btnGhost}>관리자</Link>
                 )}
-                {/* 글쓰기·설정은 승인된 사람(writer/admin)만 — pending은 안 보임 */}
+                {/* **설정은 로그인한 누구나 (2026-08-27).** 예전엔 이 링크가 글쓰기와 함께
+                    canWrite 안에 있었는데, SettingsPage는 이미 `!user`일 때만 돌려보내도록
+                    완화됐다(SettingsPage.tsx:63, 그 위 주석이 "표시명조차 못 정한다"는 이유를
+                    적어뒀다). 페이지는 열렸는데 **그리로 가는 링크가 어느 화면에도 없어서**
+                    구독자(pending) 계정은 영원히 표시명을 못 정했다. 권한이 필요한 구역
+                    (BYOK·스킨·슬롯)은 페이지 안에서 각각 canWrite로 가린다. */}
+                <Link to="/settings" className={ui.btnGhost}>설정</Link>
+                {/* 글쓰기는 승인된 사람(writer/admin)만 — pending은 안 보임 */}
                 {canWrite(user) && (
-                  <>
-                    <Link to="/settings" className={ui.btnGhost}>설정</Link>
-                    <Link to="/blog/new" className={ui.btnPrimary}>
-                      <IconPencil className="h-4 w-4" />글쓰기
-                    </Link>
-                  </>
+                  <Link to="/blog/new" className={ui.btnPrimary}>
+                    <IconPencil className="h-4 w-4" />글쓰기
+                  </Link>
                 )}
                 {/* 2026-08-14부터 서버에도 알린다 — 이 계정의 **모든 기기**가 함께 로그아웃된다.
                     라벨은 '로그아웃'으로 두되 title로 범위를 밝힌다: 헤더에 긴 문구를 넣으면
@@ -110,7 +126,7 @@ function Layout() {
           className="border-b border-amber-500/20 bg-amber-50 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
         >
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
-            <span>로그인이 풀렸어 — 다른 기기에서 로그아웃했거나 세션이 만료된 거야.</span>
+            <span>로그인이 풀렸어. 다른 기기에서 로그아웃했거나 세션이 만료된 거야.</span>
             <span className="flex items-center gap-1.5">
               {!user && (
                 <Link to="/login" className={ui.btnPrimary} onClick={dismissSessionNotice}>
@@ -153,6 +169,10 @@ function Layout() {
         <a href="/lessons.html" className="hover:underline">함정과 교훈</a>
         <span className="mx-1.5">·</span>
         <a href="/rss.xml" className="hover:underline">RSS</a>
+        <span className="mx-1.5">·</span>
+        {/* /status 라우트는 App.tsx에 있는데 어느 화면에서도 링크되지 않았다. 절전·장애를
+            확인하는 화면이라 주소를 아는 사람만 볼 수 있으면 뜻이 없다. (2026-08-27) */}
+        <Link to="/status" className="hover:underline">상태</Link>
       </footer>
     </div>
   )

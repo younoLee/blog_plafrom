@@ -84,6 +84,11 @@ function PostDetailPage() {
   const [comments, setComments] = useState<Comment[]>([])
   const [author, setAuthor] = useState('')
   const [text, setText] = useState('')
+  // 댓글 전송 중. 쓰기 요청에는 일부러 타임아웃이 없어서(api/http.ts의 apiFetch 주석:
+  // abort는 내 기다림만 끊을 뿐 서버가 하던 일은 안 되돌아간다) 서버가 느리면 최대
+  // 오리진 상한인 60초를 기다린다. 그 60초 동안 버튼이 아무 반응도 안 하는 게 문제였다.
+  // 고칠 것은 상한이 아니라 **말이 없는 것**이다. (2026-08-27)
+  const [posting, setPosting] = useState(false)
 
   // **글이 바뀌면 렌더 중에 비운다.** 이게 없으면 연재 '다음 편'을 눌렀을 때 새 글이
   // 도착할 때까지(서버가 차가우면 최대 8초) **이전 글의 본문·댓글·목차가 그대로** 보인다.
@@ -176,12 +181,18 @@ function PostDetailPage() {
     // 익명만 입력칸의 author 사용.
     const name = user ? user.email.split('@')[0] : author.trim()
     if (!name || !text.trim()) return
+    // 중복 제출 방어. WritePostPage가 같은 이유로 이미 saving 가드를 들고 있는데
+    // (느릴 때 두세 번 누르면 같은 글이 여러 개 생겼다) 댓글에는 없었다.
+    if (posting) return
+    setPosting(true)
     try {
       await addComment(postId, name, text)
       setText('')
       setComments(await fetchComments(postId))
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setPosting(false)
     }
   }
 
@@ -524,7 +535,14 @@ function PostDetailPage() {
             <input placeholder="이름" value={author} onChange={(e) => setAuthor(e.target.value)} className={`${input} max-w-xs`} />
           )}
           <textarea placeholder="댓글 내용" rows={3} value={text} onChange={(e) => setText(e.target.value)} className={input} />
-          <button type="submit" className={`${btnPrimary} justify-self-start`}>댓글 작성</button>
+          <button
+            type="submit"
+            className={`${btnPrimary} justify-self-start disabled:opacity-50`}
+            disabled={posting || !text.trim()}
+            aria-busy={posting}
+          >
+            {posting ? '보내는 중…' : '댓글 작성'}
+          </button>
         </form>
       </section>
       </div>

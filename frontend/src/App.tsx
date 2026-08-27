@@ -56,7 +56,8 @@ function App() {
             <Route path="/status" element={<StatusPage />} />
             {/* 관리자 (페이지 안에서 admin 아니면 /blog로 리다이렉트) */}
             <Route path="/admin" element={<AdminPage />} />
-            {/* 설정 (페이지 안에서 writer 아니면 /blog로 리다이렉트) */}
+            {/* 설정 (페이지 안에서 로그인 아니면 /login으로. 권한이 필요한 구역만
+                페이지 안에서 canWrite로 가린다 — 표시명은 누구나 정할 수 있어야 한다) */}
             <Route path="/settings" element={<SettingsPage />} />
             {/* Pro 구독 결제 (토스 결제창 → 승인검증 → is_pro 켜짐 → 상위 AI 모델 해금) */}
             <Route

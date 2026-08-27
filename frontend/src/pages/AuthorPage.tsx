@@ -162,9 +162,16 @@ function AuthorPage() {
             post={post}
             canEdit={!!user && (post.owner_id === user.id || user.role === 'admin')}
             onDelete={async (id) => {
-              await deletePost(id)
-              setPosts((prev) => prev.filter((p) => p.id !== id))
-              setTotal((n) => Math.max(0, n - 1))
+              // try/catch가 없어서 실패하면 화면에 아무 말도 안 나왔다. 목록에서 글이
+              // 안 사라지는 것만 보이니 '안 눌렸나' 하고 다시 누르게 된다. (2026-08-27)
+              // 확인창은 PostRow가 버튼과 같은 자리에서 받는다.
+              try {
+                await deletePost(id)
+                setPosts((prev) => prev.filter((p) => p.id !== id))
+                setTotal((n) => Math.max(0, n - 1))
+              } catch (e) {
+                setError((e as Error).message)
+              }
             }}
           />
         ))}

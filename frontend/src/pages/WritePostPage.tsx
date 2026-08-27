@@ -24,6 +24,70 @@ import { IconArrowLeft, IconSparkles, IconImage, IconLock, IconChevronDown, Icon
 
 const MEMO_MAX = 5000
 
+// ── 초안 임시보관 ────────────────────────────────────────────────────────────
+// **왜 (2026-08-27)** — title·content가 useState에만 살아서, 세션이 풀리는 순간
+// (NotificationBell이 30초마다 폴링하다 401을 받으면 그렇게 된다) 아래 인증 effect가
+// 사용자가 아무것도 안 눌렀는데 navigate했다. 30분 쓴 글이 흔적 없이 사라진다.
+//
+// 서버에 초안 테이블을 두는 게 제대로 된 해법이지만 스키마·API·목록 UI가 따라온다.
+// 여기서는 브라우저에만 남긴다. **이건 백업이지 저장이 아니다** — 다른 기기에서는
+// 안 보이고, 방문자가 저장소를 비우면 같이 사라진다. 그래서 복구는 자동이 아니라
+// 제안이다(아래 복구 배너). 자동으로 덮으면 수정 모드에서 서버 본문을 낡은 초안이
+// 조용히 밀어낼 수 있다.
+type Draft = {
+  title: string
+  content: string
+  coverImage: string
+  tags: string[]
+  series: string
+  visibility: Visibility
+  savedAt: number
+}
+
+/** 새 글과 수정은 다른 칸을 쓴다. 한 칸을 나눠 쓰면 새 글을 쓰다 만 뒤 남의 글을
+ *  수정하러 들어갔을 때 복구 제안이 엉뚱한 글을 들이민다. */
+function draftKey(editingId: number | null): string {
+  return editingId === null ? 'draft:new' : `draft:post:${editingId}`
+}
+
+/** 저장할 만큼 달라졌는지 비교하는 지문. 자동저장과 beforeunload가 **같은 함수**를
+ *  써야 한다 — 두 곳에서 필드 순서가 어긋나면 지문이 항상 달라 매번 쓴다. */
+function snapshotOf(d: Omit<Draft, 'savedAt'>): string {
+  return JSON.stringify([d.title, d.content, d.coverImage, d.tags, d.series, d.visibility])
+}
+
+// localStorage는 시크릿 창·저장 차단 설정에서 **접근 자체가 throw한다.** 초안 백업이
+// 화면을 못 뜨게 만들면 안 하느니만 못하므로 세 함수 모두 실패를 삼킨다.
+function readDraft(key: string): Draft | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const d = JSON.parse(raw) as Draft
+    // 모양 검사. 예전 형식이나 손으로 건드린 값이 들어오면 복구 배너가 깨진다.
+    if (typeof d?.title !== 'string' || typeof d?.content !== 'string') return null
+    if (!Array.isArray(d?.tags) || typeof d?.savedAt !== 'number') return null
+    return d
+  } catch {
+    return null
+  }
+}
+
+function writeDraft(key: string, d: Draft) {
+  try {
+    localStorage.setItem(key, JSON.stringify(d))
+  } catch {
+    /* 용량 초과 또는 저장 차단. 초안은 편의지 계약이 아니라 조용히 포기한다. */
+  }
+}
+
+function clearDraft(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    /* 위와 같다 */
+  }
+}
+
 // 서식 툴바 버튼 공통 스타일
 const toolBtn =
   'rounded-lg px-2.5 py-1 text-xs text-gray-700 transition hover:bg-black/[0.06] dark:text-gray-200 dark:hover:bg-white/10'
@@ -49,6 +113,20 @@ function WritePostPage() {
   // 저장 진행 중 — 중복 제출을 막는다(같은 글이 여러 개 생기던 자리)
   const [saving, setSaving] = useState(false)
 
+  // 초안 임시보관. key는 새 글/수정에 따라 다르다(draftKey 주석).
+  const key = draftKey(editingId)
+  // **진입 시점에 한 번만** 읽는다. 아래 자동저장이 곧 이 칸을 덮으므로 그 전에 잡아야 한다.
+  const [recovered, setRecovered] = useState<Draft | null>(() => readDraft(draftKey(id ? Number(id) : null)))
+  const [draftAt, setDraftAt] = useState<number | null>(null) // 마지막 임시보관 시각
+  // 수정 모드에서 서버가 준 원본의 지문. 아직 아무것도 안 고쳤으면 임시보관하지 않는다
+  // (안 그러면 글을 열었다 그냥 나가도 다음 방문에 쓸모없는 복구 배너가 뜬다).
+  const serverSnapshot = useRef<string | null>(null)
+  // 저장·취소로 초안을 버린 뒤, **아직 안 터진 자동보관 타이머가 그걸 되살리면 안 된다.**
+  // 마지막 타이핑 1초 안에 저장을 누르면 실제로 그 순서가 된다(clearDraft → 타이머 발화).
+  // 그러면 저장이 끝났는데 다음 방문에 "쓰다 만 글이 있어" 배너가 뜬다.
+  // 두 자리 모두 곧바로 navigate하므로 다시 false로 돌릴 일은 없다.
+  const discarded = useRef(false)
+
   // AI 초안 생성용
   const [memo, setMemo] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
@@ -61,13 +139,58 @@ function WritePostPage() {
   const [byokProviders, setByokProviders] = useState<string[]>([]) // 내가 키 등록한 provider
   const [usage, setUsage] = useState<AiUsage | null>(null) // 서버 모델(Claude) 남은 횟수
 
+  // 쓰던 내용이 있는가. 자동보관·이탈 확인·아래 인증 effect가 모두 이걸 기준으로 판단한다.
+  const dirty = title.trim() !== '' || content.trim() !== ''
+
   // 로그인 안 했으면 로그인 페이지로, 로그인했지만 승인 안 된 pending이면 블로그로
   // (새로고침 시 인증 복구가 끝날 때까지 기다림 — loading 중엔 판단 보류, 안 그러면 로그인창으로 튕김)
+  //
+  // **2026-08-27: 쓰던 글이 있으면 안 떠난다.** 세션 만료는 NotificationBell의 30초
+  // 폴링이 401을 받는 순간 아무 예고 없이 온다. 그때 navigate하면 사용자가 아무것도
+  // 안 눌렀는데 편집 중이던 글이 사라진다. 초안은 이미 브라우저에 있으므로(위 helpers)
+  // 여기서는 떠나는 대신 알린다. 권한이 사라진 경우도 같다.
   useEffect(() => {
     if (loading) return
-    if (!user) navigate('/login')
-    else if (!canWrite(user)) navigate('/blog')
-  }, [user, loading, navigate])
+    if (user && canWrite(user)) return
+    if (dirty) return // 쓰던 글이 있으면 안 떠난다. 안내는 아래 lockedOut이 그린다.
+    navigate(user ? '/blog' : '/login')
+  }, [user, loading, navigate, dirty])
+
+  // 권한을 잃었는데 쓰던 내용이 있는 상태. **state가 아니라 파생값이다** — effect 안에서
+  // setError를 하면 렌더가 연쇄되고 eslint(react-hooks/set-state-in-effect)가 막는다.
+  // PostDetailPage가 '잘못된 주소'를 같은 이유로 파생값으로 두고 있다.
+  const lockedOut = !loading && dirty && (!user || !canWrite(user))
+
+  // 자동 임시보관. 한 글자마다 쓰면 긴 본문에서 직렬화가 잦아지므로 1초 쉴 때만 쓴다.
+  // 수정 모드에서 서버 원본과 지문이 같으면 건너뛴다(그냥 열어보고 나간 경우).
+  const snapshot = snapshotOf({ title, content, coverImage, tags, series, visibility })
+  useEffect(() => {
+    if (!dirty) return
+    if (serverSnapshot.current === snapshot) return
+    const t = setTimeout(() => {
+      if (discarded.current) return
+      const at = Date.now()
+      writeDraft(key, { title, content, coverImage, tags, series, visibility, savedAt: at })
+      setDraftAt(at)
+    }, 1000)
+    return () => clearTimeout(t)
+    // snapshot이 모든 필드를 덮으므로 개별 필드를 의존성에 또 넣지 않는다.
+  }, [key, dirty, snapshot, title, content, coverImage, tags, series, visibility])
+
+  // 탭을 닫거나 새로고침할 때. 자동보관이 1초 지연이라 **마지막 1초는 아직 안 쓰였을 수
+  // 있어** 여기서 한 번 더 쓰고, 브라우저 기본 확인창을 띄운다.
+  useEffect(() => {
+    if (!dirty) return
+    if (serverSnapshot.current === snapshot) return
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (discarded.current) return
+      writeDraft(key, { title, content, coverImage, tags, series, visibility, savedAt: Date.now() })
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [key, dirty, snapshot, title, content, coverImage, tags, series, visibility])
 
   // 쓸 수 있는 AI 모델 목록 가져오기 (티어 게이팅 — 일반=소넷, 결제=+Opus, 관리자=전부)
   useEffect(() => {
@@ -99,6 +222,15 @@ function WritePostPage() {
         setTags(p.tags ?? [])
         setSeries(p.series ?? '')
         setVisibility(p.visibility)
+        // 아직 아무것도 안 고친 상태의 지문. 이것과 같으면 임시보관하지 않는다.
+        serverSnapshot.current = snapshotOf({
+          title: p.title,
+          content: p.content,
+          coverImage: p.cover_image ?? '',
+          tags: p.tags ?? [],
+          series: p.series ?? '',
+          visibility: p.visibility,
+        })
       })
       .catch((e) => setError((e as Error).message))
   }, [editingId])
@@ -171,6 +303,10 @@ function WritePostPage() {
   // 메모 → AI 초안. 결과의 첫 '# 제목' 줄은 제목 칸으로 빼고 나머지는 본문에
   async function handleGenerate() {
     if (!memo.trim()) return
+    // **본문이 있으면 확인받는다.** 이 버튼은 제목·본문을 통째로 덮어쓰는데 되돌리는 길이
+    // 없다. 제목에는 아래에 '비어 있을 때만 채운다'는 가드가 이미 있는데(`!title.trim()`),
+    // 정작 분량이 훨씬 큰 본문에는 그 가드가 없었다. (2026-08-27)
+    if (content.trim() && !window.confirm('AI 초안이 지금 쓰던 본문을 덮어써. 되돌릴 수 없어. 계속할까?')) return
     // 직접 입력 모드(custom:openai / custom:gemini)면 provider+커스텀 모델ID로 호출
     let useModel = model
     let useProvider: string | undefined
@@ -233,9 +369,16 @@ function WritePostPage() {
       const finalTags = tagInput.trim() && !tags.includes(tagInput.trim()) ? [...tags, tagInput.trim()].slice(0, 10) : tags
       // 빈칸이면 연재 없음(null) — 서버도 ''를 None으로 정규화하지만 여기서도 맞춰 보낸다
       const finalSeries = series.trim() || null
-      if (editingId === null) await createPost(title, content, cover, finalTags, finalSeries, visibility)
-      else await updatePost(editingId, title, content, cover, finalTags, finalSeries, visibility)
-      navigate('/blog') // 끝나면 홈으로
+      const saved =
+        editingId === null
+          ? await createPost(title, content, cover, finalTags, finalSeries, visibility)
+          : await updatePost(editingId, title, content, cover, finalTags, finalSeries, visibility)
+      discarded.current = true
+      clearDraft(key) // 서버에 들어갔으니 임시본은 버린다
+      // **목록 1쪽이 아니라 방금 저장한 글로 간다.** 예전엔 `/blog`로 보내서, 쓴 글을
+      // 확인하려면 목록에서 다시 찾아 들어가야 했다(2쪽으로 밀렸으면 더 나쁘다).
+      // id는 createPost·updatePost의 반환값에 원래부터 있었는데 버리고 있었다.
+      navigate(`/blog/posts/${saved.id}`)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -252,6 +395,50 @@ function WritePostPage() {
       <h1 className={`mb-6 text-3xl font-semibold tracking-tight ${ui.pageTitle}`}>
         {editingId === null ? '새 글 쓰기' : '글 수정'}
       </h1>
+
+      {/* 복구 제안. **자동으로 안 덮는다** — 수정 모드에서 낡은 초안이 서버 본문을 조용히
+          밀어내면 그건 유실을 막는 게 아니라 다른 유실이다. 고르는 건 사람이 한다. */}
+      {recovered && (
+        <div
+          role="status"
+          className="mb-6 rounded-2xl border border-amber-500/25 bg-amber-50 p-4 dark:border-amber-400/25 dark:bg-amber-400/[0.08]"
+        >
+          <p className="text-sm text-gray-700 dark:text-gray-200">
+            쓰다 만 글이 이 브라우저에 남아 있어. {new Date(recovered.savedAt).toLocaleString()} 기준, 제목은
+            {' '}‘{recovered.title.trim() || '(제목 없음)'}’ 이고 본문은 {recovered.content.length}자야.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnPrimary}
+              onClick={() => {
+                setTitle(recovered.title)
+                setContent(recovered.content)
+                setCoverImage(recovered.coverImage ?? '')
+                setTags(recovered.tags ?? [])
+                setSeries(recovered.series ?? '')
+                setVisibility(recovered.visibility ?? 'public')
+                // 불러온 뒤에는 서버 지문을 지운다. 안 그러면 수정 모드에서 '원본과 같다'는
+                // 판정에 걸려 불러온 내용이 다시 임시보관되지 않는다.
+                serverSnapshot.current = null
+                setRecovered(null)
+              }}
+            >
+              이어서 쓰기
+            </button>
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={() => {
+                clearDraft(key)
+                setRecovered(null)
+              }}
+            >
+              버리기
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* AI 초안 잡기: 거친 메모 → 정돈된 글 구조를 제목·본문에 채움 */}
       <div className="mb-6 rounded-2xl border border-accent/15 bg-accent/[0.05] p-5/[0.07]">
@@ -503,8 +690,34 @@ function WritePostPage() {
           <button type="submit" className={btnPrimary} disabled={saving} aria-busy={saving}>
             {saving ? '저장 중…' : editingId === null ? '글 작성' : '수정 저장'}
           </button>
-          <button type="button" onClick={() => navigate('/blog')} className={btnGhost}>취소</button>
+          <button
+            type="button"
+            onClick={() => {
+              // 취소는 되돌릴 수 없다(임시본까지 지운다). 쓰던 게 있으면 확인받는다.
+              if (dirty && !window.confirm('쓰던 내용을 버리고 나갈까? 임시 보관본도 같이 지워져.')) return
+              discarded.current = true
+              clearDraft(key)
+              navigate('/blog')
+            }}
+            className={btnGhost}
+          >
+            취소
+          </button>
         </div>
+        {/* 임시보관은 저장이 아니다. 그래서 '저장됨'이라고 안 적는다 — 그렇게 적으면
+            브라우저를 바꿔도 남아 있다고 읽힌다. */}
+        {draftAt && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            이 브라우저에 임시 보관됨 ({new Date(draftAt).toLocaleTimeString()}). 저장하려면 아래 버튼을 눌러줘.
+          </p>
+        )}
+        {lockedOut && (
+          <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">
+            {user
+              ? '글쓰기 권한이 사라졌어. 쓰던 내용은 이 브라우저에 임시 보관해뒀어.'
+              : '로그인이 풀렸어. 쓰던 내용은 이 브라우저에 임시 보관했으니, 다시 로그인하고 이 화면으로 돌아오면 이어서 쓸 수 있어.'}
+          </p>
+        )}
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       </form>
       </div>

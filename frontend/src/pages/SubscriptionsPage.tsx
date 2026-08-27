@@ -108,8 +108,11 @@ function SubscriptionsPage() {
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
       {/* 알림 '경로'. 위 🔔이 '누구의 알림을 받을지'라면 이건 '어디로 받을지'다.
-          SettingsPage가 아니라 여기 두는 이유: 저쪽은 canWrite 게이트가 있어
-          구독자(pending)가 못 본다 — 알림이 정작 필요한 사람이 못 보는 자리다. */}
+          SettingsPage가 아니라 여기 두는 이유: 저쪽은 BYOK·스킨처럼 글쓰기 권한이
+          필요한 설정이 본체라, 알림 경로를 거기 두면 성격이 다른 것이 섞인다.
+          (2026-08-27 정정) 예전 이유는 "저쪽은 canWrite 게이트가 있어 구독자가 못
+          본다"였는데 그건 더 이상 사실이 아니다. SettingsPage는 로그인만 요구하고
+          (SettingsPage.tsx:63) 헤더의 설정 링크도 canWrite 밖으로 나왔다. */}
       {user && <PushToggle />}
 
       {/* 받은 구독 신청 (글쓴이용) — 신청이 있을 때만 뜬다 */}
