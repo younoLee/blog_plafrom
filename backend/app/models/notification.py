@@ -9,13 +9,14 @@ from app.core.database import Base
 class Notification(Base):
     """인앱 알림 — 헤더 종 아이콘의 안 읽음 배지·목록이 이 테이블을 읽는다.
 
-    두 종류가 한 테이블에 산다:
-      - **새 글**  (comment_id IS NULL) — 구독+알림 켠 사람이 받는다.
-      - **새 댓글**(comment_id 있음)   — 글쓴이 본인이 받는다.
+    세 종류가 한 테이블에 산다:
+      - **새 글**      (post_id 있음 · comment_id 없음) — 구독+알림 켠 사람이 받는다.
+      - **새 댓글**    (post_id 있음 · comment_id 있음) — 글쓴이 본인이 받는다.
+      - **구독 신청**  (post_id 없음 · actor_id 있음)   — 글쓴이가 받는다. 2026-08-27 추가.
 
-    종류를 열(`kind`)로 따로 두지 않고 comment_id의 유무로 가른다. 값이 둘로 표현되면
-    언젠가 어긋나고(kind='comment'인데 comment_id가 NULL 같은 행), 그때 어느 쪽이
-    맞는지 알 수 없다. 링크를 걸려면 어차피 comment_id가 있어야 하므로 그것만 둔다.
+    종류를 열(`kind`)로 따로 두지 않고 **어느 칸이 채워졌는가**로 가른다. 값이 둘로
+    표현되면 언젠가 어긋나고(kind='comment'인데 comment_id가 NULL 같은 행), 그때 어느
+    쪽이 맞는지 알 수 없다. 링크를 걸려면 어차피 그 id가 있어야 하므로 그것만 둔다.
     """
 
     __tablename__ = "notifications"
@@ -25,9 +26,17 @@ class Notification(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    # 알림이 가리키는 글. 글 삭제 시 알림도 함께 삭제(깨진 링크 방지)
-    post_id: Mapped[int] = mapped_column(
-        ForeignKey("posts.id", ondelete="CASCADE"), index=True
+    # 알림이 가리키는 글. 글 삭제 시 알림도 함께 삭제(깨진 링크 방지).
+    # **NULL 이면 글에 안 매인 알림**이다(구독 신청). 2026-08-27까지 NOT NULL 이라
+    # 그런 알림을 만들 수조차 없었고, 그래서 구독 신청이 글쓴이에게 아무 신호도 못 냈다.
+    post_id: Mapped[int | None] = mapped_column(
+        ForeignKey("posts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # 이 알림을 일으킨 사람. **글에 안 매인 알림에만 채운다.**
+    # 새 글·새 댓글은 '누가'를 글을 통해 알 수 있어서(posts.owner_id) 채우지 않는다 —
+    # 채우면 같은 정보가 두 곳에 살고 언젠가 어긋난다.
+    actor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     # 새 댓글 알림이면 그 댓글. 새 글 알림이면 NULL.
     # 댓글이 지워지면(모더레이션) 알림도 같이 지운다 — 안 지우면 종에는 남아 있는데

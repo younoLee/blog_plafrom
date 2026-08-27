@@ -36,7 +36,6 @@ from app.routers import (
     posts,
     push,
     skin,
-    subscribers,
     subscriptions,
     uploads,
 )
@@ -401,7 +400,6 @@ async def require_origin_secret(request: Request, call_next):
 # 모든 API 라우트를 /api 아래로 (CloudFront가 /api/*를 EC2로 라우팅 → HTTPS 통일)
 app.include_router(auth.router, prefix="/api")
 app.include_router(posts.router, prefix="/api")
-app.include_router(subscribers.router, prefix="/api")
 app.include_router(comments.router, prefix="/api")
 app.include_router(subscriptions.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")

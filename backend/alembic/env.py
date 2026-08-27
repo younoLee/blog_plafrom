@@ -24,7 +24,6 @@ import app.models.payment  # noqa: F401
 import app.models.post  # noqa: F401 — 모델을 import해야 Base에 테이블이 등록됨
 import app.models.push_subscription  # noqa: F401
 import app.models.status_check  # noqa: F401
-import app.models.subscriber  # noqa: F401
 import app.models.user  # noqa: F401
 from app.core.config import settings
 from app.core.database import Base

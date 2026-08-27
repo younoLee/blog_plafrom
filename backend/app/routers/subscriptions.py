@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.display import display_name_of
 from app.models.author_subscription import AuthorSubscription
+from app.models.notification import Notification
 from app.models.user import User
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
@@ -134,6 +135,19 @@ def subscribe(data: SubscribeIn, db: Session = Depends(get_db), user: User = Dep
     )
     if exists is None:
         db.add(AuthorSubscription(subscriber_id=user.id, author_id=data.author_id))  # approved=false(대기)
+        # **글쓴이에게 알린다** (2026-08-27). 여기까지 오면 새 신청이라는 뜻이다.
+        #
+        # 이게 없어서 구독은 '신청 → 승인' 구조인데 신청이 온 사실이 글쓴이에게 아무
+        # 신호도 안 갔다. 신청한 사람은 '승인 대기중'을 무기한 보고, 글쓴이는 모르니
+        # 승인이 안 나고, 결과적으로 구독자공개 글이 영영 안 열렸다.
+        #
+        # 알림 자체를 못 만들던 이유는 notifications.post_id 가 NOT NULL 이었기
+        # 때문이다. 구독 신청은 가리킬 글이 없다. f8a9b0c1d2e3 에서 풀었다.
+        #
+        # **같은 트랜잭션에 넣는다.** 아래 IntegrityError 로 롤백되면 알림도 같이
+        # 사라져야 한다 — 신청이 안 만들어졌는데 "신청이 왔어"가 남으면 글쓴이는
+        # 승인할 대상이 없는 알림을 보게 된다.
+        db.add(Notification(user_id=data.author_id, actor_id=user.id))
         try:
             db.commit()
         except IntegrityError:  # 동시 중복 신청 레이스(유니크 충돌) — 500 대신 멱등으로 흡수

@@ -113,19 +113,35 @@ export function NotificationBell() {
               {data.items.map((n) => (
                 <li key={n.id}>
                   <Link
-                    // 댓글 알림은 댓글 자리로 데려간다 — 글 맨 위에 떨어뜨리면
-                    // 긴 글에서는 뭐가 달렸는지 보려고 끝까지 스크롤해야 한다.
-                    to={n.comment_id ? `/blog/posts/${n.post_id}#comments` : `/blog/posts/${n.post_id}`}
+                    // 셋을 가른다. post_id 가 없으면 글에 안 매인 알림(구독 신청)이라
+                    // 승인하러 갈 자리로 보낸다. 댓글 알림은 댓글 자리로 데려간다 —
+                    // 글 맨 위에 떨어뜨리면 긴 글에서는 뭐가 달렸는지 보려고 끝까지
+                    // 스크롤해야 한다.
+                    to={
+                      n.post_id === null
+                        ? '/subscriptions'
+                        : n.comment_id
+                          ? `/blog/posts/${n.post_id}#comments`
+                          : `/blog/posts/${n.post_id}`
+                    }
                     onClick={() => setOpen(false)}
                     className="block px-3 py-2.5 text-sm hover:bg-black/[0.04] dark:hover:bg-white/5"
                   >
                     <div>
                       <span className="font-medium text-gray-800 dark:text-gray-100">{n.author}</span>
                       <span className="text-gray-500 dark:text-gray-400">
-                        {n.comment_id ? '님의 새 댓글' : '님의 새 글'}
+                        {n.post_id === null
+                          ? '님이 구독을 신청했어'
+                          : n.comment_id
+                            ? '님의 새 댓글'
+                            : '님의 새 글'}
                       </span>
                     </div>
-                    <div className="truncate text-gray-600 dark:text-gray-300">{n.title}</div>
+                    {/* 글이 없으면 제목도 없다. 빈 줄을 그리지 않고 무엇을 하면 되는지
+                        한 줄로 말한다 — 알림을 눌러야 하는 이유가 그거다. */}
+                    <div className="truncate text-gray-600 dark:text-gray-300">
+                      {n.post_id === null ? '눌러서 승인하거나 거절할 수 있어' : n.title}
+                    </div>
                   </Link>
                 </li>
               ))}

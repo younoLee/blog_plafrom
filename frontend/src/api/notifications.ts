@@ -5,8 +5,13 @@ const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
 export interface NotificationItem {
   id: number
-  post_id: number
-  title: string
+  // **null 이면 글에 안 매인 알림**(구독 신청). 2026-08-27부터 nullable 이다.
+  // 종류는 어느 칸이 채워졌는가로 가른다(backend models/notification.py):
+  //   post_id 있음 + comment_id 없음 → 새 글
+  //   post_id 있음 + comment_id 있음 → 새 댓글
+  //   post_id 없음                   → 구독 신청
+  post_id: number | null
+  title: string | null
   /** 이 알림을 일으킨 사람 — 새 글이면 글쓴이, 새 댓글이면 댓글 쓴 사람. */
   author: string
   read: boolean
