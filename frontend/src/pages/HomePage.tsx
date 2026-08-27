@@ -17,6 +17,8 @@ function HomePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tag = searchParams.get('tag') || undefined // URL ?tag= 로 태그 필터
   const q = searchParams.get('q') || undefined // URL ?q= 로 검색
+  // URL ?series= 로 연재 필터 (2026-08-27). 목록의 연재 뱃지와 사이드바가 여기로 보낸다.
+  const series = searchParams.get('series') || undefined
   // 쪽은 1부터(사람이 읽는 값), 서버엔 offset으로 변환해 보낸다
   const page = Math.max(1, Number(searchParams.get('page') ?? 1) || 1)
 
@@ -50,7 +52,7 @@ function HomePage() {
     const seq = ++reqSeq.current
     setLoaded(false) // 조건이 바뀌면 다시 '모르는 상태'다 — 아래 개수 표시가 거짓말하지 않게
     try {
-      const res = await fetchPosts({ q, tag, offset: (page - 1) * POSTS_PAGE_SIZE })
+      const res = await fetchPosts({ q, tag, series, offset: (page - 1) * POSTS_PAGE_SIZE })
       if (seq !== reqSeq.current) return // 더 최신 요청이 이미 나갔다
       // 범위 밖 쪽으로 남으면 "3 / 2 쪽"과 "아직 글이 없어"가 같이 뜬다 — 마지막 쪽의
       // 마지막 글을 지웠거나 누가 ?page=99로 들어온 경우다. 조용히 마지막 쪽으로 되돌린다.
@@ -103,7 +105,7 @@ function HomePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPosts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, tag, q, page])
+  }, [user?.id, tag, q, series, page])
 
   // 사이드바 집계는 목록과 별개 — 페이지·검색과 무관하게 블로그 전체를 보여준다
   useEffect(() => {
@@ -152,6 +154,8 @@ function HomePage() {
   // 절전 목록은 **태그만** 걸러낸다. 검색(q)은 서버가 본문까지 보고 판단하는데 정적
   // 목록엔 본문이 없다 — 제목·요약으로 흉내내면 "조건에 맞는 글이 없어"가 거짓이 된다.
   // 그래서 검색 중엔 거르지 않고, 본문까지 뒤지는 정적 아카이브로 안내한다.
+  // 연재(series)는 여기서 못 거른다 — 정적 목록에 연재 이름이 없다. 태그와 달리
+  // 흉내낼 수단조차 없으므로, 연재로 좁힌 상태에서 절전이면 아래 안내가 그걸 말한다.
   const sleepList = (staticPosts ?? []).filter((p) => !tag || (p.tags ?? []).includes(tag))
 
   const lastPage = Math.max(1, Math.ceil(total / POSTS_PAGE_SIZE))
@@ -239,6 +243,12 @@ function HomePage() {
               <span className="text-accent">#{tag}</span>
               <Link to="/blog" className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 전체보기</Link>
             </>
+          ) : series ? (
+            <>
+              <span className="text-base font-normal text-gray-400">연재</span>
+              <span className="text-accent">{series}</span>
+              <Link to="/blog" className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 전체보기</Link>
+            </>
           ) : (
             '최근 글'
           )}
@@ -280,7 +290,7 @@ function HomePage() {
           **`loaded`도 봐야 한다** — 첫 응답 전에는 '없다'가 아직 참이 아니다. */}
       {loaded && posts.length === 0 && !asleep && (
         <p className="rounded-2xl border border-dashed border-black/10 p-12 text-center text-gray-500 dark:border-white/15 dark:text-gray-400">
-          {q || tag ? '조건에 맞는 글이 없어.' : '아직 글이 없어. 첫 글을 써봐!'}
+          {q || tag || series ? '조건에 맞는 글이 없어.' : '아직 글이 없어. 첫 글을 써봐!'}
         </p>
       )}
 

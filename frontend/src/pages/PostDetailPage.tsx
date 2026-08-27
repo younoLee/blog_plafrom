@@ -385,7 +385,21 @@ function PostDetailPage() {
               </span>
             )}
           </h1>
-          <div data-skin="article-meta" className="mt-2 flex items-center gap-3">
+          <div data-skin="article-meta" className="mt-2 flex flex-wrap items-center gap-3">
+            {/* 글쓴이 (2026-08-27). 목록(PostRow)과 같은 규칙이다 — handle 이 있을 때만
+                링크다. 서버가 공개 블로그를 가질 수 있는 역할에만 handle 을 채우므로,
+                없는 사람의 `/@handle` 은 빈 목록이고 링크는 빈 페이지가 된다. */}
+            {post.author_name && (
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {post.author_handle ? (
+                  <Link to={`/${post.author_handle}`} className="font-medium transition hover:text-accent">
+                    {post.author_name}
+                  </Link>
+                ) : (
+                  <span className="font-medium">{post.author_name}</span>
+                )}
+              </span>
+            )}
             <time className="text-sm text-gray-500 dark:text-gray-400">
               {new Date(post.created_at).toLocaleString()} · {readingTime(post.content)}분 읽기
             </time>

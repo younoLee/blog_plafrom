@@ -28,6 +28,7 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
   const initial = (name[0] ?? 'D').toUpperCase()
   const recent = meta?.recent ?? []
   const topTags = meta?.tags ?? []
+  const seriesList = meta?.series ?? []
   const total = meta?.total ?? 0
 
   return (
@@ -99,6 +100,28 @@ export function Sidebar({ meta }: { meta: PostMetaResult | null }) {
                     {new Date(p.created_at).toLocaleDateString()}
                   </div>
                 </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 연재 목록 (2026-08-27). 태그 위에 둔다 — 연재는 '어디부터 읽나'를 정하는
+          것이고 태그는 '무엇에 관한 글인가'라, 처음 온 사람에게 먼저 필요한 쪽이 연재다.
+          여태 연재는 그 연재의 글 하나를 이미 연 사람에게만 보였다. */}
+      {seriesList.length > 0 && (
+        <div data-skin="sidebar-series" className={ui.card}>
+          <h4 className="mb-3 text-sm font-semibold tracking-tight">연재</h4>
+          <ul className="grid gap-1.5">
+            {seriesList.map(({ tag, count }) => (
+              <li key={tag}>
+                <Link
+                  to={`/blog?series=${encodeURIComponent(tag)}`}
+                  className="flex items-center justify-between gap-2 rounded-btn px-2 py-1 text-sm text-gray-600 transition hover:bg-accent/10 hover:text-accent dark:text-gray-300"
+                >
+                  <span className="truncate">{tag}</span>
+                  <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{count}편</span>
+                </Link>
               </li>
             ))}
           </ul>

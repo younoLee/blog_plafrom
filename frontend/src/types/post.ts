@@ -10,6 +10,8 @@ export interface Post {
   tags: string[] // 태그 (없으면 빈 배열)
   series: string | null // 연재 이름 (같은 이름끼리 한 시리즈), 없으면 null
   owner_id: number | null
+  author_name: string | null
+  author_handle: string | null
   visibility: Visibility
   created_at: string
   updated_at: string
@@ -39,7 +41,13 @@ export interface PostSummary {
   reading_minutes: number
   cover_image: string | null
   tags: string[]
+  series: string | null
   owner_id: number | null
+  // 글쓴이 표시용 (2026-08-27). handle 은 **공개 블로그를 가질 수 있는 역할일 때만**
+  // 서버가 채운다 — 차단된 사람의 `/@handle` 은 빈 목록이라 링크를 그리면 빈 페이지로
+  // 보내게 된다. 그래서 화면은 `author_handle` 이 있을 때만 링크로, 없으면 이름만 그린다.
+  author_name: string | null
+  author_handle: string | null
   visibility: Visibility
   created_at: string
   updated_at: string

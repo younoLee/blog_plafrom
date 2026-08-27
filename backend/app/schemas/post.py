@@ -110,6 +110,13 @@ class PostRead(BaseModel):
     tags: list[str]
     series: str | None
     owner_id: int | None
+    # 상세 화면도 글쓴이를 그린다. PostSummary 와 같은 규칙이다(그쪽 주석 참고).
+    # 기본값을 두는 이유: 이 스키마는 from_attributes 로 ORM 객체에서 바로 만들어지는
+    # 자리가 여럿인데(작성·수정·공개범위 변경), 그 응답들은 방금 자기가 쓴 글이라
+    # 글쓴이를 안 실어도 화면이 아쉽지 않다. 기본값이 없으면 그 세 곳이 전부
+    # ValidationError 로 죽는다.
+    author_name: str | None = None
+    author_handle: str | None = None
     visibility: str
     created_at: datetime
     updated_at: datetime
@@ -126,7 +133,18 @@ class PostSummary(BaseModel):
     reading_minutes: int  # 읽기 시간(분)
     cover_image: str | None
     tags: list[str]
+    series: str | None  # 연재 이름. 목록에서 뱃지를 그리고 `/blog?series=` 로 잇는다
     owner_id: int | None
+    # 글쓴이 표시용 (2026-08-27). 예전엔 owner_id 숫자뿐이라 **다중 글쓴이 플랫폼인데
+    # 목록도 상세도 누가 쓴 글인지 표시할 수 없었다.** 그래서 `/@handle` 화면·필터·스킨이
+    # 전부 만들어져 있는데도 앱 안에서 거기로 가는 링크가 자기 자신 주소 둘뿐이었다.
+    #
+    # handle 은 **공개 블로그를 가질 수 있는 역할일 때만** 채운다(PUBLIC_BLOG_ROLES).
+    # 차단·승인취소된 사람의 `/@handle` 은 빈 목록이라(posts.py 의 author 필터가 같은
+    # 조건을 건다), 링크를 그리면 빈 페이지로 보내게 된다. name 은 역할과 무관하게
+    # 채운다 — 누가 썼는지는 회수 대상이 아니고 댓글·구독 목록에도 이미 나온다.
+    author_name: str | None
+    author_handle: str | None
     visibility: str
     created_at: datetime
     updated_at: datetime
@@ -151,6 +169,10 @@ class TagCount(BaseModel):
 class PostMeta(BaseModel):
     total: int
     tags: list[TagCount]
+    # 연재 집계 (2026-08-27). 태그와 같은 모양이라 TagCount 를 그대로 쓴다.
+    # 이게 없어서 연재는 **그 연재에 속한 글 하나를 이미 우연히 연 사람에게만** 보였다.
+    # 1편부터 읽고 싶은 방문자에게는 입구가 없었다.
+    series: list[TagCount]
     recent: list[PostSummary]
 
 

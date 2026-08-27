@@ -60,6 +60,19 @@ export function PostRow({
           </span>
         )}
       </h3>
+      {/* 연재 뱃지 (2026-08-27). series 는 DB 컬럼에 인덱스까지 있고 이전/다음 편 API도
+          있는데, 여태 **그 연재의 글 하나를 이미 우연히 연 사람에게만** 보였다.
+          1편부터 읽고 싶은 방문자에게는 입구가 아예 없었다. */}
+      {post.series && (
+        <div data-skin="post-series" className="mt-2">
+          <Link
+            to={`/blog?series=${encodeURIComponent(post.series)}`}
+            className="inline-flex items-center gap-1 rounded-btn bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent transition hover:bg-accent/20"
+          >
+            연재 · {post.series}
+          </Link>
+        </div>
+      )}
       <Link
         data-skin="post-excerpt"
         to={`/blog/posts/${post.id}`}
@@ -81,9 +94,31 @@ export function PostRow({
         </div>
       )}
       <div data-skin="post-meta" className="mt-3 flex items-center justify-between">
-        <time className="text-xs text-gray-500 dark:text-gray-400">
-          {new Date(post.created_at).toLocaleDateString()} · {post.reading_minutes}분 읽기
-        </time>
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          {/* 글쓴이 (2026-08-27). 예전엔 응답에 owner_id 숫자뿐이라 **다중 글쓴이
+              플랫폼인데 목록에 누가 쓴 글인지 표시할 수가 없었다.**
+              handle 이 있을 때만 링크다 — 서버가 공개 블로그를 가질 수 있는 역할에만
+              handle 을 채우므로(schemas/post.py), 없으면 그 사람의 `/@handle` 은
+              빈 목록이고 링크는 빈 페이지로 보내는 셈이 된다. */}
+          {post.author_name && (
+            <>
+              {post.author_handle ? (
+                <Link
+                  to={`/${post.author_handle}`}
+                  className="font-medium transition hover:text-accent"
+                >
+                  {post.author_name}
+                </Link>
+              ) : (
+                <span className="font-medium">{post.author_name}</span>
+              )}
+              <span aria-hidden="true">·</span>
+            </>
+          )}
+          <time>
+            {new Date(post.created_at).toLocaleDateString()} · {post.reading_minutes}분 읽기
+          </time>
+        </div>
         {canEdit && (
           <div className="flex gap-3 text-sm">
             <Link to={`/blog/posts/${post.id}/edit`} className="text-accent hover:underline">수정</Link>

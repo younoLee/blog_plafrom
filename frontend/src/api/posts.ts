@@ -18,11 +18,13 @@ export type PostListResult = {
 // 글 목록 (로그인했으면 내 비공개글도 포함되도록 토큰 첨부)
 // q=검색어, tag=태그 필터, limit/offset=페이지
 export async function fetchPosts(
-  opts: { q?: string; tag?: string; author?: string; limit?: number; offset?: number } = {},
+  opts: { q?: string; tag?: string; series?: string; author?: string; limit?: number; offset?: number } = {},
 ): Promise<PostListResult> {
   const params = new URLSearchParams()
   if (opts.q) params.set('q', opts.q)
   if (opts.tag) params.set('tag', opts.tag)
+  // 연재 이름. 목록의 연재 뱃지와 사이드바가 준다. 서버는 정확히 일치로 거른다.
+  if (opts.series) params.set('series', opts.series)
   // 글쓴이 핸들. `/@handle` 화면이 준다. 없으면 전체 모아보기(/blog)다.
   if (opts.author) params.set('author', opts.author)
   params.set('limit', String(opts.limit ?? POSTS_PAGE_SIZE))
@@ -45,6 +47,7 @@ export type TagCount = { tag: string; count: number }
 export type PostMetaResult = {
   total: number
   tags: TagCount[]
+  series: TagCount[] // 연재별 글 수 (태그와 같은 모양)
   recent: PostSummary[]
 }
 

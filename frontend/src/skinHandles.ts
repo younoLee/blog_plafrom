@@ -29,12 +29,13 @@ export const SKIN_HANDLES: HandleGroup[] = [
       'post-title',
       'post-excerpt',
       'post-tags',
+      'post-series',
       'post-meta',
     ],
   },
   {
     group: '사이드바',
-    names: ['sidebar', 'sidebar-profile', 'sidebar-recent', 'sidebar-tags'],
+    names: ['sidebar', 'sidebar-profile', 'sidebar-recent', 'sidebar-series', 'sidebar-tags'],
   },
   {
     group: '글 상세',

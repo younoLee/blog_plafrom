@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_, select, true
@@ -106,8 +107,33 @@ def visible_condition(user: User | None, db: Session):
     )
 
 
-def _summary(p: Post) -> PostSummary:
+def _authors_of(posts: Sequence[Post], db: Session) -> dict[int, tuple[str | None, str | None]]:
+    """글 목록의 글쓴이를 **한 번에** 읽는다. {owner_id: (표시명, 핸들)}.
+
+    왜 배치인가 — 목록은 최대 50건이고 글마다 조회하면 N+1이다. `/api/posts`는 무인증
+    경로 중 자주 불리는 축이라(120/분 한도가 걸린 이유가 그것이다) 여기서 쿼리를 늘리면
+    t2.micro에서 바로 티가 난다.
+
+    핸들은 **공개 블로그를 가질 수 있는 역할일 때만** 돌려준다. 차단된 사람의
+    `/@handle`은 아래 author 필터가 같은 조건으로 빈 목록을 주므로, 링크를 그리면
+    빈 페이지로 보내게 된다(2026-08-19 보안검사가 '회수가 절반만 듣는다'고 적은 자리).
+    표시명은 역할과 무관하게 준다 — 누가 썼는지는 회수 대상이 아니다.
+    """
+    ids = {p.owner_id for p in posts if p.owner_id is not None}
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(User.id, User.display_name, User.handle, User.role).where(User.id.in_(ids))
+    ).all()
+    return {
+        uid: (name, handle if role in PUBLIC_BLOG_ROLES else None)
+        for uid, name, handle, role in rows
+    }
+
+
+def _summary(p: Post, authors: dict[int, tuple[str | None, str | None]] | None = None) -> PostSummary:
     # 본문 전체 대신 발췌+읽기시간만 담아 응답 크기를 줄인다 (증폭 방지)
+    name, handle = (authors or {}).get(p.owner_id, (None, None)) if p.owner_id else (None, None)
     return PostSummary(
         id=p.id,
         title=p.title,
@@ -115,7 +141,10 @@ def _summary(p: Post) -> PostSummary:
         reading_minutes=_reading_minutes(p.content),
         cover_image=p.cover_image,
         tags=p.tags,
+        series=p.series,
         owner_id=p.owner_id,
+        author_name=name,
+        author_handle=handle,
         visibility=p.visibility,
         created_at=p.created_at,
         updated_at=p.updated_at,
@@ -147,6 +176,9 @@ def list_posts(
     # 상한은 handle 컬럼과 같은 20자. 없는 핸들이면 빈 목록이다(404가 아니다 —
     # 목록은 '조건에 맞는 게 없다'를 표현할 수 있고, 화면이 그걸 이미 그린다).
     author: str | None = Query(None, max_length=20),
+    # 연재로 거르기 (2026-08-27). 상한은 series 컬럼과 같은 100자.
+    # 없는 연재면 빈 목록이다 — author 와 같은 이유로 404 가 아니다.
+    series: str | None = Query(None, max_length=100),
     limit: int = Query(10, ge=1, le=50),  # 상한 필수: ?limit=999999로 전체를 뽑아가는 걸 막는다
     # ⚠️ **`limit`엔 상한이 있는데 `offset`엔 없었다** — `q`↔`tag`와 글자 그대로 같은
     # "짝지어진 파라미터 중 한쪽만 안 쓸린" 모양이 여기 한 번 더 있었다(2026-08-12 검사).
@@ -164,7 +196,10 @@ def list_posts(
     # 2026-08-19: `author`가 여기 빠져 있었다 — 두 줄 위 주석이 "짝지어진 파라미터 중
     # 한쪽만 안 쓸렸다"를 두 번이나 적어놓은 바로 그 함수에서 세 번째가 났다.
     # 손으로 적는 목록이라 파라미터가 늘 때마다 샌다. 이제 함수 하나에 다 넘긴다.
-    if has_nul(q, tag, author):
+    # 2026-08-27: series 를 여기 같이 넣는다. 세 줄 위 주석이 "손으로 적는 목록이라
+    # 파라미터가 늘 때마다 샌다"고 적어둔 그 자리라, 파라미터를 더하면서 이 줄을
+    # 안 고치면 그 주석이 네 번째로 맞는 말이 된다.
+    if has_nul(q, tag, author, series):
         raise HTTPException(status_code=422, detail="검색어에 사용할 수 없는 문자가 있어.")
 
     # 필터는 전부 공개범위 조건과 AND — 하나라도 OR로 새면 검색으로 비공개 글이 샌다(IDOR).
@@ -186,6 +221,11 @@ def list_posts(
     if tag:
         # 태그 필터: tags 배열에 이 태그가 포함된 글만 (Postgres 배열 contains)
         filters.append(Post.tags.contains([tag]))
+    if series:
+        # 연재 이름은 정확히 일치. 부분 일치로 하면 '블로그 만들기'가 '블로그 만들기 2'를
+        # 같이 끌어와서, 연재 뱃지를 누른 사람이 다른 연재의 글을 보게 된다.
+        # 저장할 때 이미 공백을 정리하므로(schemas/post.py 의 _clean_series) 여기서도 맞춘다.
+        filters.append(Post.series == series.strip())
     if q:
         # 한국어는 to_tsvector가 형태소를 몰라 풀텍스트가 안 먹는다 → pg_trgm + ILIKE.
         # 값은 파라미터로 바인딩되고(SQLi 없음) 메타문자는 위에서 이스케이프한다.
@@ -212,8 +252,11 @@ def list_posts(
         .offset(offset)
     ).all()
 
+    # ⚠️ 컴프리헨션 **밖**에서 한 번 부른다. 안에 두면 글마다 조회가 나가서
+    #    없애려던 N+1이 그대로 생긴다(만들자마자 그렇게 썼다가 고쳤다).
+    authors = _authors_of(posts, db)
     return PostList(
-        items=[_summary(p) for p in posts],
+        items=[_summary(p, authors) for p in posts],
         total=total,
         limit=limit,
         offset=offset,
@@ -260,10 +303,23 @@ def posts_meta(
         select(Post).where(condition).order_by(Post.created_at.desc(), Post.id.desc()).limit(5)
     ).all()
 
+    # 연재별 글 수. 태그와 달리 unnest 가 필요 없다(배열이 아니라 단일 컬럼이고
+    # series 에 인덱스가 걸려 있다). NULL 은 '연재 아님'이라 뺀다.
+    # limit 20 은 태그와 같다 — 사이드바가 그 이상을 그리지 않는다.
+    series_rows = db.execute(
+        select(Post.series, func.count().label("cnt"))
+        .where(condition, Post.series.is_not(None))
+        .group_by(Post.series)
+        .order_by(func.count().desc(), Post.series)
+        .limit(20)
+    ).all()
+
+    recent_authors = _authors_of(recent, db)
     return PostMeta(
         total=total,
         tags=[TagCount(tag=t, count=c) for t, c in tag_rows],
-        recent=[_summary(p) for p in recent],
+        series=[TagCount(tag=t, count=c) for t, c in series_rows],
+        recent=[_summary(p, recent_authors) for p in recent],
     )
 
 
@@ -401,7 +457,14 @@ def get_post(
     # 볼 권한 없으면 존재 자체를 숨김(404)
     if not can_view(post, user, subscribed_author_ids(user, db)):
         raise HTTPException(status_code=404, detail="글을 찾을 수 없음")
-    return post
+    # 글쓴이를 실어 보낸다 (2026-08-27). 목록과 같은 규칙을 쓰려고 같은 함수를 부른다 —
+    # 규칙이 두 벌이면 목록에서는 링크가 있고 상세에서는 없는 식으로 갈라진다.
+    out = PostRead.model_validate(post)
+    if post.owner_id:
+        out.author_name, out.author_handle = _authors_of([post], db).get(
+            post.owner_id, (None, None)
+        )
+    return out
 
 
 @router.put("/{post_id}", response_model=PostRead)
