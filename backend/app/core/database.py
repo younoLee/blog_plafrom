@@ -23,6 +23,40 @@ from app.core.config import settings
 # 스레드를 30초가 아니라 5초만 붙들고 503으로 떨어져 곧 돌려준다.
 # 느린 실패보다 빠른 실패가 낫다. 진짜 해소는 커넥션이 아니라 워커 수 쪽에 있다
 # (docker-compose.prod.yml의 uvicorn에 --workers가 없어 워커가 1개다).
+# connect_args — 2026-08-27 카오스 훈련(`db hang`)에서 처음 실측한 뒤 넣었다.
+#
+# **무엇을 쟀나.** 08-26 회차까지 DB 주입은 `docker stop` 하나뿐이라 잰 것이 전부
+# '거부'였다(3.81초). 커널이 RST를 주므로 상한이 저절로 생긴다. 08-27에 `docker pause`로
+# '연결은 받고 대답을 안 한다'를 재현했더니 `GET /api/posts`가 **120초·240초 둘 다
+# 응답 0바이트**로 끝났다(`time_connect` 0.0002초 — TCP는 즉시 붙는다).
+# 즉 이 자리에 상한이 **없었다.**
+#
+# 그래서 사고 모양이 뒤집혀 있었다: 먼저 온 20명은 안내조차 없이 무한 대기하고(code=000),
+# 정원이 찬 뒤 21번째부터는 pool_timeout=5 덕에 4.6초에 깔끔한 503+JSON을 받는다.
+# 늦게 온 사람이 더 나은 대접을 받는다.
+#
+# **무엇을 고치고 무엇을 못 고치는가 — 이 구분이 이 주석의 핵심이다.**
+#   · connect_timeout: **새 커넥션**에만 걸린다. 풀이 비었거나 갈릴 때가 여기다.
+#   · keepalives: 상대가 **ACK 자체를 멈춘** 경우(호스트 사망·네트워크 블랙홀)를 끊는다.
+#   · 둘 다 **못 끊는 경우가 있다** — 프로세스만 얼고 커널은 살아 있는 서버.
+#     `docker pause`가 정확히 그것이고, 훈련이 잰 240초가 그 경우다. 커널이 SELECT 1을
+#     받아 ACK 해주므로 keepalive도 정상이고, 이미 열린 커넥션의 읽기에는 libpq에
+#     상한 자체가 없다. RDS 페일오버는 보통 연결을 끊어주므로 현실에서는 위 둘이 잡지만,
+#     **"이제 DB hang에 상한이 생겼다"고 적으면 그건 거짓말이다.**
+#     남은 자리는 요청 단위 데드라인(미들웨어)이고, 그건 발행 경로 전체의 경계를
+#     건드리는 변경이라 여기서 하지 않는다.
+#
+# 숫자의 근거 — connect 5초는 uploads.py의 S3 `connect_timeout=5`와 같은 앵커다.
+# 이 DB는 같은 호스트에 얹혀 있어(RDS는 2026-07-18에 비용으로 제거) 정상이면 밀리초다.
+# keepalive 5+5×3 = 약 20초는 CloudFront 오리진 read timeout 60초 안에 두 번 들어간다.
+_CONNECT_ARGS = {
+    "connect_timeout": 5,
+    "keepalives": 1,
+    "keepalives_idle": 5,
+    "keepalives_interval": 5,
+    "keepalives_count": 3,
+}
+
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
@@ -30,6 +64,7 @@ engine = create_engine(
     pool_size=10,
     max_overflow=10,
     pool_timeout=5,
+    connect_args=_CONNECT_ARGS,
 )
 SessionLocal = sessionmaker(bind=engine)
 

@@ -84,8 +84,8 @@ def upload_image(
     user: User = Depends(require_writer),
     # `db`를 **직접 받는다.** require_writer가 이미 세션을 열지만(deps.py의 get_current_user가
     # `db.get(User, ...)`를 한다) 이 라우트가 세션 인자를 안 받아서 **커밋하고 싶어도 손이
-    # 안 닿았다.** 그래서 그 트랜잭션이 아래 S3 호출 내내(최악 ≈51초 = 2시도 × (연결5+읽기20)
-    # + 백오프) 열린 채였고, 풀 15칸 중 1칸이 그동안 `idle in transaction`으로 묶였다.
+    # 안 닿았다.** 그래서 그 트랜잭션이 아래 S3 호출 내내(**실측 최악 55~57초** — 아래
+    # Config 주석 참고) 열린 채였고, 풀 20칸 중 1칸이 그동안 `idle in transaction`으로 묶였다.
     # 에디터에서 이미지 여러 장을 올리는 정상 동작만으로 풀이 찰 수 있다.
     # ai.py가 2026-08-10에 벤더 호출 앞에서 정확히 같은 이유로 커밋을 넣었는데
     # 업로드만 안 쓸려 있었다. (2026-08-11 병목검사)
@@ -112,7 +112,7 @@ def upload_image(
     content_type, ext = sniffed
 
     # **여기서 DB 커넥션을 놓는다.** 위 검증까지가 DB가 필요한 전부고(require_writer의
-    # 사용자 조회), 아래 S3 호출은 최악 ≈51초다. 커밋하면 커넥션이 그 자리에서 풀에
+    # 사용자 조회), 아래 S3 호출은 **실측 최악 55~57초**다. 커밋하면 커넥션이 그 자리에서 풀에
     # 반납된다(ai.py:331이 같은 근거로 실측해둔 것: checkedout 1 → 0).
     # 이 라우트는 이후 DB를 안 쓰므로 다시 빌릴 일도 없다.
     # rollback이 아니라 commit인 이유도 ai.py와 같다 — 밀린 쓰기가 없다는 보장이
@@ -141,7 +141,25 @@ def upload_image(
         # 숫자의 근거는 대역폭이 아니라 **전체 예산**이다. CloudFront의 /api/* 오리진
         # read timeout이 60초라(terraform/cloudfront.tf) 그보다 오래 걸린 응답은 사용자가
         # 볼 수 없다 — services/ai.py가 REQUEST_TIMEOUT=55를 정한 것과 같은 앵커다.
-        #   2회 시도 × (connect 5 + read 20) + 백오프 ≈ 51초 < 60초
+        #
+        # ⚠️ **아래 계산은 2026-08-27 카오스 훈련에서 틀린 것으로 확인됐다.** 원래 여기엔
+        #   `2회 시도 × (connect 5 + read 20) + 백오프 ≈ 51초 < 60초`
+        # 라고 적혀 있었는데, `retries={"max_attempts": 2}` 는 **2회 시도가 아니라 2회
+        # 재시도(=총 3시도)** 다. botocore 소스에서 직접 확인:
+        # `ClientArgsCreator._compute_retry_max_attempts` 가 클라이언트 config 의
+        # max_attempts 를 `total_max_attempts = value + 1` 로 정규화한다
+        # ("client config max_attempts means total retries").
+        #
+        # 실측(blackhole 로 S3 를 hang 시킴): 업로드 1건당 PUT 이 **항상 3번** 나갔고
+        # 시도 간격 18.0~18.3초, 벽시계 **55.42 / 56.18 / 56.67초**. 본문은 7.8KB다.
+        # CloudFront 오리진 read timeout 60초까지 여유가 **3.3초**뿐이고, 그것도
+        # 5MB 실물이 아니라 7.8KB 기준이다. 5MB 는 아직 안 쟀다.
+        #
+        # 고칠지 말지는 아직 판단하지 않았다 — `max_attempts` 를 1(=총 2시도)로 내리거나
+        # read_timeout 을 줄이는 두 갈래인데, 재시도를 남긴 이유(아래 문단)가 여전히
+        # 유효해서 그냥 깎을 값이 아니다. **틀린 숫자를 먼저 고치고 판단은 남긴다** —
+        # 이 51초는 **위 두 곳**(트랜잭션 수명 주석·커밋 근거 주석)에도 복붙돼 있었고,
+        # 거기서는 '커넥션이 얼마나 묶이나'의 근거로 쓰인다. 셋을 같이 고쳤다.
         # read=20의 검산: 5MB=40Mbit. t2.micro 지속 대역폭은 AWS 미공표라 추정이지만 극단적
         # 비관 하한 10Mbps로 잡아도 4초다. 게다가 read_timeout은 '요청 전체의 데드라인'이
         # 아니라 소켓 한 번의 I/O 타임아웃이라 더 여유가 있다.

@@ -498,8 +498,9 @@ def _capture_payload(monkeypatch, func, *args):
 
     seen = {}
 
-    def fake_deliver(subs, payload):
+    def fake_deliver(subs, payload, rotate_key=0):
         seen["payload"] = payload
+        seen["rotate_key"] = rotate_key
 
     monkeypatch.setattr(push_mod, "_deliver", fake_deliver)
     func(*args)
@@ -544,3 +545,95 @@ def test_push_does_nothing_when_keys_are_missing(monkeypatch, push_off):
     monkeypatch.setattr(push_mod, "_deliver", lambda s, p: called.append(p))
     notify_new_comment_push(7, "제목", "작성자", 1)
     assert called == []
+
+
+def test_deliver_rotates_the_starting_point_across_posts(monkeypatch):
+    """예산 중단이 **항상 같은 앞머리**를 자르지 않는지.
+
+    2026-08-26에 넣은 DELIVER_BUDGET_SECONDS는 벽시계를 기기 수에서 떼어냈지만
+    대상은 고정했다 — 08-27 카오스 훈련 실측에서 D=20에서도 D=100에서도 발송된 것이
+    매번 목록 앞머리 다섯 대였다. 장애가 지속되는 동안 뒤쪽 기기는 발행마다 같은
+    이유로 건너뛰어지고, D=100이면 95%가 영구히 못 받는다.
+
+    예산 자체보다 이쪽이 조용하다(아무 에러도 안 난다). 그래서 테스트로 못박는다.
+    """
+    from app.services import push as push_mod
+
+    subs = [
+        (i, f"https://fcm.googleapis.com/fcm/send/dev-{i}", "p256dh", "auth")
+        for i in range(5)
+    ]
+
+    def run(rotate_key):
+        order = []
+        monkeypatch.setattr(
+            push_mod, "send_push", lambda e, p, a, d: order.append(e[-1])
+        )
+        push_mod._deliver(subs, {"tag": "t"}, rotate_key=rotate_key)
+        return order
+
+    # 같은 글(같은 키)이면 순서도 같다 — 재시도가 대상을 바꾸면 중복 발송이 는다.
+    assert run(7) == run(7)
+    # 글이 다르면 시작점이 돈다.
+    assert run(0) == ["0", "1", "2", "3", "4"]
+    assert run(2) == ["2", "3", "4", "0", "1"]
+    # 회전이지 누락이 아니다 — 어느 키로도 전원이 한 번씩 들어간다.
+    for key in range(10):
+        assert sorted(run(key)) == ["0", "1", "2", "3", "4"]
+
+
+def test_deliver_budget_cut_follows_the_rotation(monkeypatch):
+    """예산이 잘라도 잘리는 쪽이 매번 달라야 회전이 의미가 있다."""
+    from app.services import push as push_mod
+
+    subs = [
+        (i, f"https://fcm.googleapis.com/fcm/send/dev-{i}", "p256dh", "auth")
+        for i in range(5)
+    ]
+    # 예산을 0으로 두면 첫 기기 하나만 시도하고 끊긴다(검사가 루프 머리에 있다).
+    monkeypatch.setattr(push_mod, "DELIVER_BUDGET_SECONDS", 0)
+
+    def first_attempt(rotate_key):
+        order = []
+        monkeypatch.setattr(
+            push_mod, "send_push", lambda e, p, a, d: order.append(e[-1])
+        )
+        push_mod._deliver(subs, {"tag": "t"}, rotate_key=rotate_key)
+        return order
+
+    # 예산 0이라 아무도 못 받는다 — 그래도 '누가 앞에 섰는가'는 키에 따라 달라야 한다.
+    assert first_attempt(0) == []
+    assert first_attempt(3) == []
+
+    # 예산이 넉넉하면 회전한 순서대로 전원이 들어간다(위 테스트의 짝).
+    monkeypatch.setattr(push_mod, "DELIVER_BUDGET_SECONDS", 60)
+    assert first_attempt(3) == ["3", "4", "0", "1", "2"]
+
+
+def test_deliver_does_not_count_a_failed_send_as_delivered(monkeypatch, caplog):
+    """예산 초과 로그의 숫자가 '받은 대수'로 읽히면 안 된다.
+
+    예전엔 카운터가 `sent` 하나였고 예외를 삼킨 뒤에도 증가해서, 벤더가 무응답일 때
+    "5/20대에서 중단"이 '5대는 받았다'로 읽혔다 — 실제 수신은 0대다.
+    08-27 훈련에서 그 로그를 근거로 정반대 결론이 날 뻔했다.
+    """
+    import logging
+
+    from app.services import push as push_mod
+
+    subs = [
+        (i, f"https://fcm.googleapis.com/fcm/send/dev-{i}", "p256dh", "auth")
+        for i in range(3)
+    ]
+
+    def always_fails(endpoint, p256dh, auth, data):
+        raise RuntimeError("벤더가 무응답")
+
+    monkeypatch.setattr(push_mod, "send_push", always_fails)
+    monkeypatch.setattr(push_mod, "DELIVER_BUDGET_SECONDS", 60)
+    with caplog.at_level(logging.WARNING):
+        push_mod._deliver(subs, {"tag": "t"})
+
+    # 전부 실패했으므로 '성공'을 주장하는 문구가 없어야 한다.
+    # (예산 안에 끝났으니 중단 로그 자체는 안 뜬다 — 예외 로그만 남는다)
+    assert "성공 3대" not in caplog.text

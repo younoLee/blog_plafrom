@@ -60,6 +60,43 @@ def _upstream_unreachable(e: BaseException) -> bool:
     return False
 
 
+# 벤더가 '자기가 아프다'고 **응답으로** 말한 상태코드.
+# 5xx = 벤더 서버 문제, 408 = 벤더가 잰 타임아웃, 429 = 벤더 쪽 혼잡.
+# 410은 넣지 않는다 — 그건 '이 자원은 영영 없다'라 사용자가 모델명을 고쳐야 하는 쪽이다.
+_VENDOR_SICK_CODES = frozenset({408, 429, *range(500, 600)})
+
+
+def _upstream_sick(e: BaseException) -> bool:
+    """벤더가 **응답은 했는데 자기가 아프다고** 답한 경우인가.
+
+    `_upstream_unreachable`과 짝이지만 다른 사건이다. 저쪽은 '못 닿았다'(전송·타임아웃
+    예외)이고, 이쪽은 '닿았는데 5xx가 왔다'다. 사용자에게는 **둘 다 고칠 게 없다**는
+    점에서 같은데, 예전엔 이쪽만 마지막 갈래로 떨어져 "키/모델명 확인 후 다시 시도"가
+    나갔다. 벤더가 아픈데 자기 키를 의심하게 만드는 안내다.
+
+    2026-08-26 카오스 훈련이 결제에서 잡은 것과 **같은 병**이다 — 토스가 5xx를 냈는데
+    사용자에게 "카드가 거절됐다"고 말하고 장부에 failed를 남겼다. 그때 고친 원칙이
+    "5xx는 '거절'이 아니라 '모름'"이고, 08-27 훈련에서 BYOK 3종에 error(503)·gone(410)을
+    주입해보니 AI 경로에 그 원칙이 아직 안 와 있었다(전부 502 + 키 확인 안내).
+
+    타입으로 못 가른다 — 벤더 SDK 넷이 각자 다른 예외 클래스를 쓴다. 그래서
+    `status_code`를 사슬에서 훑는다. httpx.HTTPStatusError는 `.response.status_code`,
+    벤더 SDK들은 대개 `.status_code`를 직접 들고 있다.
+    """
+    seen = set()
+    cur: BaseException | None = e
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        code = getattr(cur, "status_code", None)
+        if code is None:
+            resp = getattr(cur, "response", None)
+            code = getattr(resp, "status_code", None)
+        if isinstance(code, int) and code in _VENDOR_SICK_CODES:
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
@@ -382,14 +419,19 @@ def create_draft(
             detail="초안 생성에 실패했어. 메모를 조금 다르게 써서 다시 시도해줘.",
         ) from e
     except Exception as e:
-        if _upstream_unreachable(e):
-            # 업스트림에 못 닿거나 제때 답을 못 받은 것 — 사용자가 고칠 수 있는 게 없다.
-            # 예전엔 이것도 "키/모델명 확인"으로 안내해서, 2026-07-28 카오스 훈련에서
-            # Anthropic을 도달 불가로 만들었을 때 **엉뚱한 곳을 고치라고 시켰다**.
-            logger.warning("AI 업스트림 도달 실패: %r", e)
+        if _upstream_unreachable(e) or _upstream_sick(e):
+            # 업스트림에 못 닿았거나(_unreachable), 닿았는데 벤더가 아프다고 답한 것
+            # (_sick). **둘 다 사용자가 고칠 수 있는 게 없다.**
+            #   · 못 닿음: 예전엔 이것도 "키/모델명 확인"으로 안내해서, 2026-07-28
+            #     카오스 훈련에서 Anthropic을 도달 불가로 만들었을 때 엉뚱한 곳을
+            #     고치라고 시켰다.
+            #   · 벤더 5xx: 그 수정 뒤에도 이 갈래는 남아 있었다. 2026-08-27 훈련에서
+            #     BYOK 3종에 503을 주입했더니 전부 502 + "키/모델명 확인"이 나갔다.
+            #     08-26이 결제에서 세운 원칙("5xx는 거절이 아니라 모름")의 AI판이다.
+            logger.warning("AI 업스트림 장애: %r", e)
             raise HTTPException(
                 status_code=503,
-                detail="AI 서비스에 일시적으로 연결할 수 없어. 잠시 후 다시 시도해줘.",
+                detail="AI 서비스가 일시적으로 응답하지 못했어. 잠시 후 다시 시도해줘.",
             ) from e
         # 여기 남는 건 대체로 '요청이 거부됐다' 쪽이다(잘못된 키, 없는 모델, 안전 거부 등).
         logger.warning("AI 초안 생성 실패: %r", e)

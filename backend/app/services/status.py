@@ -12,7 +12,8 @@ import time
 from datetime import UTC, datetime, timedelta
 
 import psutil
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.core.database import SessionLocal, engine
@@ -20,6 +21,33 @@ from app.models.status_check import StatusCheck
 
 # 자가 점검 기록 간격(초)
 RECORD_INTERVAL = 60
+
+# ── 점검 전용 엔진 (2026-08-27 카오스 훈련) ──────────────────────────────────────
+# **왜 앱 엔진을 안 쓰나.** 08-27 훈련에서 `db hang`(연결은 받고 무응답)을 걸었더니
+# `/api/status`가 **884초 동안** `"database":"ok"`라고 답했다. 원인은 캐시가 아니라
+# 레코더 스레드다 — `run_checks()`가 공용 엔진의 `engine.connect()`에서 같이 얼어붙어
+# `_latest`가 영원히 안 늙는다. 얼기 직전 값이 ok였으니 ok를 계속 내보낸다.
+#
+# 07-28 훈련이 이 파일에서 고친 것이 "응답의 checked_at을 호출 시각으로 새로 찍어
+# 낡은 캐시가 방금 잰 것처럼 보인다"였다. 그때 거짓의 절반(시각)을 닫았는데
+# **나머지 절반(값 자체가 안 늙는다)이 남아 있었다.** 사고 중에 사람을 헷갈리게
+# 하는 종류는 같다.
+#
+# 대조군이 같은 파일 안에 있었다 — `_check_mail`은 `timeout=3`이 있어서 같은 상황에서
+# 한 주기 만에 정상적으로 빨간불이 켜졌다. DB 점검에만 상한이 없었다.
+#
+# **NullPool이 핵심이다.** 점검할 때마다 **새 커넥션**을 뚫으므로 `connect_timeout`이
+# 실제로 걸린다. 풀에 이미 열려 있던 커넥션을 재사용하면 읽기에 상한이 없어서
+# (libpq에 읽기 타임아웃이 없다 — core/database.py의 긴 주석 참고) 이 수정이 무의미해진다.
+# 점검은 RECORD_INTERVAL(60초)에 한 번이라 매번 새로 뚫어도 싸다.
+#
+# 3초인 이유: 같은 파일 `_check_mail`의 timeout=3과 맞춘다. 이 DB는 같은 호스트에
+# 얹혀 있어 정상이면 밀리초다. 3초가 걸리면 그건 이미 사고다.
+_probe_engine = create_engine(
+    settings.database_url,
+    poolclass=NullPool,
+    connect_args={"connect_timeout": 3},
+)
 
 # 마지막 점검 결과 캐시 — /status가 매 호출마다 라이브 점검(특히 SMTP 2초)하지 않도록.
 # 백그라운드 레코더가 RECORD_INTERVAL마다 갱신한다.
@@ -39,7 +67,8 @@ def run_checks() -> dict:
     post_count = None
     subscriber_count = None
     try:
-        with engine.connect() as conn:
+        # 공용 엔진이 아니라 점검 전용 엔진(위 주석) — 상한이 실제로 걸리는 쪽이다.
+        with _probe_engine.connect() as conn:
             conn.execute(text("select 1"))
             # **공개 글만 센다.** /api/status는 무인증이고 이 값은 상태 페이지의 카드로
             # 나간다. 전체를 세면 `GET /api/posts`의 total(비로그인=public만,
@@ -139,6 +168,12 @@ def record_check() -> None:
     global _latest
     c = run_checks()
     _latest = c  # /status가 이 캐시를 읽음 (매 호출 SMTP 연결 제거)
+    # **DB가 죽었으면 기록은 건너뛴다.** 죽은 DB에 한 줄 쓰겠다고 여기서 다시 얼면
+    # 위에서 점검에 상한을 준 의미가 없다 — 캐시는 down으로 갱신됐는데 스레드가
+    # 커밋에 붙들려 다음 주기가 영영 안 온다. 업타임 표에 그 분이 비는 것은
+    # 맞는 기록이다(그 시각에 DB가 없었다는 뜻이고, 화면도 그렇게 읽는다).
+    if not c["database_ok"]:
+        return
     db = SessionLocal()
     try:
         db.add(
@@ -224,6 +259,8 @@ def get_history(days: int = 30) -> dict:
 
     # 날짜 -> {total, backend, database, mail}
     by_date: dict[str, dict] = {}
+    # 업타임 페이지는 사용자 경로다 — 공용 풀을 쓴다. 점검 전용 엔진은 NullPool 이라
+    # 매 호출 새 커넥션을 뚫는데, 60초에 한 번인 레코더에는 싸도 사용자 요청마다는 비싸다.
     with engine.connect() as conn:
         for r in conn.execute(sql, {"since": since}):
             d = r.day.date().isoformat()

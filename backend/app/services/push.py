@@ -224,6 +224,10 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
                 # 건드리지 않는다(admin.py) — 지우면 그 '돌아온다'가 성립하지 않는다.
                 User.role != BANNED_ROLE,
             )
+            # **정렬을 명시한다.** 없으면 순서가 플래너 마음이고, 아래 예산 중단과
+            # 겹치면 '어느 기기가 잘리는가'가 설명 불가능해진다. 2026-08-27 훈련에서
+            # D=20·D=100 두 회차 모두 **정확히 같은 다섯 대**만 발송됐다.
+            .order_by(PushSubscription.id)
         ).all()
     finally:
         # 발송 전에 놓는다 — 아래 루프는 DB가 필요 없다.
@@ -240,39 +244,67 @@ def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
             # **종류가 다른 알림과 겹치면 안 된다**(sw.js 주석 참고).
             "tag": "new-post",
         },
+        # 글마다 시작점을 돌린다(위 rotate_key 주석). 구독자 전원이 매번 앞머리
+        # 다섯 대에 갇히지 않게 하는 유일한 장치다.
+        rotate_key=post_id,
     )
 
 
-def _deliver(subs: Sequence[Row[tuple[int, str, str, str]]], payload: dict) -> None:
+def _deliver(
+    subs: Sequence[Row[tuple[int, str, str, str]]],
+    payload: dict,
+    rotate_key: int = 0,
+) -> None:
     """구독 목록에 payload를 보내고, 죽은 구독을 정리한다.
 
     **DB 세션을 안 들고 들어온다.** 호출부가 조회를 끝내고 세션을 닫은 뒤 부른다 —
     발송은 기기 N대 × 최대 10초라, 세션을 쥔 채 돌면 풀(core/database.py) 한 칸이 그동안
     `idle in transaction`으로 묶인다(2026-08-11 병목검사에서 실제로 그랬다).
+
+    `rotate_key`는 **시작점을 돌린다.** 왜 필요한가 — 2026-08-26에 넣은
+    `DELIVER_BUDGET_SECONDS`는 벽시계를 기기 수에서 떼어냈지만 **대상은 고정했다.**
+    08-27 훈련 실측: 벤더가 무응답일 때 D=20에서도 D=100에서도 발송된 것은 **매번
+    목록 앞머리 다섯 대**였다. 장애가 지속되는 동안 뒤쪽 기기는 발행마다 같은 이유로
+    건너뛰어진다 — D=100이면 95%가 영구히 못 받는다. 예산이 만든 새 불공정이고,
+    예산 자체보다 이쪽이 조용하다(아무 에러도 안 난다).
+
+    글마다 시작점을 돌리면 같은 장애 아래서도 순번이 돌아온다. 키를 **글 id**로 두는
+    이유는 같은 글의 재시도가 같은 순서를 밟게 하기 위해서다(시각 기반이면 재시도마다
+    대상이 바뀌어 중복 발송이 늘어난다).
     """
     if not subs:
         return
+    if rotate_key and len(subs) > 1:
+        off = rotate_key % len(subs)
+        subs = [*subs[off:], *subs[:off]]
     dead: list[int] = []
     deadline = time.monotonic() + DELIVER_BUDGET_SECONDS
-    sent = 0
+    # **시도와 성공을 가른다.** 예전엔 `sent` 하나였고 예외를 삼킨 뒤에도 증가해서,
+    # 로그의 "5/20대에서 중단"이 '5대는 받았다'로 읽혔다. 벤더가 무응답이면 실제
+    # 수신은 0대다 — 08-27 훈련에서 그 로그를 근거로 정반대 결론이 날 뻔했다.
+    tried = 0
+    ok = 0
     for sub_id, endpoint, p256dh, auth in subs:
         if time.monotonic() > deadline:
             # 예산을 넘기면 남은 기기를 버린다. 알림 몇 개를 못 보내는 것보다
             # 이 루프가 자원을 계속 쥐는 게 나쁘다 — 아래 상수 주석 참고.
             logger.warning(
-                "푸시 발송 예산 초과 — %d/%d대에서 중단(남은 기기는 이번 발행을 못 받는다)",
-                sent,
+                "푸시 발송 예산 초과 — %d/%d대 시도(성공 %d대)에서 중단, "
+                "남은 기기는 이번 발행을 못 받는다",
+                tried,
                 len(subs),
+                ok,
             )
             break
+        tried += 1
         try:
             send_push(endpoint, p256dh, auth, payload)
+            ok += 1
         except PushGone:
             dead.append(sub_id)
         except Exception:
             # 한 기기 실패가 나머지 발송을 막지 않게(email.py와 같은 방침)
             logger.exception("푸시 발송 중 예외")
-        sent += 1
 
     # 죽은 구독은 그 자리에서 지운다. 안 지우면 매 발행마다 같은 곳에 던지고
     # 실패하며, 사용자 목록의 '기기 수'도 영원히 틀린 값을 보여준다.
@@ -333,6 +365,9 @@ def notify_new_comment_push(
             # 글 번호를 안 넣으면 다른 글의 댓글끼리 서로를 지운다.
             "tag": f"comment-{post_id}",
         },
+        # 댓글 알림은 대상이 글쓴이 한 사람이라 보통 기기가 한둘이다. 그래도 키를
+        # 넘겨둔다 — 기기를 여러 대 등록한 사람에게는 같은 편향이 생긴다.
+        rotate_key=post_id,
     )
 
 
