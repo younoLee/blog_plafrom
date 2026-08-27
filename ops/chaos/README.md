@@ -44,6 +44,11 @@ ops/chaos/down.sh                # 정리
 
 대상: `db` `smtp` `s3` `anthropic` `push` `toss` `openai` `gemini` `cohere`
 모드: `refuse`(연결 거부) · `hang`(연결은 받고 무응답) · `error`(5xx) · `gone`(410)
+      · `notfound`(404) · `slow`(N초 뒤 응답, `CHAOS_SLOW_SECONDS`)
+
+`db`·`smtp`는 우리 컨테이너라 모드가 `refuse`(stop) / `hang`(pause) / `pass` 셋뿐이다.
+**`hang`이 `pause`인 것이 요점이다** — 프로세스만 얼고 리스닝 소켓은 살아 있어
+connect()가 성공한 뒤 아무도 답하지 않는다. `stop`은 항상 '거부'라 이 상태를 못 만든다.
 
 ⚠️ **개발 스택을 건드리지 않는다.** 프로젝트 이름이 `chaos`이고 포트가 전부 다르다.
 훈련이 남의 작업 환경을 죽이면 안 된다(07-28의 규칙).

@@ -15,6 +15,10 @@ services:
       - ./ops/chaos/blackhole.py:/app/blackhole.py:ro
       - ./ops/chaos/certs:/certs:ro
       - chaos_state:/state
+    environment:
+      # slow 모드가 기다리는 초. 기본 55는 ai.py 의 REQUEST_TIMEOUT 과 같은 값이라
+      # '상한 직전에 답이 온다'를 만든다. 경계를 넘겨보려면 이 값을 올려 잡는다.
+      CHAOS_SLOW_SECONDS: ${CHAOS_SLOW_SECONDS:-55}
     command: python /app/blackhole.py
     networks:
       default:
@@ -49,12 +53,21 @@ services:
       - "api.openai.com:${CHAOS_SUBNET:-172.30.0}.9"
       - "generativelanguage.googleapis.com:${CHAOS_SUBNET:-172.30.0}.9"
       - "api.cohere.com:${CHAOS_SUBNET:-172.30.0}.9"
+      # S3 는 08-26 회차에 **하네스에 존재하지도 않았다.** 07-28이 잡은 ④(업로드
+      # 500 → 503 전환)의 회귀를 그래서 아무 레인도 확인하지 못했다.
+      # boto3 는 가상호스팅 방식이라 주소가 `<버킷>.s3.<리전>.amazonaws.com` 이다 —
+      # 버킷 이름이 정해져야 가로챌 호스트가 정해진다(up.sh 가 CHAOS_S3_BUCKET 을 넣는다).
+      - "${CHAOS_S3_BUCKET:-chaosbucket}.s3.ap-northeast-2.amazonaws.com:${CHAOS_SUBNET:-172.30.0}.9"
+      - "s3.ap-northeast-2.amazonaws.com:${CHAOS_SUBNET:-172.30.0}.9"
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
       # 사설 CA를 신뢰 저장소에 넣는다. 이게 없으면 세 모드가 전부 '연결 오류'로
       # 수렴해 refuse/hang/error를 구분할 수 없다(make_ca.sh 주석 참고).
       - ./ops/chaos/certs/ca.crt:/usr/local/share/ca-certificates/chaos-ca.crt:ro
+      # 훈련 도구를 컨테이너 안에서 돌리려고 붙인다(seed_push.py). 읽기 전용 —
+      # 훈련이 저장소를 고칠 수 있으면 그건 훈련이 아니라 사고다.
+      - ./ops/chaos:/chaos:ro
     environment:
       # requests·httpx 계열이 보는 번들. update-ca-certificates를 못 돌리는(비-root)
       # 컨테이너에서도 통하게 환경변수로 직접 가리킨다.
@@ -66,6 +79,35 @@ services:
       VAPID_SUBJECT: mailto:chaos@example.com
       VAPID_PUBLIC_KEY: ${CHAOS_VAPID_PUBLIC:-}
       VAPID_PRIVATE_KEY: ${CHAOS_VAPID_PRIVATE:-}
+
+      # ── AI: 주입이 벤더 호출 자리까지 가게 하는 최소 설정 ──────────────────────
+      # 08-26 회차의 함정: 이 둘이 비어 있으면 AI 초안이 **벤더를 부르기도 전에**
+      # 503(키 없음)으로 끝난다. 주입이 안 닿았는데 503이 나오니 '견뎠다'로 오독하기
+      # 딱 좋은 자리였다. 값은 가짜다 — 어차피 blackhole 이 받는다.
+      ANTHROPIC_API_KEY: ${CHAOS_ANTHROPIC_KEY:-}
+      LLM_ENCRYPTION_KEY: ${CHAOS_LLM_ENC_KEY:-}
+
+      # 계정 기준 시간당 캡. 08-26 레인3은 기본값 10을 8회 만에 써버려
+      # anthropic refuse · gemini/cohere 의 error·gone 을 통째로 못 쟀다.
+      # **운영 코드의 캡을 낮추지 않는다** — 훈련 스택의 환경변수만 올린다.
+      # (IP 기준 slowapi 캡은 코드에 박혀 있어 probe.sh 가 X-Forwarded-For 로 키를 흩는다)
+      AI_HOURLY_CAP: "500"
+      AI_DAILY_CAP: "500"
+      AI_DAILY_CAP_GLOBAL: "2000"
+      AI_MONTHLY_CAP: "5000"
+
+      # ── S3 ────────────────────────────────────────────────────────────────────
+      # 버킷이 비면 업로드가 로컬 디스크로 가서 주입 대상 코드(uploads.py:126)에
+      # 들어가지도 않는다. 실재하지 않는 버킷이고 DNS 는 blackhole 로 간다.
+      S3_BUCKET: ${CHAOS_S3_BUCKET:-chaosbucket}
+      AWS_REGION: ap-northeast-2
+      # 자격증명이 없으면 boto3 가 NoCredentialsError 로 먼저 죽어 **네트워크 경로를
+      # 한 번도 안 밟는다.** 그러면 재는 것이 주입이 아니라 설정 오류다.
+      AWS_ACCESS_KEY_ID: chaos-not-real
+      AWS_SECRET_ACCESS_KEY: chaos-not-real
+      # IMDS(169.254.169.254) 조회를 막는다. 도커 안에서 이건 응답이 없어 조용히
+      # 몇 초씩 먹고, 그 시간이 '주입 때문에 느린 것'으로 잘못 읽힌다.
+      AWS_EC2_METADATA_DISABLED: "true"
 
   frontend:
     ports: !override

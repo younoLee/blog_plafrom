@@ -60,3 +60,8 @@ docs/voice/ui-refs/*
 # 커밋하면 '신뢰 저장소에 넣는 CA의 개인키'가 저장소에 남는다.
 ops/chaos/certs/
 ops/chaos/.env.chaos
+# 훈련 계정의 JWT. 격리 스택 전용이라 값 자체는 운영과 무관하지만, 토큰을 저장소에
+# 올리는 습관 자체를 만들지 않는다(2026-08-27 token.sh 추가).
+ops/chaos/.tokens.*
+# 프로브의 기계 판독 출력(CHAOS_OUT). 회차 결과는 docs/ 의 훈련 문서로 남긴다.
+ops/chaos/out/

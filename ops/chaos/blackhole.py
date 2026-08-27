@@ -14,6 +14,15 @@
   error   503을 낸다. 업스트림이 살아 있지만 아픈 경우
   gone    410을 낸다. 푸시에서 특히 중요하다 — 구독 만료의 표준 신호이고,
           services/push.py가 이걸 받으면 행을 지운다. 그 정리가 실제로 도는지 본다
+  notfound 404를 낸다. **410과 갈라 봐야 한다.** push.py:169가 404를 410과 **같게**
+          보고 그 자리에서 구독을 지우는데, 벤더가 URL 형태를 바꾸거나 허용목록을 한 줄
+          잘못 만지면 구독이 되돌릴 수 없게 전멸한다. 08-26·08-27 두 회차 모두 이 가지를
+          못 밟았고, 이유가 "위험이 없어서"가 아니라 **여기 404 모드가 없어서**였다.
+  slow    N초 뒤에 응답한다(CHAOS_SLOW_SECONDS, 기본 55). hang과 다른 사고다 —
+          hang은 영영 안 답하니 클라이언트 타임아웃이 그대로 벽시계가 되지만, slow는
+          **타임아웃 직전에 답이 와서 재시도가 다시 도는** 모양을 만든다. 08-26이
+          "cohere 재시도의 최악 벽시계(3 × 55초)"를 추정으로만 남긴 것이 이 모드가
+          없어서였다.
   pass    정상 200. 기준선 확인용
 
 TLS를 종단한다. 대상이 전부 https라 평문으로는 가로챌 수 없다.
@@ -26,6 +35,10 @@ import ssl
 import sys
 import threading
 import time
+
+# slow 모드가 기다리는 초. 기본 55는 services/ai.py 의 REQUEST_TIMEOUT=55 와 같은 값이라
+# '상한 직전에 답이 온다'를 만든다. 경계를 넘기려면 up.sh 에서 올려 잡는다.
+SLOW_SECONDS = float(os.environ.get("CHAOS_SLOW_SECONDS", "55"))
 
 STATE = pathlib.Path(os.environ.get("CHAOS_STATE", "/state/mode"))
 LOG = pathlib.Path(os.environ.get("CHAOS_LOG", "/state/hits.log"))
@@ -53,6 +66,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
+    def _drain(self):
+        """요청 본문을 끝까지 읽어 버린다.
+
+        안 읽으면 수신 버퍼가 차서 클라이언트의 write() 가 막힌다. 그러면 재는 것이
+        '업스트림 무응답'이 아니라 '업로드 도중 정체'가 된다 — 5MB 업로드처럼 본문이
+        큰 경로에서만 갈라지므로 눈치채기 어렵다."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = 0
+        left = n
+        while left > 0:
+            chunk = self.rfile.read(min(left, 65536))
+            if not chunk:
+                break
+            left -= len(chunk)
+
     def _handle(self):
         m = mode()
         self._record(m)
@@ -66,14 +96,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if m == "hang":
             # 응답을 안 준다. 클라이언트가 스스로 끊을 때까지 잡고 있는다.
             # 이게 이 서버의 존재 이유다 — docker stop으로는 이 상태를 못 만든다.
+            #
+            # **자기 전에 본문을 다 읽는다.** 08-27 훈련에서 4.32MB 업로드가 14.21초에
+            # "Connection was closed before we received a valid response"로 끝났는데,
+            # 원인이 앱이 아니라 여기였을 가능성이 남아 있었다 — 본문을 안 읽으면 TCP
+            # 수신 버퍼가 차서 클라이언트 쓰기가 막히고, 그건 '무응답'이 아니라
+            # '전송 중 정체'라는 **다른 사고**다. 레인4의 핵심 질문(5MB가 60초를 넘는가)이
+            # 그 때문에 빈칸으로 남았다. 읽고 나서 자야 재는 것이 진짜 무응답이 된다.
+            self._drain()
             time.sleep(600)
             return
-        if m == "error":
+        if m == "slow":
+            # 타임아웃 '직전'에 답하는 모양. 상한을 조금 넘기면 클라이언트가 끊고,
+            # 조금 밑이면 재시도가 한 바퀴 더 돈다 — 그 경계가 이 모드로만 밟힌다.
+            self._drain()
+            time.sleep(SLOW_SECONDS)
+            body = b'{"ok":true,"chaos":"slow"}'
+            self.send_response(200)
+        elif m == "error":
             body = b'{"error":"chaos: upstream unavailable"}'
             self.send_response(503)
         elif m == "gone":
             body = b'{"error":"chaos: subscription gone"}'
             self.send_response(410)
+        elif m == "notfound":
+            body = b'{"error":"chaos: not found"}'
+            self.send_response(404)
         else:
             body = b'{"ok":true,"chaos":"pass"}'
             self.send_response(200)
