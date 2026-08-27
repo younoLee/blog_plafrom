@@ -41,7 +41,7 @@ from app.routers import (
     uploads,
 )
 from app.services.cleanup import start_cleanup
-from app.services.status import get_history, get_latest, start_recorder
+from app.services.status import STALE_AFTER, get_history, get_latest, start_recorder
 
 logger = logging.getLogger(__name__)
 
@@ -505,6 +505,11 @@ def author_profile(request: Request, handle: str, db: Session = Depends(get_db))
 def status(request: Request):
     # 백그라운드가 1분마다 갱신한 캐시를 반환 (매 호출 라이브 점검·SMTP 연결 안 함)
     c = get_latest()
+    # 옛 캐시(at 없음)로도 안 깨지게 폴백을 둔다. 폴백이면 나이는 0이다 —
+    # 모르는 것을 '낡았다'고 단언하지 않는다.
+    raw_at = c.get("at")
+    checked_at = datetime.fromisoformat(raw_at) if raw_at else datetime.now(UTC)
+    age = max(0, int((datetime.now(UTC) - checked_at).total_seconds()))
     return {
         "backend": "ok" if c["backend_ok"] else "down",
         "database": "ok" if c["database_ok"] else "down",
@@ -521,7 +526,14 @@ def status(request: Request):
         # 이 점검이 **실제로 돈** 시각. 호출 시각을 찍으면 최대 60초 낡은 캐시가
         # 방금 잰 것처럼 보인다(2026-07-28 카오스 훈련). 사고 중 오판을 부르는 거짓이다.
         # 옛 캐시(at 없음)로도 안 깨지게 폴백을 둔다.
-        "checked_at": c.get("at") or datetime.now(UTC).isoformat(),
+        "checked_at": checked_at.isoformat(),
+        # 이 응답을 믿어도 되는가. **판정은 서버가 한다** (services/status.py의
+        # STALE_AFTER 주석). 화면이 각자 임계를 정하면 상태 페이지와 watch.sh 가
+        # 같은 순간에 다른 답을 낸다. 08-27 훈련이 잡은 "884초 동안 ok"의 나머지
+        # 절반이 이 자리다 — 그때 값이 안 늙는 건 코드로 닫았는데, 낡은 값을
+        # **낡았다고 말하는** 장치는 없었다.
+        "checked_age_seconds": age,
+        "stale": age > STALE_AFTER,
     }
 
 

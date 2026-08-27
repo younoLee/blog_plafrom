@@ -111,3 +111,68 @@ def test_disk_history_does_not_count_unmeasured_days_as_up():
             session.execute(delete(StatusCheck).where(StatusCheck.id.in_(ids)))
             session.commit()
         session.close()
+
+
+# ── 낡은 응답을 낡았다고 말하는가 (2026-08-27) ──────────────────────────────
+#
+# 08-27 카오스 훈련이 잡은 것: DB를 얼렸는데 /api/status가 884초 동안 database=ok를
+# 내보냈다. 캐시가 낡은 게 아니라 값이 나이를 안 먹었다 — 레코더 스레드가 같이 얼어서
+# 얼기 직전 값이 그대로 남았다. 그 경로는 점검 전용 엔진에 상한을 줘서 닫혔지만,
+# 레코더가 다른 이유로 멈추면 같은 모양이 된다.
+#
+# 그래서 **낡았다는 사실 자체를 응답이 말하게** 했다. 판정을 화면이 아니라 서버가
+# 하는 이유는, 화면마다 임계를 정하면 상태 페이지와 watch.sh가 같은 순간에 다른
+# 답을 내기 때문이다(이 저장소는 디스크 임계에서 이미 그 모양을 겪었다).
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+from app.services import status as status_svc  # noqa: E402
+
+
+def _freeze_latest(monkeypatch, age_seconds: float):
+    at = (datetime.now(UTC) - timedelta(seconds=age_seconds)).isoformat()
+    monkeypatch.setattr(
+        status_svc,
+        "get_latest",
+        lambda: {
+            "at": at,
+            "backend_ok": True,
+            "database_ok": True,
+            "mail_ok": True,
+            "disk_ok": True,
+            "posts": 1,
+            "subscribers": 0,
+        },
+    )
+    # main.py는 import 시점에 이름을 가져가므로 그쪽도 바꿔야 한다.
+    from app import main as main_mod
+
+    monkeypatch.setattr(main_mod, "get_latest", status_svc.get_latest)
+
+
+def test_fresh_status_is_not_stale(client, monkeypatch):
+    _freeze_latest(monkeypatch, 5)
+    body = client.get("/api/status").json()
+    assert body["stale"] is False
+    assert body["checked_age_seconds"] < 30
+
+
+def test_old_status_is_marked_stale(client, monkeypatch):
+    """884초짜리 거짓말이 이제는 stale=true 를 달고 나간다."""
+    _freeze_latest(monkeypatch, 884)
+    body = client.get("/api/status").json()
+    assert body["stale"] is True
+    assert body["checked_age_seconds"] >= 880
+    # **값 자체는 그대로 내보낸다.** 낡았다고 지어내지 않는다 — 마지막으로 잰 것이
+    # 무엇이었는지도 사고 중에는 정보다. 화면이 '믿지 말라'를 같이 그린다.
+    assert body["database"] == "ok"
+
+
+def test_stale_boundary_is_three_intervals(client, monkeypatch):
+    """임계가 조용히 바뀌면 여기서 걸린다.
+
+    1주기는 갱신 직전에 늘 참이라 상시 경고가 되고, 2주기는 한 번 걸러도 바로 걸린다.
+    셋이면 '한 번 놓친 것'과 '멈춘 것'이 갈린다.
+    """
+    assert status_svc.STALE_AFTER == status_svc.RECORD_INTERVAL * 3
+    _freeze_latest(monkeypatch, status_svc.STALE_AFTER - 5)
+    assert client.get("/api/status").json()["stale"] is False

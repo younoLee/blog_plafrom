@@ -258,6 +258,23 @@ function StatusPage() {
         </div>
       )}
 
+      {/* **낡은 값을 낡았다고 말한다** (2026-08-27).
+          08-27 카오스 훈련이 DB를 얼렸을 때 이 화면은 884초(14분 45초) 동안 초록이었다.
+          캐시가 낡은 게 아니라 값이 나이를 안 먹었다 — 레코더 스레드가 같이 얼어서 얼기
+          직전 값이 그대로 남았다. 그 경로는 백엔드에서 닫았지만, 레코더가 다른 이유로
+          멈추면 같은 모양이 된다. 여기서 그걸 화면에 드러낸다.
+          AdminPage 가 infraStale 배너로 같은 문제를 이미 풀었는데 공개 페이지만 그
+          규약을 안 쓰고 있었다. */}
+      {status?.stale && (
+        <div
+          role="status"
+          className="rounded-card border border-amber-500/25 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/[0.08] dark:text-amber-200"
+        >
+          위 값은 {Math.floor((status.checked_age_seconds ?? 0) / 60)}분 전에 잰 것이고 그
+          뒤로 갱신되지 않았어. 점검이 멈췄다는 뜻이라, 지금 초록이어도 그대로 믿으면 안 돼.
+        </div>
+      )}
+
       {status && (
         <p className="text-center text-xs text-gray-500 dark:text-gray-400">
           마지막 점검: {new Date(status.checked_at).toLocaleString('ko-KR')}

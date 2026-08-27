@@ -16,6 +16,12 @@ export interface StatusInfo {
     subscribers: number | null
   }
   checked_at: string // ISO 시각
+  // **판정은 서버가 한다** (backend services/status.py의 STALE_AFTER).
+  // 화면이 각자 "몇 초부터 낡은 건가"를 정하면 상태 페이지와 watch.sh 가 같은 순간에
+  // 다른 답을 낸다. 옛 백엔드는 이 키를 안 보내므로 선택값이다 — 없으면 나이를
+  // 판정하지 않는다(디스크 카드가 같은 이유로 선택값인 것과 같다).
+  checked_age_seconds?: number
+  stale?: boolean
 }
 
 // 서비스 상태 조회. 실패 시 에러 throw
