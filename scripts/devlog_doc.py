@@ -33,6 +33,7 @@
 그 편의 스크립트가 아니라 **이미 배포된 docx와 content/devlog/*.md**가 진실이다.
 """
 
+import glob
 import os
 import shutil
 
@@ -59,11 +60,18 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # (2026-08-17에 "개발일지가 14일까지밖에 없다"고 해서 알았다 — 파일은 멀쩡히 만들어졌고
 # 복사 로그도 찍혔다. 만든 것과 닿은 것이 다른, 그날 하루 종일 나온 그 모양이다).
 # OneDrive 쪽을 앞에 둔다. `/desktop`은 컨테이너로 만들 때 마운트하는 자리라 최우선.
-HOST_DIRS = (
-    "/desktop",
-    "/mnt/c/Users/USER/OneDrive/바탕 화면/개발일지",
-    "/mnt/c/Users/USER/Desktop/개발일지",
-)
+# ⚠️ 2026-08-28: 위 두 경로는 **사용자 이름이 박혀 있었다**(`/mnt/c/Users/USER/...`).
+# 그 이름은 기계마다 다르므로 새 워크스테이션에서는 셋 다 존재하지 않았고, save()는
+# 조용히 "폴더를 못 찾았다"로 끝난다. 파일은 만들어지는데 사람 눈앞에는 안 나타나는,
+# 위 문단이 08-17에 겪었다고 적어둔 바로 그 모양이다. 그래서 이름을 박지 않고 찾는다.
+# 공개 저장소라 사용자 이름을 코드에 넣지 않는 것이기도 하다.
+def _host_dirs() -> tuple[str, ...]:
+    found = sorted(glob.glob("/mnt/c/Users/*/OneDrive/바탕 화면/개발일지"))
+    found += sorted(glob.glob("/mnt/c/Users/*/Desktop/개발일지"))
+    return ("/desktop", *found)
+
+
+HOST_DIRS = _host_dirs()
 
 
 class DevlogDoc:
