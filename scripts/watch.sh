@@ -531,6 +531,46 @@ else
   fi
 fi
 
+# ── 6-C. 인스턴스 알람이 '지금 살아 있는 인스턴스'를 보고 있는가 ─────────────
+# 2026-08-27 DR 게임데이 결함 D2. 재건으로 인스턴스가 바뀌었는데
+# `blog-ec2-status-check-failed`·`blog-cpu-credit-low` 둘은 dimensions에 **파괴된**
+# 인스턴스 ID를 들고 OK 상태로 남아 있었다. 런북의 terraform 호출이 전부 `-target`이라
+# 알람이 범위 밖이기 때문이다 — 알람이 인스턴스에 **의존하는** 쪽이라 끌려오지 않는다.
+#
+# 왜 조용한가 — 둘 다 `treat_missing_data = "notBreaching"`이다. 필요할 때만 켜는
+# 서버라 그게 맞는 선택인데(꺼져 있으면 지표가 없다), **가리키는 대상이 틀렸을 때도
+# 똑같이 지표가 없다.** 그래서 눈이 먼 상태가 초록과 구분되지 않는다. 6-B가 '울리면
+# 사람에게 닿는가'를 통과시켜도, 애초에 아무것도 안 보고 있으면 울릴 일이 없다.
+#
+# 게임데이는 이걸 런북 8-B 단계(범위를 알람 둘로 좁힌 apply)로 막았다. 절차는 사람이
+# 건너뛸 수 있으니 여기서 기계가 다시 본다 — 07-27 결함 F5에서 스크립트에 박혀 있던
+# 인스턴스 ID를 태그 조회로 바꾼 것의 terraform 판이다.
+if [ -z "$INSTANCE_ID" ]; then
+  echo "  --   인스턴스 알람 대조는 건너뛴다 — 인스턴스 ID를 못 찾았다(1번 검사 참고)."
+else
+  for alarm_name in blog-ec2-status-check-failed blog-cpu-credit-low; do
+    if ! dim=$(aws cloudwatch describe-alarms --alarm-names "$alarm_name" --region "$REGION" \
+          --query 'MetricAlarms[0].Dimensions[?Name==`InstanceId`]|[0].Value' \
+          --output text 2>/dev/null); then
+      fail "'$alarm_name'의 dimension을 못 읽었다 — 알람이 무엇을 보는지 모르는 상태다."
+      continue
+    fi
+    case "$dim" in
+      "$INSTANCE_ID")
+        ok "'$alarm_name' 가 지금 도는 인스턴스를 본다 ($INSTANCE_ID)"
+        ;;
+      None | "")
+        fail "'$alarm_name' 이 없거나 InstanceId dimension이 비어 있다 — 이 인스턴스를 보는 눈이 아니다."
+        echo "     복구: terraform -chdir=terraform apply -target=aws_cloudwatch_metric_alarm.ec2_status_check -target=aws_cloudwatch_metric_alarm.cpu_credit_low"
+        ;;
+      *)
+        fail "'$alarm_name' 이 다른 인스턴스($dim)를 본다 — 지금 도는 것은 $INSTANCE_ID 다. 재건 뒤 알람을 안 옮겼다(DR 결함 D2)."
+        echo "     복구: 위와 같은 -target 호출 (RECOVERY.md 8-B). 범위를 안 좁힌 것은 금지 — 오리진이 주차된다(D1)."
+        ;;
+    esac
+  done
+fi
+
 # ── 7. 프론트가 최신 커밋으로 나가 있는가 ───────────────────────────────────
 # 2026-08-11에 푸시 자동배포를 폐지했다(백엔드 동시변경 게이트가 fail-open이라
 # 무의미했다). 그래서 프론트는 이제 **사람이 Actions에서 Run workflow를 눌러야**
