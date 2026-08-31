@@ -42,6 +42,21 @@ function AuthorPage() {
   // `/@yuno` → 'yuno'. @가 없으면 이 화면의 주소가 아니다.
   const handle = raw?.startsWith('@') ? raw.slice(1) : null
 
+  // 쿼리스트링은 **통째로 갈아치우지 않고 병합한다.** 예전에는 페이지 이동이
+  // `setSearchParams({ page })` 였는데, 그러면 같은 주소에 있던 tag·series 가 사라진다.
+  // 그 둘은 위에서 searchParams 로만 읽고 목록 effect 의 의존성에 들어 있어서, 빠지는
+  // 즉시 전체 목록으로 재조회가 돈다. 즉 `/@yuno?tag=aws` 에서 '다음'을 누른 사람은
+  // 좁힌 목록의 2쪽을 기대하는데 필터가 풀린 전체를 보게 된다. 08-27에 이 화면에 필터를
+  // 넣으면서 페이지 이동 쪽을 같이 안 고친 자리다(HomePage 는 처음부터 병합한다).
+  function updateParams(next: Record<string, string | undefined>) {
+    const params = new URLSearchParams(searchParams)
+    for (const [k, v] of Object.entries(next)) {
+      if (v) params.set(k, v)
+      else params.delete(k)
+    }
+    setSearchParams(params)
+  }
+
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
   const [posts, setPosts] = useState<PostSummary[]>([])
   const [total, setTotal] = useState(0)
@@ -202,7 +217,7 @@ function AuthorPage() {
           <button
             type="button"
             disabled={page <= 1}
-            onClick={() => setSearchParams({ page: String(page - 1) })}
+            onClick={() => updateParams({ page: String(page - 1) })}
             className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
           >
             ← 이전
@@ -213,7 +228,7 @@ function AuthorPage() {
           <button
             type="button"
             disabled={page >= lastPage}
-            onClick={() => setSearchParams({ page: String(page + 1) })}
+            onClick={() => updateParams({ page: String(page + 1) })}
             className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
           >
             다음 →

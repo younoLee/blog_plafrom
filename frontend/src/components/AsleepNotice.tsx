@@ -27,7 +27,18 @@ export function AsleepNotice({
     <div
       className={`rounded-card bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200 ${className}`}
     >
-      💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든. {children}
+      <p>💤 서버가 절전 중이야. 비용을 아끼려고 안 쓸 땐 꺼두거든. {children}</p>
+      {/* 절전 안내가 곧 이 사이트의 첫인상이라, '왜 반만 열리나'의 답을 이 자리에 둔다.
+          /map.html 은 서버 없이 열리는 쪽과 서버를 켠 날만 도는 쪽을 한 장으로 그린
+          정적 페이지인데, sitemap 에만 있고 사람이 닿는 링크가 저장소 어디에도 없었다
+          (2026-08-31). 이 컴포넌트를 쓰는 네 화면에 한꺼번에 입구가 생긴다. */}
+      <p className="mt-1 text-xs opacity-80">
+        어디까지 열리고 어디부터 서버가 필요한지는{' '}
+        <a href="/map.html" className="font-medium underline">
+          사이트 구조 한 장
+        </a>
+        에 있어.
+      </p>
     </div>
   )
 }
