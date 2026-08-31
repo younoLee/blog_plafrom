@@ -102,6 +102,28 @@ def main(src, out, src_label=None):
             doc.add_paragraph()
             continue
 
+        # 코드/도식 블록 — ``` 사이를 고정폭으로 그대로 옮긴다.
+        # 말로 설명하는 자료에서 화살표 도식이 그림 역할을 하므로 서식이 중요하다.
+        if stripped.startswith("```"):
+            i += 1
+            block = []
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                block.append(lines[i])
+                i += 1
+            for text in block:
+                para = doc.add_paragraph()
+                para.paragraph_format.left_indent = Pt(18)
+                para.paragraph_format.space_after = Pt(0)
+                para.paragraph_format.space_before = Pt(0)
+                run = para.add_run(text if text.strip() else " ")
+                run.font.name = "Consolas"
+                run.font.size = Pt(9)
+                run.font.color.rgb = MONO
+                run._element.rPr.rFonts.set(qn("w:eastAsia"), "Consolas")
+            doc.add_paragraph().paragraph_format.space_after = Pt(2)
+            i += 1
+            continue
+
         if not stripped or stripped == "---":
             i += 1
             continue
