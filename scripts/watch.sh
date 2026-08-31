@@ -202,14 +202,38 @@ fi
 # 오래 손을 놓았을 때 백업이 0개가 되는 구간이 생긴다.
 # 여기도 `>/dev/null 2>&1`로 뭉치면 404(없다)와 403(못 봤다)이 같은 메시지가 된다.
 # head-object는 없으면 254, 권한이 없으면 254지만 stderr 문구가 다르다 — 그걸 본다.
-if head_err=$(aws s3api head-object --bucket "$BUCKET" --key "keep/latest.sql.gz" \
-  --region "$REGION" 2>&1 >/dev/null); then
-  ok "만료 안 되는 사본 있음 — keep/latest.sql.gz"
-elif printf '%s' "$head_err" | grep -qi '404\|Not Found'; then
+#
+# **2026-08-31: '있다'만 보던 것을 '언제 것인가'까지 본다.** 이 검사는 존재만 확인했고
+# 그래서 keep/ 이 몇 달 전에 얼어붙어도 매시 초록이었다. 그런데 이 파일을 갱신하는 자리는
+# 정지 절차 3/6 단계 하나뿐이고, 거기서 승격이 실패해도 일부러 경고만 찍고 넘어간다
+# (끄는 것을 막으면 과금이 계속되므로 그 선택은 옳다). 즉 실패가 조용히 남는 구조인데
+# 그 뒤로 다시 보는 눈이 없었다. 이 저장소가 이름 붙인 병 그대로다 — 검사가 자기 대상의
+# 핵심 속성을 안 본다.
+#
+# 임계를 '며칠 이상 낡음'이 아니라 **최신 blog-* 덤프와의 선후**로 잡는 이유: 이 서버는
+# 몇 주씩 안 켜지는 게 정상이라 절대 나이로 재면 정상 상태가 영구 빨간불이 된다.
+# 정지 절차는 덤프를 뜬 **직후** 그것을 keep/ 으로 승격하므로, 정상이면 keep 이 최신
+# 덤프보다 같거나 새롭다. keep 이 더 오래면 승격만 실패한 것이고 그게 정확히 이 신호다.
+if keep_out=$(aws s3api head-object --bucket "$BUCKET" --key "keep/latest.sql.gz" \
+  --region "$REGION" --query 'LastModified' --output text 2>&1); then
+  if ! keep_s=$(date -u -d "$keep_out" +%s 2>/dev/null); then
+    fail "keep/latest.sql.gz 의 시각을 해석하지 못했다(값: '$keep_out')."
+  elif [ -z "${mod_s:-}" ]; then
+    # 위 목록 조회가 실패한 경우다. 비교 대상이 없으니 사실만 말한다.
+    ok "만료 안 되는 사본 있음 — keep/latest.sql.gz ($(( (now - keep_s) / 86400 ))일 전). 최신 덤프와는 대조 못 함"
+  elif [ "$keep_s" -lt "$mod_s" ]; then
+    fail "keep/latest.sql.gz 가 최신 덤프보다 오래됐다 — 정지 절차의 승격이 실패한 채 남아 있다."
+    echo "     keep/latest.sql.gz : $keep_out"
+    echo "     최신 덤프          : $mod ($key)"
+    echo "     조치: aws s3 cp s3://$BUCKET/$key s3://$BUCKET/keep/latest.sql.gz"
+  else
+    ok "만료 안 되는 사본 최신 — keep/latest.sql.gz ($(( (now - keep_s) / 86400 ))일 전, 최신 덤프 이후)"
+  fi
+elif printf '%s' "$keep_out" | grep -qi '404\|Not Found'; then
   fail "keep/latest.sql.gz 가 없다. 정지 절차가 만들지만, 없으면 장기 방치 시 백업이 전멸할 수 있다."
 else
   fail "keep/latest.sql.gz 를 확인하지 못했다 — 권한이나 자격증명 확인. '없다'와 다르다."
-  echo "     $head_err"
+  echo "     $keep_out"
 fi
 
 # ── 3. 이미지 사본 ──────────────────────────────────────────────────────────
@@ -311,15 +335,31 @@ fi
 # **오탐이 구조적으로 불가능한 것만** 본다 — 사실이거나 아니거나인 항목들이다.
 
 # (a) 감사기록이 살아 있는가. 침해자의 첫 수는 보통 로깅 정지다.
-trail_logging=$(aws cloudtrail get-trail-status --region "$REGION" --name blog-audit \
-  --query 'IsLogging' --output text 2>/dev/null)
-if [ "$trail_logging" = "True" ]; then
-  ok "CloudTrail 기록 중 (blog-audit)"
-elif [ -z "$trail_logging" ]; then
+#
+# **2026-08-31: 배달 실패를 같이 본다.** 로깅을 끄는 것은 API 호출이라 그 자체로 흔적이
+# 남는다. 더 조용한 경로는 버킷 정책이나 버킷 삭제로 **배달만 끊는 것**이고, 그때
+# `IsLogging` 은 True 로 남는다. 즉 이 검사는 자기가 선언한 위협모델의 조용한 쪽을
+# 안 보고 있었다. 같은 응답에 이미 오는 필드라 호출도 권한도 안 늘어난다.
+#
+# `LatestDeliveryTime` 의 나이로는 판정하지 않는다 — 조용한 계정은 배달할 이벤트가 없어
+# 시각이 안 움직이는 게 정상이고, 그걸 신호로 잡으면 영구 빨간불이 된다.
+# 반면 `LatestDeliveryError` 는 있거나 없거나라 오탐이 구조적으로 불가능하다.
+# (2026-08-31 라이브 실측: IsLogging=True · LatestDeliveryError=None)
+read -r trail_logging trail_err <<EOF
+$(aws cloudtrail get-trail-status --region "$REGION" --name blog-audit \
+  --query '[IsLogging,LatestDeliveryError]' --output text 2>/dev/null)
+EOF
+if [ -z "${trail_logging:-}" ]; then
   fail "CloudTrail 상태를 못 읽었다 — 감사기록이 있는지조차 모르는 상태다."
-else
+elif [ "$trail_logging" != "True" ]; then
   fail "CloudTrail 로깅이 꺼져 있다 — 침해 시 '누가 뭘 했나'에 답할 수 없다."
   echo "     조치: aws cloudtrail start-logging --name blog-audit --region $REGION"
+elif [ -n "${trail_err:-}" ] && [ "$trail_err" != "None" ]; then
+  fail "CloudTrail 이 로깅 중이지만 S3로 배달하지 못하고 있다 — 기록이 안 쌓인다."
+  echo "     사유: $trail_err"
+  echo "     버킷 정책·버킷 존재·암호화 키를 확인할 것(terraform/cloudtrail.tf)."
+else
+  ok "CloudTrail 기록 중 · 배달 정상 (blog-audit)"
 fi
 
 # (b) 액세스키가 예상보다 많은가. 공격자가 지속성을 확보하는 전형적 수법이 키 추가다.
