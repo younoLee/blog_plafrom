@@ -173,6 +173,30 @@ else
   fi
 fi
 
+# ── 1-B. 공개 사이트가 서버와 무관하게 열리는가 ─────────────────────────────
+# 이 서버는 대부분 꺼져 있다. 그런데 위 1번 검사의 curl 은 `running` 분기 안에만 있어서,
+# **가장 긴 시간대인 절전 중에는 공개 주소를 아무도 안 찔렀다.** 이 사이트가 가장 자랑하는
+# 성질이 '서버가 꺼져 있어도 글이 읽힌다'인데 그 성질을 지키는 검사가 0개였던 셈이다.
+#
+# 그 자리에는 CloudFront Function 두 개(SPA 라우팅·CSP 주입)와 S3 정적 호스팅이 걸려 있고,
+# 하나만 깨져도 화면이 통째로 죽는다. 그리고 하필 그 주소가 이력서에 적히는 주소다.
+# `/api/*` 는 다른 오리진·다른 동작이라 1번 검사가 이 경로를 대신 봐주지 못한다.
+#
+# 상태와 무관하게 본다. 켜져 있든 꺼져 있든 이 경로는 **항상 200이어야 하는 곳**이라
+# 오탐이 구조적으로 안 난다. 요청은 매시 한 번뿐이고 캐시된 응답이라 요금도 무시할 수준이다.
+# 캐시 우회 쿼리를 붙이지 않는 이유가 그것이다 — 여기서 보려는 것은 '엣지가 사람에게
+# 무언가를 돌려주는가'이지 오리진까지의 왕복이 아니다(오리진은 1번이 본다).
+static_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$CF_URL/" || echo 000)
+if [ "$static_code" = "200" ]; then
+  ok "공개 사이트 200 — 정적 쪽은 서버와 무관하게 살아 있다"
+elif [ "$static_code" = "000" ]; then
+  # 못 본 것과 죽은 것을 가른다. 이 구분이 이 저장소가 반복해서 고친 자리다.
+  fail "공개 사이트를 못 봤다(네트워크·타임아웃) — '죽었다'는 뜻이 아니다. 다음 실행에서 다시 본다."
+else
+  fail "공개 사이트가 $static_code 다 — S3 정적 호스팅이나 CloudFront Function이 깨졌다."
+  echo "     서버 상태와 무관한 경로다. 배포 산출물·버킷 정책·엣지 함수를 확인할 것."
+fi
+
 # ── 2. 백업이 실제로 쌓이고 있는가 ──────────────────────────────────────────
 # `2>/dev/null` + 빈 문자열 검사로 받으면 안 된다 — AccessDenied·자격증명 만료가
 # **"백업이 하나도 없다"는 사실 주장**으로 나간다. 아래 3·4·5·6절이 이미 호출 실패와
@@ -459,21 +483,57 @@ else
     # 예산이 이 검사를 통과시키는데, 정작 아래 describe는 정확한 이름으로 부른다.
     if printf '%s\n' "$budget_rows" | cut -f1 | grep -qxF "$NET_BUDGET"; then
       # 그 예산의 ACTUAL 알림 상태 — ALARM이면 크레딧이 더 이상 덮지 못한다는 뜻이다.
-      if ! states=$(aws budgets describe-notifications-for-budget --account-id "$ACCOUNT_ID" \
+      # 알림 **객체 전체**를 받는다. 아래에서 구독자를 물을 때 그 객체를 그대로 넘겨야
+      # 하기 때문이다(손으로 조립하면 임계나 연산자가 어긋나 '없는 알림'이 되고, 그러면
+      # 읽기 실패가 '아무도 안 받는다'는 사실 주장으로 나간다 — 이 스크립트가 2번 검사에서
+      # 이미 한 번 고친 병이다).
+      if ! notif=$(aws budgets describe-notifications-for-budget --account-id "$ACCOUNT_ID" \
             --budget-name "$NET_BUDGET" \
-            --query 'Notifications[?NotificationType==`ACTUAL`].NotificationState' \
-            --output text 2>/dev/null); then
+            --query 'Notifications[?NotificationType==`ACTUAL`]|[0]' \
+            --output json 2>/dev/null); then
         # 예산 목록은 읽혔는데 알림은 못 읽은 경우다. "알림이 없다"고 단정하면
         # 없는 사실을 말하는 것이 된다 — 위와 같은 이유로 갈라놓는다.
         fail "'$NET_BUDGET'의 알림 상태를 못 읽었다 — 예산은 보이는데 알림은 모르는 상태다."
-      elif [ -z "$states" ]; then
+      elif [ -z "$notif" ] || [ "$notif" = "null" ]; then
         fail "'$NET_BUDGET'에 ACTUAL 알림이 없다 — 예산은 있는데 아무도 안 부르는 상태다."
-      elif echo "$states" | grep -q ALARM; then
+      elif printf '%s' "$notif" | grep -q '"NotificationState": *"ALARM"'; then
         fail "순지출(크레딧 상계 후)이 '$NET_BUDGET' 상한을 넘었다 — 실제 청구가 시작됐다는 뜻이다."
         echo "     확인: aws ce get-cost-and-usage --time-period Start=\$(date -u +%Y-%m-01),End=\$(date -u -d '+1 month' +%Y-%m-01) \\"
         echo "             --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=RECORD_TYPE"
       else
         ok "순지출 감시 정상 ('$NET_BUDGET' 알림 OK — 크레딧이 아직 덮고 있다)"
+      fi
+
+      # 그 알림이 **사람에게 닿는가.** 6-B 절 전체가 "발동했다와 닿았다는 다르다"는
+      # 07-30 비용 훈련의 결론으로 만들어졌는데, 정작 그 훈련의 대상이었던 예산 알림에는
+      # 같은 질문이 안 붙어 있었다(2026-08-31). 구독자가 0명이면 크레딧이 마르는 순간
+      # 예산은 정상적으로 ALARM이 되고 정상적으로 아무에게도 안 간다. 크레딧 만료가
+      # 2027-06-24로 확정돼 있어 그때 이게 1차 경보가 되는 자리다.
+      #
+      # 주소는 찍지 않는다 — 이 출력은 공개 저장소의 Actions 로그로 남는다. 개수와
+      # 종류만으로 '닿는가'에는 답이 된다.
+      #
+      # 구독자가 하나도 없으면 AWS는 빈 목록이 아니라 NotFoundException을 준다.
+      # 그래서 호출 실패를 뭉뚱그리면 '못 읽었다'가 '0명이다'로 둔갑한다. 문구로 가른다.
+      if subs_out=$(aws budgets describe-subscribers-for-notification --account-id "$ACCOUNT_ID" \
+            --budget-name "$NET_BUDGET" --notification "$notif" \
+            --query 'length(Subscribers)' --output text 2>&1); then
+        if ! printf '%s' "$subs_out" | grep -qE '^[0-9]+$'; then
+          # 호출은 됐는데 숫자가 아닌 것이 왔다. 이걸 0으로 접으면 **읽기 이상이
+          # '아무도 안 받는다'는 사실 주장으로** 나간다. 이 스크립트가 여러 번 고친 병이다.
+          fail "'$NET_BUDGET' 알림의 수신자 수를 해석하지 못했다(값: '$subs_out')."
+        elif [ "$subs_out" -gt 0 ]; then
+          ok "'$NET_BUDGET' 알림 수신자 ${subs_out}명 — 울리면 사람에게 간다"
+        else
+          fail "'$NET_BUDGET' 알림에 수신자가 0명이다 — 울려도 아무에게도 안 간다."
+        fi
+      elif printf '%s' "$subs_out" | grep -qi 'NotFound'; then
+        fail "'$NET_BUDGET' 알림에 수신자가 0명이다 — 울려도 아무에게도 안 간다."
+        echo "     AWS 콘솔의 예산 알림에 이메일 수신자를 추가할 것."
+      else
+        fail "'$NET_BUDGET' 알림의 수신자를 못 읽었다 — 닿는지 모르는 상태다. '0명'과 다르다."
+        echo "     $subs_out"
+        echo "     CI에서 이게 뜨면 watch-readonly 정책의 budgets:ViewBudget 범위를 확인할 것."
       fi
     else
       fail "'$NET_BUDGET' 예산이 없다 — 크레딧이 마르는 순간을 알려줄 장치가 없다."

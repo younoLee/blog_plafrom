@@ -38,6 +38,10 @@ function AuthorPage() {
   // 좁히려고 눌렀는데 넓어진다. 서버는 author+tag+series 를 함께 거를 수 있다.
   const tag = searchParams.get('tag') || undefined
   const series = searchParams.get('series') || undefined
+  // 검색 (2026-08-31). 서버는 author 와 q 를 같은 조건 목록에 AND 로 넣는데
+  // (routers/posts.py), 이 화면만 q 를 안 넘겨서 '이 사람 글 안에서 찾기'가 앱 안에
+  // 없었다. 우회로도 없다 — 글 목록 화면은 author 를 아예 안 다룬다.
+  const q = searchParams.get('q') || undefined
 
   // `/@yuno` → 'yuno'. @가 없으면 이 화면의 주소가 아니다.
   const handle = raw?.startsWith('@') ? raw.slice(1) : null
@@ -55,6 +59,26 @@ function AuthorPage() {
       else params.delete(k)
     }
     setSearchParams(params)
+  }
+
+  // 입력 중인 검색어. 주소의 q 와는 **제출할 때만** 맞춘다 — 타이핑마다 조회하면
+  // 서버가 따로 한도를 건 비싼 경로(검색은 분당 60회)를 글자 수만큼 두드리게 된다.
+  // 첫 값은 주소에서 받는다(공유 링크로 들어오면 입력칸에 그 말이 들어 있다).
+  // 그 뒤로는 주소를 따라 되돌리지 않는다 — HomePage 와 같은 규약이고, 렌더 중
+  // 상태를 되돌리는 effect 는 lint 가 막는다(react-hooks/set-state-in-effect).
+  const [queryInput, setQueryInput] = useState(q ?? '')
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault()
+    const v = queryInput.trim()
+    // 서버가 q 의 최소 길이를 2로 강제한다(1글자는 trigram 인덱스를 못 타 전체 스캔).
+    // 그냥 보내면 422를 맞으므로 여기서 먼저 말해준다. HomePage 와 같은 규약이다.
+    if (v.length === 1) {
+      setError('검색어는 2글자 이상 입력해줘')
+      return
+    }
+    setError('')
+    updateParams({ q: v || undefined, page: undefined }) // 검색이 바뀌면 1쪽부터
   }
 
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
@@ -88,13 +112,13 @@ function AuthorPage() {
 
   // 조회는 effect 밖에서 정의한다 — HomePage의 loadPosts와 같은 이유다.
   // (deps에 넣으면 매 렌더 재생성으로 무한 루프가 되고, 안 넣으면 lint가 경고한다)
-  async function load(h: string, p: number, t?: string, sr?: string) {
+  async function load(h: string, p: number, t?: string, sr?: string, query?: string) {
     const seq = ++reqSeq.current
     setLoaded(false)
     try {
       const [who, list] = await Promise.all([
         fetchAuthor(h),
-        fetchPosts({ author: h, tag: t, series: sr, offset: (p - 1) * POSTS_PAGE_SIZE }),
+        fetchPosts({ author: h, tag: t, series: sr, q: query, offset: (p - 1) * POSTS_PAGE_SIZE }),
       ])
       if (seq !== reqSeq.current) return
       setMissing(who === null)
@@ -116,8 +140,8 @@ function AuthorPage() {
     if (!handle) return
     // setState는 전부 await 뒤에 일어난다(실제로는 비동기다). HomePage와 같은 처리.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load(handle, page, tag, series)
-  }, [handle, page, tag, series])
+    load(handle, page, tag, series, q)
+  }, [handle, page, tag, series, q])
 
   useDocumentTitle(author ? `${author.name}의 블로그` : null)
 
@@ -163,12 +187,35 @@ function AuthorPage() {
       )}
       {error && !asleep && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
 
+      {/* 이 사람 글 안에서 찾기. 절전 중에는 감춘다 — 이 화면은 정적 폴백이 없어서
+          눌러도 아무 일이 안 일어나고, 되는 것처럼 보이는 입구가 더 나쁘다. */}
+      {!asleep && (
+        <form onSubmit={handleSearch} className="mb-5 flex gap-2">
+          <input
+            type="search"
+            value={queryInput}
+            onChange={(e) => setQueryInput(e.target.value)}
+            placeholder="이 블로그에서 검색 (2글자 이상)"
+            aria-label="이 글쓴이의 글 검색"
+            className="min-w-0 flex-1 rounded-btn border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-400 focus:border-accent dark:border-white/15 dark:bg-white/5"
+          />
+          <button
+            type="submit"
+            className="shrink-0 rounded-btn bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hi"
+          >
+            검색
+          </button>
+        </form>
+      )}
+
       {/* 필터가 걸렸으면 화면이 그 사실을 말하고 풀 길을 준다. 안 그러면 목록이
           짧아진 이유를 알 수 없고, 주소를 손으로 고치는 수밖에 없다. */}
-      {(tag || series) && (
+      {(tag || series || q) && (
         <p className="mb-4 flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-gray-500 dark:text-gray-400">{tag ? '태그' : '연재'}</span>
-          <span className="font-medium text-accent">{tag ? `#${tag}` : series}</span>
+          <span className="text-gray-500 dark:text-gray-400">
+            {tag ? '태그' : series ? '연재' : '검색'}
+          </span>
+          <span className="font-medium text-accent">{tag ? `#${tag}` : (series ?? q)}</span>
           <Link
             to={`/${raw}`}
             className="text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
@@ -180,7 +227,11 @@ function AuthorPage() {
 
       {loaded && !asleep && posts.length === 0 && (
         <p className="rounded-card border border-dashed border-black/10 p-12 text-center text-gray-500 dark:border-white/15 dark:text-gray-400">
-          {tag || series ? '조건에 맞는 글이 없어.' : '아직 쓴 글이 없어.'}
+          {q
+            ? `'${q}'로 찾은 글이 없어.`
+            : tag || series
+              ? '조건에 맞는 글이 없어.'
+              : '아직 쓴 글이 없어.'}
         </p>
       )}
 

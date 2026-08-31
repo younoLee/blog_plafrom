@@ -240,7 +240,14 @@ function WritePostPage() {
     if (!file) return
     try {
       const url = await uploadImage(file)
-      setContent((prev) => `${prev}\n![](${url})\n`)
+      // alt 를 파일 이름으로 채운다(2026-08-31). 예전에는 `![](url)` 로 **항상 빈 값**이라
+      // 화면낭독기가 본문의 그 이미지를 통째로 건너뛰었다. 같은 uploadImage 를 쓰는
+      // SlotEditor 는 처음부터 파일명으로 채우고 그 이유까지 주석에 적어뒀는데, 정작
+      // 더 많이 쓰는 본문 쪽에 그 규약이 안 닿아 있었다.
+      // 마음에 안 들면 고치면 된다 — 무엇을 고쳐야 하는지가 눈에 보이는 게 중요하다.
+      // 대괄호는 마크다운 링크 문법을 깨므로 뺀다.
+      const alt = file.name.replace(/\.[^.]+$/, '').replace(/[[\]]/g, '').slice(0, 60)
+      setContent((prev) => `${prev}\n![${alt}](${url})\n`)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -662,7 +669,7 @@ function WritePostPage() {
         ) : (
           <textarea
             ref={contentRef}
-            placeholder="내용 (위 버튼으로 꾸미거나 마크다운 직접 입력, 이미지 첨부하면 ![](url) 삽입)"
+            placeholder="내용 (위 버튼으로 꾸미거나 마크다운 직접 입력, 이미지 첨부하면 ![파일이름](url) 삽입)"
             rows={14}
             value={content}
             onChange={(e) => setContent(e.target.value)}

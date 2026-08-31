@@ -136,6 +136,39 @@ describe('AuthorPage 페이지 이동', () => {
     expect(last.offset, '2쪽인데 offset이 0이다').toBe(10)
   })
 
+  it('검색어를 넣으면 주소와 조회에 q가 실리고 1쪽으로 돌아간다', async () => {
+    // 2026-08-31에 붙인 검색. 서버는 author+q를 함께 거를 수 있는데 이 화면만
+    // q를 안 넘겨서 '이 사람 글 안에서 찾기'가 앱 안에 없었다.
+    await renderAt('/@yuno?page=3')
+    const input = container.querySelector('input[type="search"]') as HTMLInputElement
+    expect(input, '검색 입력칸이 없다').toBeTruthy()
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!
+      setter.call(input, '테라폼')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      input.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+
+    expect(currentSearch()).toContain('q=')
+    expect(currentSearch(), '검색하면 1쪽부터 봐야 한다').not.toContain('page=3')
+    const last = fetchPostsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    expect(last.q, '조회에 q가 안 실렸다 — 주소만 바뀌고 목록은 그대로다').toBe('테라폼')
+    expect(last.offset, '검색인데 3쪽 offset 그대로다').toBe(0)
+  })
+
+  it('주소에 q가 있으면 첫 조회부터 그 값을 들고 간다', async () => {
+    await renderAt('/@yuno?q=백업')
+    const first = fetchPostsMock.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(first.q).toBe('백업')
+    expect(first.author).toBe('yuno')
+  })
+
   it('필터가 없을 때도 페이지 이동은 그대로 된다', async () => {
     await renderAt('/@yuno')
     await act(async () => {
