@@ -110,6 +110,11 @@ jobs:
     # `head -1`의 EPIPE, `docker compose exec -T`의 stdin 삼킴, 미인용 변수.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # 전체 이력을 받는다. 기본값(depth 1)이면 `git rev-list --count HEAD`가 1이라
+        # 아래 '문서의 숫자' 검사가 커밋 수를 전부 과장으로 잡는다. 2026-08-31에 그 검사를
+        # 붙이자마자 이걸로 빨간불이 났다 — 로컬은 전체 클론이라 안 보이는 자리다.
+        with:
+          fetch-depth: 0
       - name: 문법(bash -n)
         # `scripts/*.sh` glob은 하위 디렉터리를 안 본다 — 아래 shellcheck는 2026-08-10에
         # find로 바꿨는데 **이 스텝만 안 쓸려 있었다.** 그래서 5개 스크립트의 공통 입구인

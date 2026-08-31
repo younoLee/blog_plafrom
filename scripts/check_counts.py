@@ -45,6 +45,28 @@ ROOT = Path(__file__).resolve().parent.parent
 COMMIT_SLACK = 30
 
 
+def _git_shallow() -> bool:
+    """얕은 클론인가.
+
+    2026-08-31에 이 검사를 CI에 붙이자마자 빨간불이 났다. Actions의 기본 체크아웃은
+    `fetch-depth: 1`이라 `git rev-list --count HEAD`가 **1**을 돌려주고, 그러면 문서의
+    커밋 수가 전부 '과장'으로 잡힌다. 로컬은 전체 클론이라 이 실패가 안 보였다.
+    같은 함정이 watch.sh 7번 검사에도 주석으로 적혀 있었는데 여기서 다시 밟았다.
+
+    지금은 ci.yml의 scripts 잡이 `fetch-depth: 0`으로 받으므로 CI에서도 진짜 값이 나온다.
+    이 함수는 그 설정이 사라지거나 다른 얕은 환경에서 돌 때를 위한 안전판이다.
+    **조용히 건너뛰지 않는다** — 안 본 것을 안 봤다고 말한다.
+    """
+    out = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return out.stdout.strip() == "true"
+
+
 def _git_commits() -> int:
     out = subprocess.run(
         ["git", "rev-list", "--count", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
@@ -118,6 +140,7 @@ def main(argv: list[str]) -> int:
             print(f"  {name:14} {actual[name]:>6}   {what}")
         return 0
 
+    shallow = _git_shallow()
     bad = 0
     for path, pattern, key in CLAIMS:
         f = ROOT / path
@@ -137,7 +160,10 @@ def main(argv: list[str]) -> int:
             real = actual[key]
             if key == "commits":
                 # 위 머리말 참고 — 정확히 일치를 요구하지 않는다.
-                if claimed > real:
+                if shallow:
+                    print(f"  --   {path}: 커밋 {claimed} — 얕은 클론이라 대조 못 함(실측 불가).")
+                    print("       CI라면 ci.yml의 체크아웃에 fetch-depth: 0 이 빠진 것이다.")
+                elif claimed > real:
                     print(f"❌ {path}: 커밋 {claimed} 이라고 적었는데 실제는 {real} 이다(과장).")
                     bad += 1
                 elif real - claimed > COMMIT_SLACK:
