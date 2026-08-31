@@ -528,7 +528,14 @@ else
         ok "순지출 감시 정상 ('$NET_BUDGET' 알림 OK — 크레딧이 아직 덮고 있다)"
       fi
 
-      # 그 알림이 **사람에게 닿는가.** 6-B 절 전체가 "발동했다와 닿았다는 다르다"는
+      # 그 알림이 **사람에게 닿는가.**
+      #
+      # ⚠️ 이 블록은 위 사슬이 알림을 **읽어낸 경우에만** 돈다. 처음엔 조건 없이 이어
+      # 붙였는데, 그러면 notif 가 비어 있거나 null 일 때도 --notification "" 로 호출이
+      # 나가고 aws 가 ParamValidation(rc=252)으로 떨어진다. 그 문구에는 NotFound 가 없어
+      # 마지막 갈래로 흘러 **"수신자를 못 읽었다 … budgets:ViewBudget 범위를 확인할 것"**을
+      # 찍는다. 원인 하나에 실패가 둘 나가고, 두 번째가 사람을 IAM 으로 잘못 보낸다
+      # (2026-08-31 검사). 클라이언트 측 오류라 AWS 호출은 나가지도 않는다. 6-B 절 전체가 "발동했다와 닿았다는 다르다"는
       # 07-30 비용 훈련의 결론으로 만들어졌는데, 정작 그 훈련의 대상이었던 예산 알림에는
       # 같은 질문이 안 붙어 있었다(2026-08-31). 구독자가 0명이면 크레딧이 마르는 순간
       # 예산은 정상적으로 ALARM이 되고 정상적으로 아무에게도 안 간다. 크레딧 만료가
@@ -539,7 +546,9 @@ else
       #
       # 구독자가 하나도 없으면 AWS는 빈 목록이 아니라 NotFoundException을 준다.
       # 그래서 호출 실패를 뭉뚱그리면 '못 읽었다'가 '0명이다'로 둔갑한다. 문구로 가른다.
-      if subs_out=$(aws budgets describe-subscribers-for-notification --account-id "$ACCOUNT_ID" \
+      if [ -z "${notif:-}" ] || [ "$notif" = "null" ]; then
+        : # 위에서 이미 '알림이 없다'거나 '못 읽었다'로 실패를 셌다. 같은 원인으로 두 번 울지 않는다.
+      elif subs_out=$(aws budgets describe-subscribers-for-notification --account-id "$ACCOUNT_ID" \
             --budget-name "$NET_BUDGET" --notification "$notif" \
             --query 'length(Subscribers)' --output text 2>&1); then
         if ! printf '%s' "$subs_out" | grep -qE '^[0-9]+$'; then

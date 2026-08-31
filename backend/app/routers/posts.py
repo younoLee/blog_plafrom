@@ -1,5 +1,6 @@
 import re
 from collections.abc import Sequence
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_, select, true
@@ -47,7 +48,40 @@ def _excerpt(md: str, max_len: int = 200) -> str:
 
 
 def _reading_minutes(md: str) -> int:
-    return max(1, round(len(md) / 500))  # 한글 기준 분당 약 500자
+    return _reading_minutes_of(len(md))
+
+
+def _reading_minutes_of(n: int) -> int:
+    return max(1, round(n / 500))  # 한글 기준 분당 약 500자
+
+
+# 목록 응답이 실제로 쓰는 컬럼만 고른다.
+#
+# **왜 본문을 통째로 안 읽나 (2026-08-31 실측).** 목록은 `select(Post)`로 TEXT 컬럼까지
+# 전부 읽었는데, 그 본문으로 하는 일은 200자 발췌와 길이 재기뿐이다. 38편의 본문 합이
+# 631KB이고 `_excerpt`가 그 전체에 정규식을 7번 돌린다. `limit=50` 요청의 TTFB가 49ms,
+# 그중 DB는 0.3ms였다 — 나머지가 본문을 옮기고 훑는 시간이다.
+#
+# 90줄 아래 `post_series`에 **같은 버그를 고친 실측 주석**이 이미 붙어 있다
+# (5.77ms → 0.40ms). 고친 자리 옆이 안 쓸린, 이 저장소의 단골 모양이라 같이 맞춘다.
+#
+# 2000자만 가져오는 이유: 발췌는 200자인데 마크다운 기호를 걷어내면 줄어들 수 있어
+# 여유를 크게 뒀다. 읽기시간은 자른 값이 아니라 `length()`가 잰 **전체 길이**로 계산한다.
+_SUMMARY_HEAD = 2000
+
+_SUMMARY_COLS = (
+    Post.id,
+    Post.title,
+    func.left(Post.content, _SUMMARY_HEAD).label("head"),
+    func.length(Post.content).label("clen"),
+    Post.cover_image,
+    Post.tags,
+    Post.series,
+    Post.owner_id,
+    Post.visibility,
+    Post.created_at,
+    Post.updated_at,
+)
 
 
 def get_post_or_404(post_id: int, db: Session) -> Post:
@@ -107,7 +141,7 @@ def visible_condition(user: User | None, db: Session):
     )
 
 
-def _authors_of(posts: Sequence[Post], db: Session) -> dict[int, tuple[str | None, str | None]]:
+def _authors_of(posts: Sequence[Any], db: Session) -> dict[int, tuple[str | None, str | None]]:
     """글 목록의 글쓴이를 **한 번에** 읽는다. {owner_id: (표시명, 핸들)}.
 
     왜 배치인가 — 목록은 최대 50건이고 글마다 조회하면 N+1이다. `/api/posts`는 무인증
@@ -131,14 +165,22 @@ def _authors_of(posts: Sequence[Post], db: Session) -> dict[int, tuple[str | Non
     }
 
 
-def _summary(p: Post, authors: dict[int, tuple[str | None, str | None]] | None = None) -> PostSummary:
-    # 본문 전체 대신 발췌+읽기시간만 담아 응답 크기를 줄인다 (증폭 방지)
+def _summary(p: Any, authors: dict[int, tuple[str | None, str | None]] | None = None) -> PostSummary:
+    # 본문 전체 대신 발췌+읽기시간만 담아 응답 크기를 줄인다 (증폭 방지).
+    # `p`는 _SUMMARY_COLS로 고른 행이다. Post 객체를 넘겨도 동작하게 head/clen을 폴백한다 —
+    # 이 함수를 다른 데서 부르게 될 때 조용히 깨지지 않게.
+    head = getattr(p, "head", None)
+    clen = getattr(p, "clen", None)
+    if head is None:
+        head = p.content
+    if clen is None:
+        clen = len(p.content)
     name, handle = (authors or {}).get(p.owner_id, (None, None)) if p.owner_id else (None, None)
     return PostSummary(
         id=p.id,
         title=p.title,
-        excerpt=_excerpt(p.content),
-        reading_minutes=_reading_minutes(p.content),
+        excerpt=_excerpt(head),
+        reading_minutes=_reading_minutes_of(clen),
         cover_image=p.cover_image,
         tags=p.tags,
         series=p.series,
@@ -239,13 +281,13 @@ def list_posts(
 
     # 페이지를 끊기 전 전체 개수(프론트의 '총 N개 / 다음 쪽' 표시용)
     total = db.scalar(select(func.count()).select_from(Post).where(*filters)) or 0
-    posts = db.scalars(
+    posts = db.execute(
         # **id로 동점을 깬다.** 이건 `limit`/`offset` 페이지네이션이라, 정렬이 전순서가
         # 아니면 같은 글이 두 페이지에 나오거나 한 글이 건너뛰어진다 — 같은 초에 올린
         # 두 편이 요청마다 다른 순서로 오면 그 경계에서 실제로 그렇게 된다.
         # created_at은 초 단위로도 겹치고, 한 트랜잭션에서 만든 글들은 아예 값이 같다
         # (Postgres의 now()가 트랜잭션 안에서 고정이다 — 2026-08-19에 연재 쪽에서 먼저 잡혔다).
-        select(Post)
+        select(*_SUMMARY_COLS)
         .where(*filters)
         .order_by(Post.created_at.desc(), Post.id.desc())
         .limit(limit)
@@ -297,10 +339,13 @@ def posts_meta(
         .limit(20)
     ).all()
 
-    recent = db.scalars(
+    recent = db.execute(
         # 여기도 id로 동점을 깬다. 페이지네이션은 아니지만 '최근 글 5개'가 새로고침마다
         # 순서를 바꾸면 같은 화면이 매번 달라 보인다.
-        select(Post).where(condition).order_by(Post.created_at.desc(), Post.id.desc()).limit(5)
+        select(*_SUMMARY_COLS)
+        .where(condition)
+        .order_by(Post.created_at.desc(), Post.id.desc())
+        .limit(5)
     ).all()
 
     # 연재별 글 수. 태그와 달리 unnest 가 필요 없다(배열이 아니라 단일 컬럼이고

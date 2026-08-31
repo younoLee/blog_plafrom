@@ -512,9 +512,37 @@ fi
 # ④-3 만료되지 않는 사본이 있는가.
 # 날짜별 덤프는 180일 뒤 lifecycle이 지운다. 백업이 '서버를 끌 때만' 도는 구조라,
 # 오래 손을 놓으면 마지막 백업이 만료돼 0개가 되는 구간이 생길 수 있다.
+#
+# **있는지만 보면 안 된다(2026-08-31 검사).** 이 검사는 시각을 화면에 찍으면서 어떤 값과도
+# 대조하지 않았다. 그런데 이 파일을 갱신하는 자리는 정지 절차 3/6 승격 하나뿐이고 거기서
+# 실패해도 경고만 찍고 넘어간다. 즉 keep/ 이 몇 달 전에 얼어붙어도 이 훈련은 초록이었다.
+# 같은 판정을 watch.sh 가 그날 아침에 고쳤는데 이 쌍둥이가 안 쓸렸다 — 두 절 위(④-2)에
+# 이름까지 붙여둔 병("함수만 이식되고 분기는 수정 전 버전이 남았다")이 또 나온 것이다.
+#
+# 임계는 절대 나이가 아니라 **최신 덤프와의 선후**다. 이 서버는 몇 주씩 안 켜지는 게
+# 정상이라 나이로 재면 정상 상태가 영구 빨간불이 된다. 정지 절차는 덤프를 뜬 직후 그것을
+# 승격하므로, 정상이면 keep 이 최신 덤프보다 새롭다.
 if keep=$(aws s3api head-object --bucket "$BUCKET" --key "keep/latest.sql.gz" \
             --query 'LastModified' --output text 2>/dev/null); then
-  echo "  OK   만료 안 되는 사본 있음 — keep/latest.sql.gz ($keep)"
+  latest_mod=$(aws s3api head-object --bucket "$BUCKET" --key "$KEY" \
+    --query 'LastModified' --output text 2>/dev/null || true)
+  keep_s=$(date -u -d "$keep" +%s 2>/dev/null || true)
+  latest_s=$(date -u -d "${latest_mod:-}" +%s 2>/dev/null || true)
+  if [ -z "$keep_s" ]; then
+    echo "  FAIL keep/latest.sql.gz 의 시각을 해석하지 못했습니다(값: '$keep')."
+    rc=1
+  elif [ -z "$latest_s" ]; then
+    # 비교 대상을 못 읽었다. '낡았다'고 단정하지 않는다 — 못 본 것과 낡은 것은 다르다.
+    echo "  --   만료 안 되는 사본 있음 — keep/latest.sql.gz ($keep). 최신 덤프와는 대조 못 함"
+  elif [ "$keep_s" -lt "$latest_s" ]; then
+    echo "  FAIL keep/latest.sql.gz 가 최신 덤프보다 오래됐습니다 — 정지 절차의 승격이 실패한 채 남아 있습니다."
+    echo "       keep/latest.sql.gz : $keep"
+    echo "       최신 덤프          : $latest_mod ($KEY)"
+    echo "       조치: aws s3 cp s3://$BUCKET/$KEY s3://$BUCKET/keep/latest.sql.gz"
+    rc=1
+  else
+    echo "  OK   만료 안 되는 사본 최신 — keep/latest.sql.gz ($keep, 최신 덤프 이후)"
+  fi
 else
   echo "  WARN keep/latest.sql.gz 가 없습니다. 다음 정지 절차가 만들어 둡니다:"
   echo "       (또는 지금: aws s3 cp s3://$BUCKET/$KEY s3://$BUCKET/keep/latest.sql.gz)"
