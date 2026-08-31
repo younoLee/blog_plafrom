@@ -634,7 +634,7 @@ fi
 # 상태와 "감시가 죽어서 조용한" 상태가 다시 뒤섞인다.
 #
 # 실패해도 전체를 죽이지 않는다 — 하트비트를 못 보내는 것은 그 자체로 알람이 울릴
-# 일이지(3시간 뒤), 이번 실행의 검사 결과를 뒤집을 이유가 아니다. 다만 **조용히
+# 일이지(12시간 뒤), 이번 실행의 검사 결과를 뒤집을 이유가 아니다. 다만 **조용히
 # 넘기지는 않는다**: 못 보냈으면 그 사실을 출력한다(이 저장소가 반복해 배운 것).
 if aws cloudwatch put-metric-data --namespace "blog/watch" \
   --metric-name HeartBeat --value 1 --unit Count --region "$REGION" 2>/tmp/hb.err; then
@@ -648,7 +648,7 @@ else
   # "경고도 종료코드에 넣는다"고 적어둔 것과 정면으로 어긋난다.
   # 하트비트를 못 보내는 건 감시의 눈이 하나 감기는 일이라 조용하면 안 된다.
   # (2026-08-11 교차검증 — 오늘 내가 이 블록을 쓰면서 만든 자리다)
-  warn "하트비트를 못 보냈다 — 3시간 뒤 blog-watch-heartbeat-missing 알람이 운다."
+  warn "하트비트를 못 보냈다 — 12시간 뒤 blog-watch-heartbeat-missing 알람이 운다."
   sed 's/^/       /' /tmp/hb.err
 fi
 
