@@ -124,12 +124,22 @@ DNS=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
 # **막지는 않는다**(경고만). 일부러 안 발행하고 끄는 날이 있다 — 오늘 쓴 편을 내일 올리는
 # 경우다. 정지를 못 하게 막으면 그게 더 나쁘다(서버가 켜진 채 밤을 넘긴다).
 say "0/6 끄기 전 검문 — 마크다운 편수 vs DB 연재 편수"
-md_count=$(find "$(dirname "${BASH_SOURCE[0]}")/../content/devlog" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+# **저장소 쪽에도 '못 읽었다'를 둔다.** 예전에는 여기에 실패 가드가 없어서, 조회가 빈
+# 출력을 내면 md_count 가 0이 되고 아래 검문이 "마크다운 0편인데 DB 연재는 N편입니다"라는
+# 거짓 사실을 마지막 순간에 찍었다. 아래 DB 쪽은 같은 상황을 '못 읽었습니다'로 가르고
+# 있었으므로, 한쪽만 정직한 상태였다(2026-08-31 검사).
+# find 대신 셸 glob 을 쓴다 — 이 기계의 find 는 래퍼가 덮여 있고 실패해도 종료코드가 0이다.
+shopt -s nullglob
+md_files=("$(dirname "${BASH_SOURCE[0]}")/../content/devlog"/*.md)
+shopt -u nullglob
+md_count=${#md_files[@]}
 db_count=$(ssh -n -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i "$SSH_KEY" \
   "ec2-user@$DNS" 'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T db \
     psql -U postgres -d postgres -tAc "select count(*) from posts where series = '"'"'블로그 만들기'"'"';"' \
   2>/dev/null | tr -d '[:space:]' || true)
-if [[ -z "$db_count" ]]; then
+if [[ "$md_count" -eq 0 ]]; then
+  echo "   --   저장소의 개발일지를 못 읽었습니다 — 검문을 건너뜁니다(정지는 계속합니다)."
+elif [[ -z "$db_count" ]]; then
   echo "   --   DB를 못 읽었습니다 — 검문을 건너뜁니다(정지는 계속합니다)."
 elif [[ "$md_count" == "$db_count" ]]; then
   echo "   OK   마크다운 $md_count편 = DB 연재 $db_count편"
@@ -310,7 +320,9 @@ else
   verify_rc=1
 fi
 
-front=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$CF_URL/" || echo 000)
+# `|| echo 000` 을 쓰지 않는다 — curl 은 실패해도 -w 로 이미 000 을 찍으므로 그 관용구는
+# 출력을 `000000` 으로 만들고, '못 봤다' 판정을 도달 불가능하게 한다(2026-08-31 검사).
+front=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$CF_URL/" || true)
 if [ "$front" = "200" ]; then
   echo "   OK   프론트 홈 200 (정적 사이트는 서버와 무관하게 살아 있다)"
 else
@@ -318,7 +330,7 @@ else
   verify_rc=1
 fi
 
-api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$CF_URL/api/status" || echo 000)
+api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$CF_URL/api/status" || true)
 if [ "$api" = "504" ]; then
   echo "   OK   /api/status 504 — 주차가 fail closed로 동작합니다(정상)"
 else

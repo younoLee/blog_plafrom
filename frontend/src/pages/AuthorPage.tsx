@@ -63,10 +63,18 @@ function AuthorPage() {
 
   // 입력 중인 검색어. 주소의 q 와는 **제출할 때만** 맞춘다 — 타이핑마다 조회하면
   // 서버가 따로 한도를 건 비싼 경로(검색은 분당 60회)를 글자 수만큼 두드리게 된다.
-  // 첫 값은 주소에서 받는다(공유 링크로 들어오면 입력칸에 그 말이 들어 있다).
-  // 그 뒤로는 주소를 따라 되돌리지 않는다 — HomePage 와 같은 규약이고, 렌더 중
-  // 상태를 되돌리는 effect 는 lint 가 막는다(react-hooks/set-state-in-effect).
+  // 첫 값은 주소에서 받고, 주소가 바뀌면 따라간다.
+  //
+  // 2026-08-31 정정: 처음엔 "HomePage 와 같은 규약이라 동기화하지 않는다"고 적었는데
+  // **그 서술이 사실이 아니었다.** HomePage.tsx 에는 같은 동기화가 eslint-disable 주석과
+  // 함께 이미 있다. 없는 쪽은 이 화면이었고, 그래서 '✕ 전체보기'로 q 를 지우면 목록만
+  // 전체로 돌아가고 입력칸에는 검색어가 남았다. 화면이 자기 주소와 다른 말을 하는 상태다.
   const [queryInput, setQueryInput] = useState(q ?? '')
+  useEffect(() => {
+    // 주소의 q 가 바뀌면(뒤로가기·필터 해제) 입력칸을 그 값으로 되돌리는 의도된 동기화.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQueryInput(q ?? '')
+  }, [q])
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()

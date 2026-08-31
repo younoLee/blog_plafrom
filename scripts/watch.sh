@@ -71,6 +71,20 @@ SES_SANDBOX_EXPECTED=true
 
 FAIL=0
 WARN=0
+# curl 의 상태코드를 안전하게 받는다.
+#
+# **`curl … -w '%{http_code}' || echo 000` 은 틀린 관용구다.** curl 은 연결에 실패해도
+# -w 로 이미 `000` 을 찍고 종료코드만 0이 아니다. 거기에 `|| echo 000` 을 붙이면 출력이
+# `000000` 이 되어 `[ "$code" = "000" ]` 이 영원히 거짓이 된다. 그러면 '못 봤다'로 가려던
+# 분기가 도달 불가능해지고, 네트워크 실패가 '사이트가 깨졌다'는 **거짓 사실**로 나간다.
+# 2026-08-31에 1-B 절을 만들면서 그 관용구를 그대로 썼고, 같은 날 검사에서 재현됐다.
+# 못 본 것과 죽은 것을 가르려고 만든 자리가 정확히 그 구분을 못 하고 있었다.
+http_code() {
+  local out
+  out=$(curl -s -o /dev/null -w '%{http_code}' --max-time "${2:-20}" "$1" || true)
+  printf '%s' "${out:-000}"
+}
+
 fail() { printf '❌ %s\n' "$*"; FAIL=$((FAIL + 1)); }
 warn() { printf '⚠️  %s\n' "$*"; WARN=$((WARN + 1)); }
 ok()   { printf '✅ %s\n' "$*"; }
@@ -186,16 +200,20 @@ fi
 # 오탐이 구조적으로 안 난다. 요청은 매시 한 번뿐이고 캐시된 응답이라 요금도 무시할 수준이다.
 # 캐시 우회 쿼리를 붙이지 않는 이유가 그것이다 — 여기서 보려는 것은 '엣지가 사람에게
 # 무언가를 돌려주는가'이지 오리진까지의 왕복이 아니다(오리진은 1번이 본다).
-static_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$CF_URL/" || echo 000)
-if [ "$static_code" = "200" ]; then
-  ok "공개 사이트 200 — 정적 쪽은 서버와 무관하게 살아 있다"
-elif [ "$static_code" = "000" ]; then
-  # 못 본 것과 죽은 것을 가른다. 이 구분이 이 저장소가 반복해서 고친 자리다.
-  fail "공개 사이트를 못 봤다(네트워크·타임아웃) — '죽었다'는 뜻이 아니다. 다음 실행에서 다시 본다."
-else
-  fail "공개 사이트가 $static_code 다 — S3 정적 호스팅이나 CloudFront Function이 깨졌다."
-  echo "     서버 상태와 무관한 경로다. 배포 산출물·버킷 정책·엣지 함수를 확인할 것."
-fi
+static_code=$(http_code "$CF_URL/")
+# 못 본 것과 죽은 것을 가른다. 이 구분이 이 저장소가 반복해서 고친 자리다.
+case "$static_code" in
+  200)
+    ok "공개 사이트 200 — 정적 쪽은 서버와 무관하게 살아 있다"
+    ;;
+  "" | 000)
+    fail "공개 사이트를 못 봤다(네트워크·타임아웃) — '죽었다'는 뜻이 아니다. 다음 실행에서 다시 본다."
+    ;;
+  *)
+    fail "공개 사이트가 $static_code 다 — S3 정적 호스팅이나 CloudFront Function이 깨졌다."
+    echo "     서버 상태와 무관한 경로다. 배포 산출물·버킷 정책·엣지 함수를 확인할 것."
+    ;;
+esac
 
 # ── 2. 백업이 실제로 쌓이고 있는가 ──────────────────────────────────────────
 # `2>/dev/null` + 빈 문자열 검사로 받으면 안 된다 — AccessDenied·자격증명 만료가
@@ -210,12 +228,18 @@ elif [ -z "$latest" ] || [ "$latest" = "None" ]; then
 else
   key=${latest%%$'\t'*}
   mod=${latest##*$'\t'}
+  # 파싱에 실패하면 **비워 둔다.** 예전에는 여기서 `mod_s=$now` 로 채웠는데, 그러면 아래
+  # keep/ 비교가 '지금'을 최신 덤프 시각으로 알고 돌아 keep 이 항상 더 오래된 것으로 나온다
+  # (읽기 실패가 '승격이 실패했다'는 거짓 사실이 된다). 비워 두면 그 블록이 '대조 못 함'을
+  # 말하는 분기로 정확히 떨어진다.
   if ! mod_s=$(date -u -d "$mod" +%s 2>/dev/null); then
     fail "백업 시각을 해석하지 못했다(값: '$mod')"
-    mod_s=$now
+    mod_s=""
   fi
-  age_d=$(( (now - mod_s) / 86400 ))
-  if [ "$age_d" -ge "$MAX_BACKUP_AGE_D" ]; then
+  age_d=$(( (now - ${mod_s:-now}) / 86400 ))
+  if [ -z "$mod_s" ]; then
+    : # 시각을 못 읽었다. 위에서 이미 실패로 셌고, 나이 판정은 건너뛴다.
+  elif [ "$age_d" -ge "$MAX_BACKUP_AGE_D" ]; then
     fail "최신 백업이 ${age_d}일 전이다($key). 백업은 정지 절차 때만 도니, 그동안 서버를 안 껐거나 백업이 깨졌다."
   else
     ok "최신 백업 ${age_d}일 전 — $key"

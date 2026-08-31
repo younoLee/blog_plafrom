@@ -19,7 +19,24 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$REPO_DIR/content/infra.json"
 REGION=${AWS_REGION:-ap-northeast-2}
 
-q() { aws "$@" 2>/dev/null || echo ""; }
+# **읽기 실패를 빈 값으로 접지 않는다.** 예전에는 `aws "$@" 2>/dev/null || echo ""` 였는데,
+# 그러면 AccessDenied·자격증명 만료·리전 오타가 전부 빈 문자열이 되고 아래 파이썬이 그것을
+# 기본값(빈 목록·0개)으로 바꿔 content/infra.json 에 굽는다. 그 파일은 gen-static.mjs 가
+# 공개 /infra.html 로 렌더하므로, **못 읽은 것이 '없음'이라는 사실 주장으로 라이브에 나간다.**
+# watch.sh 2절에서 이미 이름 붙여 고친 병의 쌍둥이다(2026-08-31 검사에서 발견).
+#
+# 이 스크립트는 사람이 손으로 돌리는 도구라, 조용히 반쪽짜리 스냅샷을 남기는 것보다
+# 멈추고 이유를 보여주는 쪽이 낫다. 명령 치환 안에서 실패하면 위의 set -e 가 받는다.
+q() {
+  local out
+  if ! out=$(aws "$@" 2>&1); then
+    echo "❌ AWS 조회 실패: aws $*" >&2
+    echo "   $out" >&2
+    echo "   스냅샷을 쓰지 않고 멈춘다 — 못 읽은 것을 '없음'으로 구우면 그게 거짓 기록이 된다." >&2
+    return 1
+  fi
+  printf '%s' "$out"
+}
 
 echo "AWS 계정을 재는 중… (region=$REGION)"
 

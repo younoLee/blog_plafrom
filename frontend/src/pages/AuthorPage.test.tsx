@@ -169,6 +169,25 @@ describe('AuthorPage 페이지 이동', () => {
     expect(first.author).toBe('yuno')
   })
 
+  it("'✕ 전체보기'로 검색을 풀면 입력칸도 같이 비워진다", async () => {
+    // 2026-08-31 검사에서 나온 것: 목록만 전체로 돌아가고 입력칸에는 검색어가 남아
+    // 화면이 자기 주소와 다른 말을 하고 있었다. HomePage 에는 있던 동기화가 여기만 없었다.
+    await renderAt('/@yuno?q=백업')
+    const input = () => container.querySelector('input[type="search"]') as HTMLInputElement
+    expect(input().value).toBe('백업')
+
+    const clear = Array.from(container.querySelectorAll('a')).find((a) =>
+      (a.textContent ?? '').includes('전체보기'),
+    )
+    expect(clear, "'✕ 전체보기' 링크가 없다").toBeTruthy()
+    await act(async () => {
+      clear!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+    })
+
+    expect(currentSearch()).not.toContain('q=')
+    expect(input().value, '주소에서 검색을 뺐는데 입력칸에 검색어가 남는다').toBe('')
+  })
+
   it('필터가 없을 때도 페이지 이동은 그대로 된다', async () => {
     await renderAt('/@yuno')
     await act(async () => {
