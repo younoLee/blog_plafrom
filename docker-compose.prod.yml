@@ -6,6 +6,14 @@
 services:
   db:
     image: postgres:16-alpine
+    # **메모리 상한 (2026-08-31 검사).** 두 컨테이너 다 상한이 없었고 호스트는 957MB에
+    # 스왑 0이다. 상한이 없으면 메모리가 마를 때 **커널이 누구를 죽일지 고르고**, 그
+    # 후보에 pgdata 를 쓰는 이쪽이 들어간다. 상한을 걸면 죽는 쪽이 '한도를 넘은 쪽'으로
+    # 확정되고, 나중에 `docker inspect` 의 OOMKilled 로 사후 판독이 된다.
+    #
+    # 320m 은 실측(37MB)의 여덟 배가 아니라 shared_buffers 128MB + 작업 메모리 + 여유다.
+    # backend 400m 과 합쳐 720m 으로, 호스트 957MB 안에서 OS 몫을 남긴다.
+    mem_limit: 320m
     environment:
       POSTGRES_USER: postgres
       # 비번은 compose가 같은 폴더 .env의 DB_PASSWORD로 치환(컨테이너 내부 전용, 인터넷 비노출).
@@ -45,6 +53,10 @@ services:
 
   backend:
     build: .
+    # 위 db 와 같은 이유. 실측 RSS 는 136MB인데 목록 요청이 본문을 파이썬 힙에 올리므로
+    # 순간값이 튀는 쪽도 이쪽이다. 400m 은 그 세 배쯤이고, 넘으면 이 컨테이너만 죽는다
+    # (restart: unless-stopped 라 곧 다시 뜬다 — 커널이 db 를 고르는 것보다 낫다).
+    mem_limit: 400m
     ports:
       - "8000:8000"
     env_file:

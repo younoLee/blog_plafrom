@@ -188,6 +188,17 @@ describe('AuthorPage 페이지 이동', () => {
     expect(input().value, '주소에서 검색을 뺐는데 입력칸에 검색어가 남는다').toBe('')
   })
 
+  it('범위 밖 page 로 들어오면 마지막 쪽으로 되돌아온다', async () => {
+    // 공유된 ?page=9 로 들어오면 "9 / 3 쪽"과 "아직 쓴 글이 없어"가 같이 떴다.
+    // HomePage 에는 이 되돌리기가 있었는데 이 화면에만 없었다(2026-08-31 검사).
+    fetchPostsMock.mockResolvedValue({ items: [], total: 24 }) // 24편이면 마지막은 3쪽
+    await renderAt('/@yuno?page=9')
+
+    expect(currentSearch(), '범위 밖인데 그대로 머문다').toContain('page=3')
+    const last = fetchPostsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    expect(last.offset, '되돌린 뒤 마지막 쪽을 다시 조회해야 한다').toBe(20)
+  })
+
   it('필터가 없을 때도 페이지 이동은 그대로 된다', async () => {
     await renderAt('/@yuno')
     await act(async () => {

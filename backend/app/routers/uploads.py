@@ -183,6 +183,15 @@ def upload_image(
                 Key=f"uploads/{name}",
                 Body=content,
                 ContentType=content_type,
+                # 업로드 이미지에는 캐시 헤더가 **아예 없었다**(2026-08-31 검사: 라이브
+                # HEAD 응답에 cache-control 줄 자체가 없다). 배포 워크플로가 dist 에 캐시
+                # 헤더를 박는 08-10 수정은 `--exclude "uploads/*"` 때문에 이 프리픽스에
+                # 닿지 않는다. 그래서 같은 이미지를 볼 때마다 매번 다시 받아 간다.
+                #
+                # 파일명이 uuid4 hex 라 **내용이 바뀌면 이름이 바뀐다** — 해시가 박힌 번들
+                # 자산과 같은 논리이므로 immutable 로 둘 수 있다. 이미 올라간 것들은 이
+                # 코드가 안 건드린다(메타데이터만 따로 갱신해야 한다).
+                CacheControl="public,max-age=31536000,immutable",
             )
         except (ClientError, BotoCoreError) as e:
             # S3가 죽거나 권한이 빠지면 여기서 예외가 그대로 터져 **500 text/plain**이 나갔다

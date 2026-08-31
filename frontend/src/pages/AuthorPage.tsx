@@ -129,6 +129,15 @@ function AuthorPage() {
         fetchPosts({ author: h, tag: t, series: sr, q: query, offset: (p - 1) * POSTS_PAGE_SIZE }),
       ])
       if (seq !== reqSeq.current) return
+      // 범위 밖 쪽으로 남으면 "9 / 3 쪽"과 "아직 쓴 글이 없어"가 같이 뜬다. 공유된
+      // ?page=9 로 들어왔거나 마지막 쪽의 글이 지워진 경우다. 조용히 마지막 쪽으로 되돌린다.
+      // HomePage.tsx:58-64 에 있던 것을 그대로 옮겼다 — 08-31에 이 화면의 페이지 이동을
+      // 고치면서 병합 함수는 옮겼는데 **그 함수가 쓰는 되돌리기는 안 옮겼다.**
+      const lastP = Math.max(1, Math.ceil(list.total / POSTS_PAGE_SIZE))
+      if (list.items.length === 0 && p > lastP) {
+        updateParams({ page: lastP > 1 ? String(lastP) : undefined })
+        return // 이 setState들은 건너뛴다 — 곧 새 요청이 돈다
+      }
       setMissing(who === null)
       setAuthor(who)
       setPosts(list.items)

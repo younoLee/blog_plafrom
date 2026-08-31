@@ -207,7 +207,7 @@ jobs:
           # (2026-08-19 보안검사). 지금은 '없는 게 정상'이고 워커가 404를 정상 취급한다.
           aws s3 sync dist/ s3://blogplafromops --delete \
             --exclude "uploads/*" --exclude "sw-kill.json" \
-            --cache-control "public,max-age=0,must-revalidate"
+            --cache-control "public,max-age=0,must-revalidate,s-maxage=86400"
 
       - name: CloudFront 캐시 무효화
         run: aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"

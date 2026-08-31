@@ -1036,6 +1036,10 @@ function main() {
       body:
         `<h1>이 사이트는 두 갈래로 산다</h1>` +
         `<p class="meta">비용을 아끼려고 서버(EC2)를 평소 꺼둔다. 그래서 기능이 두 층으로 갈린다.</p>` +
+          // /infra.html 로 가는 인바운드 링크가 저장소 전체에 0건이었다(2026-08-31 검사).
+          // sitemap 에만 있어 검색엔진만 아는 페이지였다. map 이 "어떻게 갈리나"를 그리고
+          // infra 가 "지금 실제로 뭐가 떠 있나"를 재므로, 그 둘을 여기서 잇는다.
+          `<p class="meta"><a href="/infra.html">지금 떠 있는 인프라 실측 →</a></p>` +
         `<svg viewBox="0 0 720 300" role="img" aria-labelledby="map-t" style="width:100%;height:auto;color:inherit">` +
         `<title id="map-t">서버 없이 항상 열리는 경로와, 서버를 켠 날만 도는 경로</title>` +
         `<rect x="8" y="40" width="340" height="240" rx="14" fill="none" stroke="currentColor" opacity="0.25"/>` +
