@@ -339,13 +339,15 @@ def posts_meta(
         .limit(20)
     ).all()
 
-    recent = db.execute(
+    # **여기는 컬럼 지정을 안 한다.** 목록(50건)에서는 그게 49ms를 27ms로 줄였는데,
+    # 5건짜리 이 조회에서는 재보니 12ms가 18ms로 **느려졌다**. left()·length() 도 TOAST에
+    # 눌려 있는 본문을 펼쳐야 하므로 읽는 양은 그대로인데 계산만 늘기 때문이다.
+    # 이득이 나는 크기가 따로 있다는 뜻이고, 숫자가 그렇게 말하면 그대로 둔다.
+    # (_summary 는 Post 객체도 받는다 — head/clen 이 없으면 본문에서 직접 계산한다)
+    recent = db.scalars(
         # 여기도 id로 동점을 깬다. 페이지네이션은 아니지만 '최근 글 5개'가 새로고침마다
         # 순서를 바꾸면 같은 화면이 매번 달라 보인다.
-        select(*_SUMMARY_COLS)
-        .where(condition)
-        .order_by(Post.created_at.desc(), Post.id.desc())
-        .limit(5)
+        select(Post).where(condition).order_by(Post.created_at.desc(), Post.id.desc()).limit(5)
     ).all()
 
     # 연재별 글 수. 태그와 달리 unnest 가 필요 없다(배열이 아니라 단일 컬럼이고
