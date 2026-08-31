@@ -14,7 +14,7 @@
 > **글 내용은 서버 없이도 읽을 수 있습니다** — 웹에서도 그렇습니다:
 > [개발일지 아카이브](https://d2j66m9udyg9yq.cloudfront.net/devlog.html) ·
 > [RSS](https://d2j66m9udyg9yq.cloudfront.net/rss.xml) ·
-> 저장소에서는 [`content/devlog/`](./content/devlog) (개발일지 38편).
+> 저장소에서는 [`content/devlog/`](./content/devlog) (개발일지 39편).
 > 이 셋은 S3에서 정적으로 나가므로 EC2가 꺼져 있어도 열립니다.
 
 > 이 프로젝트는 기능뿐 아니라 **왜 그렇게 만들었는지**를 개발일지로 남긴다 —
