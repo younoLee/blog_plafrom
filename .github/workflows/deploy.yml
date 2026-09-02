@@ -212,6 +212,59 @@ jobs:
       - name: CloudFront 캐시 무효화
         run: aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"
 
+      # 배포가 **무효화에서 끝나고 있었다**(2026-09-02). 이 워크플로에 배포 후 curl이
+      # 0건이라, `create-invalidation`이 접수됐다는 것만 보고 초록이 떴다. 그런데
+      # 접수는 전파가 아니고, 전파는 '방문자가 새 번들을 받는다'가 아니다.
+      #
+      # 감시(scripts/watch.sh:707~)도 이 구멍을 못 메운다 — 그쪽은 S3 객체를 직접
+      # 읽어 스탬프를 보므로 **오리진만** 본다. 즉 S3에는 새것이 있는데 엣지가 옛것을
+      # 내주는 구간을 저장소의 어떤 장치도 안 보고 있었다. 실제로 개발일지 정적
+      # 아카이브가 38편에 멈춰 있는 동안(최신 39편) 아무 신호도 없었다.
+      #
+      # **무엇을 재는가**: 위 'S3 업로드'가 올린 dist/deploy-stamp.txt 를 **공개
+      # CloudFront 주소로** 읽어 `sha=$GITHUB_SHA` 가 보일 때까지 기다린다. 그 파일은
+      # `s-maxage=86400` 으로 올라가 엣지가 하루를 쥐고 있으므로, 새 값이 보인다는 것은
+      # 곧 **무효화가 실제로 먹었다**는 뜻이다. 검사로서 이보다 직접적인 증거가 없다.
+      #
+      # ⚠️ 캐시 버스터(`?cb=…`)나 `Cache-Control: no-cache` 를 **일부러 안 붙인다.**
+      # 붙이면 오리진에서 새로 받아와 통과할 수 있는데, 그동안 방문자는 여전히 옛것을
+      # 받는다 — 검사가 재려는 바로 그 상태를 통과시키는 셈이다. 방문자와 똑같이 찌른다.
+      #
+      # 간격: 15초 × 12회 = 최대 3분. 이 배포판의 무효화는 보통 1분 안쪽에 끝나고,
+      # 12회는 그 서너 배의 여유다. 더 길게 잡으면 러너 시간만 태우고, 더 짧게 잡으면
+      # 정상 전파가 빨간불이 된다(영구 오탐은 이 저장소가 검사를 죽이는 방식이다).
+      #
+      # 새 AWS 자원은 만들지 않는다 — 이미 나가 있는 파일을 공개 주소로 읽을 뿐이다.
+      - name: 배포 확인 — CloudFront로 이 커밋이 실제로 나가는가
+        run: |
+          url="https://d2j66m9udyg9yq.cloudfront.net/deploy-stamp.txt"
+          # `curl … -w '%{http_code}' || echo 000` 은 틀린 관용구다 — curl 은 실패해도
+          # -w 로 이미 000 을 찍으므로 출력이 `000000` 이 되고 '못 봤다' 분기가 도달
+          # 불가능해진다(scripts/watch.sh 머리말, 2026-08-31에 실제로 겪었다).
+          for i in $(seq 1 12); do
+            resp=$(curl -s --max-time 20 -w $'\n%{http_code}' "$url" || true)
+            code=${resp##*$'\n'}
+            body=${resp%$'\n'*}
+            got=$(printf '%s' "$body" | sed -n 's/^sha=//p' | head -1)
+            if [ "$got" = "$GITHUB_SHA" ]; then
+              echo "확인 ($i/12) — CloudFront가 sha=$GITHUB_SHA 를 내줍니다. 새 번들이 실제로 나갑니다."
+              exit 0
+            fi
+            # '못 봤다'와 '옛것이다'를 가른다. 앞은 네트워크·권한 문제이고
+            # 뒤는 무효화가 아직 안 먹은 것이라 원인도 조치도 다르다.
+            if [ "$code" = "200" ]; then
+              echo "  $i/12 — 아직 옛 스탬프입니다 (엣지: ${got:-sha 줄 없음})"
+            else
+              echo "  $i/12 — 스탬프를 못 읽었습니다 (HTTP $code). 000이면 curl 자체가 실패한 것입니다."
+            fi
+            if [ "$i" -lt 12 ]; then sleep 15; fi
+          done
+          echo "::error::배포가 CloudFront까지 도달하지 않았습니다 — 3분 동안 $url 이 sha=$GITHUB_SHA 를 내주지 않았습니다."
+          echo "S3에는 올라갔지만 엣지가 옛것을 내주는 상태이거나(무효화 실패), 스탬프 자체를 못 읽는 상태입니다."
+          echo "확인: aws cloudfront list-invalidations --distribution-id E1438IL9CSVBS4"
+          echo "      curl -i $url"
+          exit 1
+
       # 해시 자산만 1년 immutable로 (지우지 않는 메타데이터 갱신).
       #
       # **무효화보다 뒤에 둔다.** 처음엔 sync와 같은 스텝에 붙였는데, 이 명령이 실패하자

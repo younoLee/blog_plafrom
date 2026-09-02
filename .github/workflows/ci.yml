@@ -103,6 +103,20 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      # 번들이 조용히 커지는 것을 막는다. 2026-09-02 공백 검사가 지적한 자리 —
+      # 메인 번들이 469KB에서 528KB로 자랐는데 그걸 재는 곳이 저장소에 없었다.
+      # 의존성 하나에 수십 KB가 붙고, 다음 사람은 '원래 이 정도였나' 하고 넘어간다.
+      # 이 사이트는 EC2가 대부분 꺼져 있어 첫 화면이 정적 자산으로만 그려지므로,
+      # 자산이 커지는 것이 서버가 꺼진 동안의 유일한 체감 성능 저하다.
+      #
+      # `--selftest`를 먼저 돌리는 이유는 발행물 시크릿·글투 검사와 같다:
+      # 이 검사도 glob이 0개에 걸리면 '0바이트, 한도 이하'로 초록이 될 수 있다.
+      # 그 모양(대상 0개인데 통과)은 이 저장소가 이미 세 번 당했다.
+      - name: 번들 크기 예산 (자가검증 → 실측)
+        run: |
+          python3 scripts/check_bundle_size.py --selftest
+          python3 scripts/check_bundle_size.py
+
   scripts:
     runs-on: ubuntu-latest
     # 이 저장소의 안전장치(백업·복원·정지·감시)는 전부 셸 스크립트인데 여태
@@ -190,8 +204,16 @@ jobs:
       # 발행된 34편 중 5편에 실계정 이메일 3개(역할까지)·집 공인 IP 2개·오리진 EC2
       # 호스트명이 라이브로 나가 있었고, RSS와 검색 인덱스에도 들어가 있었다.
       # 개발일지가 터미널 출력을 그대로 싣는 형식이라 사람 눈으로는 계속 샌다.
-      - name: 발행물에 실제 값이 없는가
-        run: python3 scripts/check_publish_secrets.py
+      #
+      # `--selftest`를 먼저 돌리는 이유(2026-09-02): 이 검사는 blocked 목록이 비면
+      # 그냥 0을 낸다. 즉 정규식이 실수로 다 빠져도 "발행물 N개 — 실제 값 0건"이라는
+      # **사실 주장**이 초록으로 나간다. 글투 검사가 08-27까지 정확히 그 상태였고
+      # (탐지기가 죽었는데 오탐 3건 때문에 몰랐다), 그쪽은 이미 자가검증이 있다.
+      # 같은 모양으로 붙인다 — 가짜 값을 못 잡으면 여기서 먼저 빨개진다.
+      - name: 발행물 시크릿 (자가검증 → 실제 검사)
+        run: |
+          python3 scripts/check_publish_secrets.py --selftest
+          python3 scripts/check_publish_secrets.py
 
       # 글투 지침(docs/voice/style-guide.md)이 실제로 지켜지는가.
       #

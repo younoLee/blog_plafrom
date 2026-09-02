@@ -27,15 +27,33 @@
 '이건 남겨도 되는 값'이 반드시 생긴다(공개 서비스 주소, 문서용 예시). 그때 검사를 통째로
 끄면 다음 편부터 아무도 안 본다. 예외는 여기 한 줄로 적고, 적는 순간 근거가 남는다.
 
+## 왜 자가검증(--selftest)이 있나
+
+이 검사는 blocked 목록이 비면 그냥 0을 낸다. 즉 **탐지기가 통째로 죽어도 초록**이고,
+초록은 "발행물에 실제 값 0건"이라는 사실 주장으로 나간다 — 이 저장소가 이름 붙인
+'검사인 척하는 검사'다. 같은 CI에 있는 글투 검사가 08-27에 정확히 그 상태였다
+(삼항 반복 탐지기가 역참조 정규식이라 아무것도 못 잡는데, 오탐 3건 때문에 죽은 줄
+몰랐다). 그래서 여기도 같은 장치를 둔다: **일부러 넣은 가짜 값을 반드시 잡는가**를
+먼저 확인하고, 못 잡으면 0이 아닌 종료코드를 낸다. (2026-09-02)
+
+⚠️ 아래 고정값은 **명백히 가짜여야 한다.** 진짜처럼 생긴 값을 넣으면 gitleaks 잡이
+이 파일 자체를 잡아 CI가 다른 이유로 빨개진다. IP는 RFC 2544 벤치마크 대역, DNS는
+RFC 5737 문서용 주소를 쓰고, AKIA 키는 **문자열을 이어붙여** 만든다
+(.gitleaks.toml의 aws-access-key-id-strict 규칙이 `AKIA[0-9A-Z]{16}` 연속 리터럴을
+잡으므로, 소스에 그 모양이 통째로 있으면 안 된다).
+
 사용법:  python3 scripts/check_publish_secrets.py [경로...]
          (인자가 없으면 content/devlog/*.md 와 scripts/make_devlog*.py 를 본다)
+         python3 scripts/check_publish_secrets.py --selftest
 """
 
 from __future__ import annotations
 
 import glob
+import os
 import re
 import sys
+import tempfile
 
 # ── 남겨도 되는 값 ────────────────────────────────────────────────────────────
 # 여기 적는 값은 '공개해도 되는 이유'가 있는 것이다. 늘릴 때 이유를 한 줄 같이 적을 것.
@@ -117,7 +135,115 @@ def scan(path: str) -> tuple[list[str], list[str]]:
     return blocked, warned
 
 
+# ── 자가검증 고정값 ──────────────────────────────────────────────────────────
+# 전부 **명백히 가짜**다(머리말의 ⚠️ 참고). 진짜처럼 생긴 값을 넣으면 gitleaks가
+# 이 파일을 잡는다 — 검사를 지키려다 다른 검사를 깨는 셈이 된다.
+#
+# AKIA 키는 소스에 연속 리터럴로 두지 않는다. .gitleaks.toml 의
+# aws-access-key-id-strict 가 `\b(?:AKIA|…)[0-9A-Z]{16}\b` 를 잡으므로,
+# 이어붙여 만들면 파일 내용에는 그 모양이 존재하지 않는다.
+_FAKE_AKIA = "AKIA" + "SELFTESTFAKE0000"  # 실재하지 않는 자리표시자
+_FAKE_AKIA_OK = "AKIA" + "IOSFODNN7EXAMPLE"  # AWS 공식 문서의 예시 키(ALLOW 대상)
+
+# (기대 라벨, 그 라벨이 반드시 나와야 하는 한 줄)
+SELFTEST_HITS: list[tuple[str, str]] = [
+    # 예약 도메인이 아니고 더미 표식도 없는 주소 → 막아야 한다.
+    ("이메일 주소", "가입 확인: fake-selftest@not-a-real-domain.kr"),
+    # 198.18.0.0/15 는 RFC 2544 벤치마크 전용이라 실제 호스트가 아니지만,
+    # 사설·문서용 예외 목록에는 없으므로 이 검사는 '공인 IP'로 잡아야 한다.
+    ("공인 IP", "접속 주소는 198.18.0.1 이었다"),
+    ("AWS 액세스 키", f"export AWS_ACCESS_KEY_ID={_FAKE_AKIA}"),
+    # 호스트명의 숫자는 RFC 5737 문서용 대역이다(203.0.113.0/24).
+    ("EC2 퍼블릭 DNS", "ssh ec2-user@ec2-203-0-113-9.ap-northeast-2.compute.amazonaws.com"),
+]
+
+# 경고(종료코드에는 안 들어가지만 죽으면 역시 조용하다) 쪽도 같이 본다.
+SELFTEST_WARNS: list[tuple[str, str]] = [
+    ("인스턴스 ID", "대상 i-0123456789abcdef0 을 껐다"),
+    ("볼륨 ID", "루트 볼륨 vol-0123456789abcdef0 을 붙였다"),
+]
+
+# 하나라도 걸리면 안 되는 줄. 여기가 깨지면 검사가 '영구 빨간불'이 되고,
+# 영구 빨간불은 결국 꺼진다 — 이 저장소가 여러 번 적어둔 실패 방식이다.
+SELFTEST_MISSES: list[str] = [
+    "문의는 hong@example.com 으로 주세요",  # RFC 2606 예약 도메인
+    "이미 가린 자리: ...@gmail.com",  # 사람이 손으로 마스킹한 것
+    "사설망 192.168.0.1 과 루프백 127.0.0.1",
+    "문서용 예약 대역 203.0.113.9 · 198.51.100.7 · 192.0.2.4",
+    "공개 리졸버 1.1.1.1",
+    "pip 목록: pretendard==1.2.3.4",  # 버전 문자열이 IP로 잡히면 안 된다
+    f"AWS 문서의 예시 키 {_FAKE_AKIA_OK}",
+]
+
+
+def selftest() -> int:
+    """일부러 넣은 가짜 값을 실제로 잡는지 확인한다. 못 잡으면 0이 아닌 코드.
+
+    정규식을 직접 부르지 않고 **scan() 을 통째로 태운다.** 탐지기가 살아 있어도
+    scan() 의 조립부(ALLOW 대조·_hide·라벨 전달)가 깨지면 결과는 똑같이 '0건'이라,
+    거기까지 포함해서 재야 의미가 있다.
+    """
+    fail = 0
+
+    # 목록 자체가 비면 아래 for 문이 한 번도 안 돌아 **조용히 통과**한다.
+    # 이 파일이 막으려는 실패 방식이 바로 그것이라 개수를 먼저 못 박는다.
+    if not BLOCK:
+        print("❌ BLOCK 목록이 비었다 — 막는 검사가 하나도 없다", file=sys.stderr)
+        fail += 1
+    if not WARN:
+        print("❌ WARN 목록이 비었다 — 알리는 검사가 하나도 없다", file=sys.stderr)
+        fail += 1
+
+    def run(lines: list[str]) -> tuple[list[str], list[str]]:
+        fd, path = tempfile.mkstemp(suffix=".selftest.md", text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+            return scan(path)
+        finally:
+            os.unlink(path)
+
+    for label, line in SELFTEST_HITS:
+        blocked, _ = run([line])
+        if not any(f"  {label}  " in b for b in blocked):
+            print(f"❌ 잡아야 하는데 놓쳤다 [{label}]: {line}", file=sys.stderr)
+            fail += 1
+
+    for label, line in SELFTEST_WARNS:
+        _, warned = run([line])
+        if not any(f"  {label}  " in w for w in warned):
+            print(f"❌ 경고해야 하는데 놓쳤다 [{label}]: {line}", file=sys.stderr)
+            fail += 1
+
+    blocked, warned = run(SELFTEST_MISSES)
+    for b in blocked:
+        print(f"❌ 잡으면 안 되는데 잡았다: {b}", file=sys.stderr)
+        fail += 1
+    for w in warned:
+        print(f"❌ 경고하면 안 되는데 경고했다: {w}", file=sys.stderr)
+        fail += 1
+
+    # 찾은 값을 그대로 찍지 않는다는 약속도 검사 대상이다. 이게 깨지면 CI 로그가
+    # 곧 유출 경로가 된다(이 검사의 출력은 공개 로그에 남는다).
+    blocked, _ = run([f"export AWS_ACCESS_KEY_ID={_FAKE_AKIA}"])
+    if any(_FAKE_AKIA in b for b in blocked):
+        print("❌ _hide()가 값을 안 가린다 — CI 로그에 원문이 남는다", file=sys.stderr)
+        fail += 1
+
+    if fail:
+        print(f"자가검증 실패 {fail}건 — 탐지기가 죽었다. 초록을 믿지 마라.")
+        return 1
+    print(
+        f"자가검증 통과 — 막는 {len(SELFTEST_HITS)}종 · 알리는 {len(SELFTEST_WARNS)}종을 "
+        f"실제로 잡고, 정상값 {len(SELFTEST_MISSES)}줄은 통과시킨다"
+    )
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv[1:2] == ["--selftest"]:
+        return selftest()
+
     targets = argv[1:] or sorted(
         set(glob.glob("content/devlog/*.md") + glob.glob("scripts/make_devlog*.py"))
     )
