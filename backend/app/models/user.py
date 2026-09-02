@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -117,3 +127,42 @@ PUBLIC_BLOG_ROLES = ("writer", "admin")
 # 이건 '알림을 받을 수 있는가'다. 알림 수신자는 reader·pending도 정상이므로
 # PUBLIC_BLOG_ROLES로 거르면 멀쩡한 독자까지 끊긴다 — 거기선 화이트리스트, 여기선 블랙리스트다.
 BANNED_ROLE = "banned"
+
+
+class LoginFailure(Base):
+    """계정 하나당 행 하나. 최근 창 안에서 쌓인 로그인 실패 횟수.
+
+    왜 있나 (2026-09-02) — 로그인 방어가 전부 **IP 축**이었다. slowapi의 10/분은
+    `client_ip()`가 뽑은 주소를 키로 쓰는데, 그 키는 공격자가 요청을 여러 주소로
+    나누면 그만큼 늘어난다. 그러면 한 계정에 대한 시도 상한이 사실상 bcrypt
+    처리량(routers/auth.py의 `_BCRYPT_SLOTS` 주석: vCPU당 30~40건/분)뿐이다.
+    비밀번호가 짧거나 흔하면 그 속도로도 충분히 뚫린다. WAF의 rate-based 룰은
+    월 과금이라 안 쓰기로 했으므로(운영비 결정), 계정 축은 앱이 들고 있어야 한다.
+
+    **왜 users.py 안인가.** `alembic/env.py`가 모델 모듈을 한 줄씩 import해서
+    `Base.metadata`를 채운다. 새 파일로 빼면 그 목록에 한 줄을 더해야 하고,
+    빠뜨리면 `alembic check`(모델↔마이그레이션 드리프트) 잡이 이 테이블을
+    "지워야 할 것"으로 본다. 어차피 계정에 딸린 카운터라 users와 같은 파일에 둔다.
+
+    **행이 무한히 늘지 않는다.** user_id가 유니크라 계정당 최대 1행이고, 창이
+    지난 행은 지우는 게 아니라 **다음 실패가 덮어쓴다**(window_start를 now로,
+    fail_count를 1로). 성공 로그인은 행을 지운다. 계정이 지워지면 CASCADE로 같이
+    사라진다. 그래서 services/cleanup.py에 주기 작업을 새로 붙일 필요가 없다.
+
+    **고정 창(fixed window)이지 슬라이딩이 아니다.** window_start는 창의 첫 실패
+    시각으로 고정되고, 잠긴 뒤에 들어온 실패가 그 값을 밀지 않는다. 밀면 공격자가
+    남의 계정을 **영구히** 잠글 수 있다 — 브루트포스를 막으려다 계정 탈취보다 쉬운
+    DoS를 만드는 셈이다. 지금은 첫 실패로부터 창 하나가 지나면 반드시 풀린다.
+    """
+
+    __tablename__ = "login_failures"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # 유니크 = 계정당 1행. 조회도 이 인덱스로 끝난다(로그인마다 1회 읽는다).
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    # 이 창에서 누적된 실패 수. 임계값 비교는 routers/auth.py가 한다.
+    fail_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    # 창의 시작 시각(UTC). '언제 풀리는가'가 이 값 하나로 정해진다.
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))

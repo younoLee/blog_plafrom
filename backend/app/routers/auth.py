@@ -1,8 +1,9 @@
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from sqlalchemy import func, select, update
+from sqlalchemy import case, delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,7 +20,7 @@ from app.core.security import (
     verify_password_or_dummy,
 )
 from app.models.invite import Invite
-from app.models.user import BANNED_ROLE, User
+from app.models.user import BANNED_ROLE, LoginFailure, User
 from app.schemas.invite import InvitePreview, InviteRedeem, InviteToken
 from app.schemas.user import (
     DisplayNameUpdate,
@@ -73,7 +74,7 @@ def register(request: Request, data: RegisterRequest, background: BackgroundTask
             db.rollback()
             return {"message": "확인 메일을 보냈어. 메일함을 확인해줘."}
         db.refresh(user)
-        token = create_email_token(user.id, purpose="verify")
+        token = create_email_token(user.id, purpose="verify", ver=user.token_version)
         link = f"{settings.frontend_base_url}/verify?token={token}"
         background.add_task(send_verification_email, user.email, link)
     elif not existing.email_verified:
@@ -85,12 +86,26 @@ def register(request: Request, data: RegisterRequest, background: BackgroundTask
         #   피해자가 링크를 누르면 email_verified=True가 되는데 **비밀번호는 공격자 것**.
         #   그 순간 공격자가 피해자 신원의 '검증된' 계정으로 로그인한다.
         # 미인증 계정은 아직 아무 데이터도 없으므로 마지막 요청의 비번으로 덮어써도 안전하다.
-        # token_version도 올려 그전에 발급된 링크를 무효화한다.
+        #
+        # token_version을 올리고 **인증 토큰에 그 값을 실어 보낸다.** 아래 verify가 대조한다.
+        # 2026-09-02에 고쳤다 — 이 자리 주석은 "token_version도 올려 그전 링크를
+        # 무효화한다"고 적어뒀는데 거짓이었다. `create_email_token`의 `ver`은 기본값이 0이고
+        # register가 그걸 안 넘겼으며, `/auth/verify`는 ver을 읽고도 **비교하지 않았다.**
+        # 올리기만 하고 아무도 안 보는 숫자였다(core/security.py:102, 아래 verify_email).
+        #
+        # 무효화가 왜 2026-07-22 수정의 일부였나 — 해시 갱신만으로는 **순서가 반대인**
+        # 선점이 남는다. 피해자가 먼저 가입해 링크 L을 받아두고(미인증), 공격자가 같은
+        # 주소로 뒤에 가입하면 저장된 해시가 공격자 것으로 덮인다. 그 뒤 피해자가 L을
+        # 누르면 계정이 '인증됨'이 되는데 비밀번호는 공격자 것이다 — 07-22가 막은 것과
+        # 똑같은 결과가 순서만 바꿔 성립한다. 이제 L은 옛 ver라 거부되고, 쓸 수 있는
+        # 링크는 방금 발급한 것뿐이며 그건 **피해자 메일함으로만** 간다.
         existing.hashed_password = hash_password(data.password)
         existing.token_version += 1
         db.commit()
         db.refresh(existing)
-        token = create_email_token(existing.id, purpose="verify")
+        token = create_email_token(
+            existing.id, purpose="verify", ver=existing.token_version
+        )
         link = f"{settings.frontend_base_url}/verify?token={token}"
         background.add_task(send_verification_email, existing.email, link)
     else:
@@ -221,10 +236,21 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     decoded = decode_email_token(token, purpose="verify")
     if decoded is None:
         raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크야")
-    user_id, _ = decoded
+    user_id, tok_ver = decoded
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없음")
+    # ver 대조. token_version이 그 사이에 올라갔으면(재가입·비번재설정) 이 링크는
+    # 그전 것이다 → 거부. 재설정 토큰을 1회용으로 만드는 판정과 같은 것이고, 여기서는
+    # 계정 선점을 막는 몫이다(위 register 주석). **문구는 위조·만료와 같게 둔다** —
+    # 구분해 알려주면 "이 링크는 진짜였는데 낡았다"가 되어 그 자체로 단서가 된다.
+    #
+    # 대가를 알고 받는다: 미인증 상태에서 비번 재설정을 하면 token_version이 올라
+    # 대기 중이던 인증 링크가 같이 죽는다. 그 사람은 다시 가입해 새 링크를 받아야 한다
+    # (미인증 계정은 24시간 뒤 services/cleanup.py가 지우므로 잔해도 안 남는다).
+    # 흔한 경로가 아니고, 반대쪽(옛 링크를 살려두는 것)은 위의 취약점 그대로다.
+    if user.token_version != tok_ver:
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크야")
     user.email_verified = True
     db.commit()
     db.refresh(user)
@@ -271,10 +297,79 @@ def _find_user_by_email(db: Session, email: str) -> User | None:
 _BCRYPT_SLOTS = threading.BoundedSemaphore(2)
 
 
+# 로그인 실패에 대한 **단일** 응답. 없는 계정·틀린 비번·잠긴 계정이 전부 이 한 줄이다.
+# _INVITE_INVALID와 같은 이유로 상수로 둔다 — 세 자리에 따로 적으면 한 곳만 손보는
+# 순간 응답이 갈리고, 갈리는 그 순간이 곧 계정 열거 오라클이다.
+_LOGIN_INVALID = "이메일 또는 비밀번호가 틀렸어"
+
+# 계정 단위 실패 상한과 창 (2026-09-02).
+#
+# 왜 IP 리밋으로 부족한가 — 위 `10/minute`의 키는 `client_ip()`가 뽑은 주소다. 그 주소는
+# 위조는 못 해도(core/ratelimit.py: XFF 뒤에서 hops번째) **여러 개 갖는 건 싸다.** 주소를
+# 나누면 한 계정에 대한 시도 상한이 사실상 bcrypt 처리량뿐이다 — 아래 _BCRYPT_SLOTS
+# 주석의 2026-08-26 실측대로 vCPU당 30~40건/분, 하루 5만 건 규모다. 흔한 비밀번호
+# 목록에는 그 속도로 충분하다. WAF의 rate-based 룰이 이걸 IP 밖에서 막아주지만 월 과금이라
+# 안 쓰기로 했다 — 그래서 계정 축은 앱이 든다.
+#
+# 20회·15분의 근거: 사람의 오타는 한 자릿수에서 끝난다(비번 관리자를 쓰면 더 적다).
+# 20이면 정상 사용자가 닿을 일이 사실상 없고, 공격자에게는 계정당 하루 1,920회로 상한이
+# 내려간다. 15분은 '잠긴 줄도 모르고 다른 일 하다 오면 풀려 있는' 길이다. 더 늘리면
+# 남의 계정을 잠그는 쪽(DoS)의 이득만 커진다.
+LOGIN_FAIL_WINDOW = timedelta(minutes=15)
+LOGIN_FAIL_MAX = 20
+
+
+def _record_login_failure(db: Session, user_id: int, now: datetime) -> None:
+    """실패를 그 계정 행에 +1. 창이 지났으면 같은 행을 새 창으로 재사용한다.
+
+    ON CONFLICT DO UPDATE 한 문장인 이유가 둘이다. 하나는 동시 실패가 서로의 증가를
+    덮어쓰지 않는 것(services/ai_usage.py의 increment_today와 같은 이유 — 읽고-쓰기면
+    lost update로 카운터가 과소집계되고, 그건 상한을 넘겨도 통과시키는 방향의 오차다).
+    또 하나는 계정당 1행이 유지되는 것 — 그래서 이 표가 사용자 수 이상으로 안 자란다.
+
+    **window_start는 창이 살아 있는 동안 움직이지 않는다.** 실패마다 밀면(sliding)
+    공격자가 15분마다 20번씩 틀려서 남의 계정을 **무기한** 잠글 수 있다. 지금은 창의
+    첫 실패로부터 15분 뒤에 반드시 풀린다.
+    """
+    fresh = LoginFailure.window_start > now - LOGIN_FAIL_WINDOW
+    db.execute(
+        pg_insert(LoginFailure)
+        .values(user_id=user_id, fail_count=1, window_start=now)
+        .on_conflict_do_update(
+            index_elements=["user_id"],
+            set_={
+                "fail_count": case((fresh, LoginFailure.fail_count + 1), else_=1),
+                "window_start": case((fresh, LoginFailure.window_start), else_=now),
+            },
+        )
+    )
+    db.commit()
+
+
+def _clear_login_failures(db: Session, user_id: int) -> None:
+    """그 계정의 실패 기록을 없앤다(로그인 성공·비번 재설정)."""
+    db.execute(delete(LoginFailure).where(LoginFailure.user_id == user_id))
+    db.commit()
+
+
 @router.post("/login", response_model=Token)
-@limiter.limit("10/minute")  # 무차별 비번 대입 속도 제한
+@limiter.limit("10/minute")  # 무차별 비번 대입 속도 제한 (IP 축. 계정 축은 아래 카운터)
 def login(request: Request, data: UserCreate, db: Session = Depends(get_db)):
+    now = datetime.now(UTC)
     user = _find_user_by_email(db, data.email)
+    # 잠금 상태는 **여기서 읽기만** 하고 응답은 bcrypt 뒤에서 낸다. 여기서 바로 거절하면
+    # 잠긴 계정만 해시 검사를 건너뛰어 응답이 빨라진다 — 아래 주석이 30~60배를 들여
+    # 없앤 타이밍 오라클을 잠금이 되살리는 셈이다.
+    record = (
+        db.scalar(select(LoginFailure).where(LoginFailure.user_id == user.id))
+        if user is not None
+        else None
+    )
+    locked = (
+        record is not None
+        and record.window_start > now - LOGIN_FAIL_WINDOW
+        and record.fail_count >= LOGIN_FAIL_MAX
+    )
     # 사용자 없거나 비밀번호 틀리면 동일한 401 (어느 쪽이 틀렸는지 안 알려줌 = 보안)
     #
     # ⚠️ **단락 평가를 쓰면 안 된다.** 전에는 `user is None or not verify_password(...)`
@@ -295,14 +390,39 @@ def login(request: Request, data: UserCreate, db: Session = Depends(get_db)):
     finally:
         _BCRYPT_SLOTS.release()
     if not ok:
-        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 틀렸어")
+        # 없는 계정에는 셀 행이 없다(user_id가 FK다). 그래서 '세는 것' 자체는 계정 유무를
+        # 아는 동작이지만, 그 앎이 응답으로 새지 않는다 — 아래 잠금 응답이 이것과 같은
+        # 401 한 줄이기 때문이다. 쓰기는 bcrypt(수백 ms) 뒤에 붙는 인덱스 upsert 하나라
+        # 타이밍 차이가 해시 비용에 묻힌다.
+        if user is not None:
+            _record_login_failure(db, user.id, now)
+        raise HTTPException(status_code=401, detail=_LOGIN_INVALID)
     assert user is not None  # ok가 True면 user가 있다(mypy용)
+    # 창 안에서 상한을 넘겼으면 **비밀번호가 맞아도** 거절한다.
+    #
+    # 상태코드도 문구도 위의 실패와 한 글자도 다르지 않다. 다르게 두면 "이 주소에는
+    # 잠글 만한 계정이 있다"가 되어, 지금 없는 계정 열거 취약점을 잠금이 새로 만든다
+    # (register·forgot-password가 응답을 하나로 맞추느라 들인 공을 로그인이 되돌리는 꼴).
+    # 없는 계정·틀린 비번·잠긴 계정 셋이 전부 같은 401이다.
+    #
+    # 여기서는 카운터를 올리지 않는다. 맞는 비밀번호는 실패가 아니고, 무엇보다 잠금을
+    # 연장시키면 안 된다. 창이 지나면 다음 시도에서 locked가 False가 되어 그냥 풀린다.
+    if locked:
+        raise HTTPException(status_code=401, detail=_LOGIN_INVALID)
     # 차단된 계정은 로그인 불가
     if user.role == BANNED_ROLE:
         raise HTTPException(status_code=403, detail="차단된 계정이야")
     # 이메일 미인증이면 로그인 불가 (봇 대량가입 차단)
     if not user.email_verified:
         raise HTTPException(status_code=403, detail="이메일 인증이 필요해 (메일함 확인)")
+    # 성공했으니 최근 실패 기록을 지운다. 오타 몇 번 뒤에 들어온 정상 사용자가 다음
+    # 실수 때 상한에 더 가까이 있지 않게 하는 것이 목적이다.
+    #
+    # **행이 있을 때만 쓴다.** 로그인마다 무조건 DELETE를 날리면 정상 경로에 쓰기가
+    # 하나 늘고(WAL·나중의 vacuum까지 따라온다) t2.micro에서 그건 공짜가 아니다.
+    # 위에서 이미 읽어뒀으므로 실패 이력이 없는 흔한 경우엔 추가 쓰기가 0이다.
+    if record is not None:
+        _clear_login_failures(db, user.id)
     return Token(access_token=create_access_token(user.id, user.token_version))
 
 
@@ -354,6 +474,11 @@ def reset_password(
     user.hashed_password = hash_password(data.new_password)
     user.token_version += 1  # 비번 바뀌면 기존 토큰·이 재설정 토큰 모두 무효화
     db.commit()
+    # 계정 단위 실패 카운터도 함께 지운다. 재설정에 성공했다는 건 그 메일함을 쥐고
+    # 있다는 뜻이라, 잠가둘 이유가 사라진다. 안 지우면 남이 20번 틀려 잠근 계정의
+    # 주인이 비밀번호를 새로 정하고도 창이 끝날 때까지 못 들어온다 — 잠금에 '푸는
+    # 방법'이 없으면 그건 방어가 아니라 남이 거는 DoS다.
+    _clear_login_failures(db, user.id)
     db.refresh(user)
     return user
 
