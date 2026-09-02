@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.display import display_name_of
+from app.core.ratelimit import limiter
 from app.models.author_subscription import AuthorSubscription
 from app.models.notification import Notification
-from app.models.user import User
+from app.models.user import PUBLIC_BLOG_ROLES, User
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
@@ -113,19 +114,52 @@ def subscribable_authors(
     # 구독할 수 있는 글쓴이(writer/admin) 목록 — 자기 자신은 제외
     rows = db.execute(
         select(User.id, User.display_name)
-        .where(User.role.in_(("writer", "admin")), User.id != user.id)
+        .where(User.role.in_(PUBLIC_BLOG_ROLES), User.id != user.id)
         .order_by(User.id)
     ).all()
     return [{"id": r.id, "name": display_name_of(r.id, r.display_name)} for r in rows]
 
 
+# 신청 대상이 아닌 id에 대한 **단일** 응답 (2026-09-02).
+#
+# "없는 사용자"와 "글쓴이가 아닌 사용자"를 같은 말로 돌려준다. 근거: 응답이 갈리면
+# 이 라우트가 곧 계정 존재 확인기가 된다 — id를 1부터 세면서 404("없다")와
+# 403("있지만 글쓴이가 아니다")를 구분해 **가입자 수와 id 배치**를 읽어낼 수 있다.
+# 글쓴이 목록은 이미 GET /subscriptions/authors 로 공개돼 있으니 숨길 게 없지만,
+# 글을 안 쓰는 독자·pending 계정의 존재는 어디에도 노출되지 않는다. 그 하나를 여기서
+# 새로 열지 않는다. auth.py의 _INVITE_INVALID가 만료/사용됨/위조를 한 문장으로 합친
+# 것과 같은 이유이고, 같은 모양으로 적는다.
+_NOT_SUBSCRIBABLE = "구독할 수 있는 글쓴이가 아니야"
+
+
 @router.post("", status_code=201)
-def subscribe(data: SubscribeIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+# 신청 한 번이 알림 행을 하나 만든다 — 한도가 없으면 pending 계정 하나로 남의
+# 알림함을 채울 수 있다(대상마다 새 신청이라 아래 멱등 처리로도 안 막힌다).
+# 30/hour는 이 저장소가 '사람이 손으로 하는 쓰기'에 쓰는 값이다(auth.py의
+# preview_invite, push.py의 subscribe와 같은 값) — 구독은 목록에서 몇 번 누르는
+# 동작이라 정상 사용이 이 안에 넉넉히 든다.
+@limiter.limit("30/hour")
+def subscribe(
+    request: Request,
+    data: SubscribeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     # 구독 = '신청'. 글쓴이가 승인해야 approved=true가 되어 열람/알림 권한이 생긴다.
     if data.author_id == user.id:
         raise HTTPException(status_code=400, detail="자기 자신은 구독할 수 없어")
-    if db.get(User, data.author_id) is None:
-        raise HTTPException(status_code=404, detail="글쓴이를 찾을 수 없음")
+    # **대상이 글을 공개할 수 있는 역할인지 본다.** 없으면 아무 id에나 신청이 만들어지고
+    # 그때마다 알림 행이 생겼다 — 위의 /authors 목록이 writer·admin만 보여주는데
+    # 정작 신청 자체는 그 목록 밖으로 나갈 수 있었다(화면만 좁고 API는 열린 형태).
+    # 역할 판정은 PUBLIC_BLOG_ROLES 하나로 모은다(models/user.py) — 여기와 /authors가
+    # 따로 적혀 있으면 한쪽만 고쳤을 때 목록에 없는 사람을 구독할 수 있게 된다.
+    subscribable = db.scalar(
+        select(User.id).where(
+            User.id == data.author_id, User.role.in_(PUBLIC_BLOG_ROLES)
+        )
+    )
+    if subscribable is None:
+        raise HTTPException(status_code=404, detail=_NOT_SUBSCRIBABLE)
     # 이미 신청/구독 중이면 그 상태를 그대로 반환(멱등)
     exists = db.scalar(
         select(AuthorSubscription).where(

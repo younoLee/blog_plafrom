@@ -107,9 +107,17 @@ export async function unsubscribePush(): Promise<void> {
 
   // 서버를 먼저 지운다. 순서를 뒤집으면 브라우저 구독은 사라졌는데 서버엔 남아,
   // 다음 발송이 죽은 endpoint로 나가고 그제서야 정리된다.
-  const res = await apiFetch(`${BASE}/push?endpoint=${encodeURIComponent(sub.endpoint)}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
+  //
+  // **endpoint를 URL이 아니라 본문에 싣는다** (2026-09-02). endpoint는 이 브라우저·이
+  // 기기를 지목하는 식별자인데, 쿼리스트링에 있으면 서버 액세스 로그와 중간 프록시에
+  // 원문이 남는다. 서버는 구경로(DELETE /push?endpoint=)도 당분간 받아주지만
+  // (routers/push.py의 unsubscribe_legacy 주석), 새 요청은 전부 이쪽으로 보낸다 —
+  // 구경로가 지워지는 시점은 '액세스 로그에서 호출이 0이 되는 때'라서, 프론트가
+  // 먼저 옮겨야 그 시점이 온다.
+  const res = await apiFetch(`${BASE}/push/unsubscribe`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: sub.endpoint }),
   })
   if (!res.ok) throw new Error('알림 해제에 실패했어')
   await sub.unsubscribe()

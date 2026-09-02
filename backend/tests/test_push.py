@@ -128,14 +128,57 @@ def test_shared_browser_transfers_ownership(
 # ── 해제 ────────────────────────────────────────────────────────────────────
 
 
+# 해제는 **POST /api/push/unsubscribe + 본문**이 현행 경로다 (2026-09-02).
+# endpoint는 기기 식별자라 쿼리스트링에 실으면 액세스 로그·중간 프록시에 남는다.
+# 구경로(DELETE /api/push?endpoint=)는 캐시된 옛 프론트를 위해 당분간 살려둔다 —
+# 아래 test_legacy_* 가 그 사실을 잠근다.
+
+
+def test_unsubscribe_this_device(client, make_user, auth_headers, db, push_on):
+    """이 기기만 끈다. 나머지 기기는 그대로 남아야 한다."""
+    user = make_user(role="pending")
+    h = auth_headers(user)
+    other = FAKE["endpoint"] + "-2"
+    client.post("/api/push", json=FAKE, headers=h)
+    client.post("/api/push", json={**FAKE, "endpoint": other}, headers=h)
+
+    r = client.post(
+        "/api/push/unsubscribe", json={"endpoint": FAKE["endpoint"]}, headers=h
+    )
+    assert r.status_code == 204
+    left = db.scalars(
+        select(PushSubscription.endpoint).where(PushSubscription.user_id == user.id)
+    ).all()
+    assert left == [other]
+
+
+def test_unsubscribe_keeps_endpoint_out_of_the_url(client, make_user, auth_headers, push_on):
+    """이 변경의 **이유 자체**를 잠근다 — endpoint가 요청 줄에 실리면 안 된다.
+
+    요청 URL에 남으면 uvicorn 액세스 로그와 CloudFront 로그에 원문이 그대로 찍힌다.
+    응답에서는 감추면서(test_status_hides_endpoints) 요청 줄에는 매번 찍던 것이 문제였다."""
+    user = make_user(role="pending")
+    h = auth_headers(user)
+    client.post("/api/push", json=FAKE, headers=h)
+
+    r = client.post(
+        "/api/push/unsubscribe", json={"endpoint": FAKE["endpoint"]}, headers=h
+    )
+    assert r.status_code == 204
+    assert str(r.request.url) == "http://testserver/api/push/unsubscribe"
+    assert "abc123" not in str(r.request.url)  # endpoint의 고유 부분
+
+
 def test_unsubscribe_only_touches_own(client, make_user, auth_headers, db, push_on):
     """남의 endpoint를 아는 사람이 그 사람 알림을 꺼버릴 수 있으면 안 된다."""
     victim = make_user(role="pending")
     attacker = make_user(role="pending")
     client.post("/api/push", json=FAKE, headers=auth_headers(victim))
 
-    r = client.delete(
-        f"/api/push?endpoint={FAKE['endpoint']}", headers=auth_headers(attacker)
+    r = client.post(
+        "/api/push/unsubscribe",
+        json={"endpoint": FAKE["endpoint"]},
+        headers=auth_headers(attacker),
     )
     assert r.status_code == 204  # 조용히 아무것도 안 지운다
     assert db.scalar(
@@ -144,11 +187,33 @@ def test_unsubscribe_only_touches_own(client, make_user, auth_headers, db, push_
 
 
 def test_unsubscribe_all_devices(client, make_user, auth_headers, db, push_on):
+    """본문에 endpoint가 없으면(null) 이 계정의 전 기기. 구경로의 '인자 없음'과 같다."""
     user = make_user(role="pending")
     h = auth_headers(user)
     client.post("/api/push", json=FAKE, headers=h)
     client.post("/api/push", json={**FAKE, "endpoint": FAKE["endpoint"] + "-2"}, headers=h)
-    assert client.delete("/api/push", headers=h).status_code == 204
+    assert client.post("/api/push/unsubscribe", json={}, headers=h).status_code == 204
+    assert db.scalars(
+        select(PushSubscription).where(PushSubscription.user_id == user.id)
+    ).all() == []
+
+
+def test_unsubscribe_requires_auth(client, push_on):
+    assert client.post("/api/push/unsubscribe", json={}).status_code == 401
+
+
+def test_legacy_delete_route_still_works(client, make_user, auth_headers, db, push_on):
+    """구경로를 **아직** 살려둔다.
+
+    서비스워커가 붙은 앱이라 이미 설치된 브라우저는 캐시된 옛 번들을 얼마간 더
+    실행한다. 지금 지우면 그 기기들의 '알림 끄기'가 405가 되어 **끌 수가 없다** —
+    개인정보를 줄이려던 변경이 알림을 계속 받게 만드는 결과가 된다.
+    이 테스트가 실패하면(=경로를 지웠으면) 그건 의도한 정리일 때만이다."""
+    user = make_user(role="pending")
+    h = auth_headers(user)
+    client.post("/api/push", json=FAKE, headers=h)
+    r = client.delete(f"/api/push?endpoint={FAKE['endpoint']}", headers=h)
+    assert r.status_code == 204
     assert db.scalars(
         select(PushSubscription).where(PushSubscription.user_id == user.id)
     ).all() == []

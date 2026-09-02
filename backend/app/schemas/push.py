@@ -28,3 +28,17 @@ class PushSubscribe(SafeModel):
     endpoint: str = Field(min_length=10, max_length=2000)
     p256dh: str = Field(min_length=10, max_length=255)
     auth: str = Field(min_length=10, max_length=255)
+
+
+class PushUnsubscribe(SafeModel):
+    """해제 대상. endpoint를 주면 그 기기만, 없으면(null) 이 계정의 전 기기.
+
+    상한은 형제인 PushSubscribe.endpoint와 같은 값이다. SafeModel을 타므로
+    NUL·고아 서로게이트가 여기서 자동으로 422가 된다. 구경로(DELETE /api/push)가
+    has_nul을 손으로 부르던 자리를 스키마가 대신한다.
+
+    2026-09-02에 생겼다. 그전엔 해제 대상이 쿼리스트링이라 기기 식별자가 액세스
+    로그에 남았다(초대 토큰을 본문으로 옮긴 것과 같은 이유).
+    """
+
+    endpoint: str | None = Field(default=None, max_length=2000)

