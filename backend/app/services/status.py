@@ -6,6 +6,7 @@
 - get_history(days): 일별 업타임 집계 (업타임 페이지가 사용)
 """
 
+import logging
 import smtplib
 import threading
 import time
@@ -18,6 +19,10 @@ from sqlalchemy.pool import NullPool
 from app.core.config import settings
 from app.core.database import SessionLocal, engine
 from app.models.status_check import StatusCheck
+
+# main.py의 lifespan이 basicConfig로 app 로거를 INFO로 켠다 — 그전엔 핸들러가 0개라
+# 이런 줄이 한 줄도 안 나갔다(같은 파일 주석 참고). exception은 WARNING 위라 그때도 나간다.
+logger = logging.getLogger(__name__)
 
 # 자가 점검 기록 간격(초)
 RECORD_INTERVAL = 60
@@ -237,8 +242,13 @@ def _recorder_loop() -> None:
         try:
             record_check()
         except Exception:
-            # 기록 실패해도 루프는 계속 (다음 주기에 재시도)
-            pass
+            # 기록 실패해도 루프는 계속 돈다(다음 주기에 재시도). **삼키지는 않는다** —
+            # 이 스레드는 호출자가 없어서 여기서 조용히 넘기면 실패가 어디에도 안 남고,
+            # 결과는 상태 페이지의 일별 집계에 구멍으로만 나타난다. 그 구멍은 '그 시각에
+            # 서버가 꺼져 있었다'와 화면상 구분이 안 되므로 **아무도 모른다**.
+            # services/cleanup.py가 같은 자리(백그라운드 + 호출자 없음)에서 이미
+            # logger.exception을 쓴다 — 배운 자리 옆이 안 쓸려 있었다(2026-09-02).
+            logger.exception("상태 점검 기록 실패 — 이번 주기는 업타임에 한 줄도 안 남는다")
         time.sleep(RECORD_INTERVAL)
 
 

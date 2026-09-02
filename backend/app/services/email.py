@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import time
 from email.message import EmailMessage
 from html import escape as html_escape
 
@@ -26,6 +27,24 @@ logger = logging.getLogger(__name__)
 # 여기는 요청 경로가 아니라서 CloudFront 60초 예산과 무관하다 — 지켜야 할 건
 # '스레드풀 슬롯이 반드시 돌아온다' 하나뿐이다. (2026-08-10 심층검사)
 SMTP_TIMEOUT = 10
+
+# 팬아웃 전체에 거는 시간 예산(초). **수신자 1명당 상한(SMTP_TIMEOUT)만으로는 안 된다** —
+# 그건 한 통의 상한이고, notify_new_post는 수신자마다 연결을 새로 열어 N번 반복한다.
+# SES가 죽으면 최악이 10초 × N이고 N에 상한이 없다. 구독자가 늘수록 선형으로 는다.
+#
+# 무엇을 붙드는가: 이 루프는 위에서 db.close()를 먼저 하므로 DB 커넥션은 안 쥔다
+# (그래서 services/push.py의 예산 주석이 말하는 '커넥션이 먼저 마른다'는 여기 해당 없다).
+# 남는 것은 **스레드풀 슬롯 하나**다. BackgroundTask의 sync 함수는 Starlette이 풀에서
+# 돌리고, 40칸짜리 풀에서 한 칸이 몇 분씩 묶이면 그동안 다른 백그라운드 작업이 밀린다.
+#
+# 45초인 이유: services/push.py의 DELIVER_BUDGET_SECONDS와 **일부러 같은 값**이다.
+# 두 경로는 같은 발행 하나에서 나란히 돌고 실패 모양도 같아서, 값이 갈리면 "왜 푸시는
+# 끊겼는데 메일은 아직 도나"를 매번 다시 따져야 한다. 정상 발송은 1명당 1초 미만이라
+# 수십 명까지 여유가 있고, 장애 시에는 4~5명에서 끊긴다(1명당 10초).
+# 못 보낸 메일은 다음 발행 때 다시 기회가 있다. 이 서버는 메일이 스팸함으로 가서
+# 실제로 닿는 건 푸시 쪽이라(README), 메일을 위해 슬롯을 더 태울 이유가 없다.
+# (2026-09-02 공백 검사: 푸시에는 예산이 있는데 같은 모양의 메일 팬아웃에는 없었다)
+SEND_BUDGET_SECONDS = 45
 
 
 def _background_send(kind: str, **kw) -> None:
@@ -184,7 +203,21 @@ def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:
     # (2026-08-11 교차검증)
     sent = 0
     failed = 0
+    # 시도와 성공을 가른다(push.py가 08-27에 같은 자리에서 배운 것). 예외를 삼킨 뒤에도
+    # 세는 카운터 하나만 있으면 "5/20명에서 중단"이 '5명은 받았다'로 잘못 읽힌다.
+    tried = 0
+    deadline = time.monotonic() + SEND_BUDGET_SECONDS
     for email in emails:
+        if time.monotonic() > deadline:
+            logger.warning(
+                "새 글 알림 메일 예산 초과 — %d/%d명 시도(성공 %d명)에서 중단, "
+                "남은 사람은 이번 발행 메일을 못 받는다",
+                tried,
+                len(emails),
+                sent,
+            )
+            break
+        tried += 1
         try:
             send_email(
                 to=email,
@@ -198,7 +231,16 @@ def notify_new_post(post_id: int, post_title: str, author_id: int) -> None:
             # 조용히 넘기지는 않는다. 주소별 사유는 스택으로 남긴다.
             failed += 1
             logger.exception("새 글 알림 메일 실패 (수신자 1건)")
-    if failed:
-        logger.warning("새 글 알림: %d명 성공 / %d명 실패 (총 %d)", sent, failed, len(emails))
+    # 예산에 걸려 남은 사람이 있으면 그 사실이 로그에서 사라지면 안 된다.
+    # 이 저장소가 반복해 배운 것: '없음'과 '못 봤음'을 가른다.
+    skipped = len(emails) - tried
+    if failed or skipped:
+        logger.warning(
+            "새 글 알림: %d명 성공 / %d명 실패 / %d명 미시도 (총 %d)",
+            sent,
+            failed,
+            skipped,
+            len(emails),
+        )
     elif sent:
         logger.info("새 글 알림: %d명에게 발송", sent)

@@ -57,8 +57,22 @@ _CONNECT_ARGS = {
     "keepalives_count": 3,
 }
 
+# hide_parameters — **로그에 사용자 입력이 남지 않게 한다**(2026-09-02).
+# SQLAlchemy는 예외를 문자열로 만들 때 실행한 SQL과 **바인딩 값**을 함께 붙인다.
+# main.py의 DataError 핸들러가 `logger.warning("DB가 값을 거절: %s", exc)`로 예외를
+# 통째로 찍고 있었으므로, 그 값(이메일·댓글/글 본문 등 사용자가 보낸 원문)이 그대로
+# 컨테이너 로그에 남았다. 같은 파일의 db_unavailable이 `exc.orig`만 찍는 것이 같은
+# 함정을 이미 한 번 피한 자리인데, 바로 옆 핸들러가 안 쓸려 있었다.
+# 핸들러마다 무엇을 찍을지 고르는 대신 엔진에서 한 번 막는다 — 예외를 문자열로 만드는
+# 자리는 앞으로도 또 생기고(로깅·트레이스백), 그때마다 다시 새기 때문이다.
+# 진단은 안 잃는다: SQL 문과 예외 종류·DB 메시지는 그대로 남고 값 자리만 가려진다.
+#
+# **범위 주의**: 이건 이 엔진에만 걸린다. services/status.py의 `_probe_engine`은 별도지만
+# 거기서 도는 건 파라미터 없는 `SELECT 1`뿐이라 남을 값이 없다. tests/conftest.py도
+# 자기 엔진을 따로 만든다 — 테스트에서 이 옵션을 확인할 수 없다는 뜻이라 적어둔다.
 engine = create_engine(
     settings.database_url,
+    hide_parameters=True,
     pool_pre_ping=True,
     pool_recycle=300,
     pool_size=10,
