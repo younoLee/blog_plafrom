@@ -30,11 +30,15 @@ resource "aws_cloudfront_function" "spa" {
   code    = file("${path.module}/spa-routing-function.js")
 }
 
-# 큰 요청 본문(>6MB)을 엣지에서 413으로 차단 → EC2(t2.micro)에 닿기 전에 대용량 본문 DoS 방지
+# 큰 요청 본문을 엣지에서 413으로 차단 → EC2(t2.micro)에 닿기 전에 대용량 본문 DoS 방지.
+# 2026-09-02부터 상한이 경로별이다: /api/upload만 6MB, 나머지는 512KB.
+# (6MB는 이미지 업로드 때문에 잡은 값인데 /api/auth/login 같은 무인증 JSON 경로까지
+#  같은 6MB를 받고 있었다. 앱의 BodySizeLimitMiddleware와 같은 정책으로 맞춘 것 —
+#  근거는 reqsize-function.js 주석과 backend/app/main.py 참고)
 resource "aws_cloudfront_function" "reqsize" {
   name    = "limit-request-body"
   runtime = "cloudfront-js-2.0"
-  comment = "Content-Length 6MB 초과 요청을 엣지에서 413 (원본 DoS 방지)"
+  comment = "Content-Length 상한 초과 요청을 엣지에서 413 (upload 6MB / 그 외 512KB)"
   publish = true
   code    = file("${path.module}/reqsize-function.js")
 }
@@ -44,8 +48,31 @@ resource "aws_cloudfront_distribution" "main" {
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
-  http_version        = "http2"
-  price_class         = "PriceClass_All"
+  # HTTP/3(QUIC)를 켠다. 2026-09-02까지 "http2"였는데, 그건 고른 결과가 아니라 기록이
+  # 없는 기본값이었다(저장소 어디에도 http3를 검토한 흔적이 없다).
+  #
+  # 돈이 드는가: **안 든다.** 이 배포가 물려 있는 flat-rate 요금제 문서의
+  # "Features by pricing plan tier" 표에서 HTTP/3 행은 Free·Pro·Business·Premium
+  # **네 등급 모두 Yes**다(docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/
+  # flat-rate-pricing-plan.html, 2026-09-02 확인). 같은 표의 Access Logs 행은 Free만
+  # 비어 있는데, 그게 아래 logging_config 주석이 적은 2026-08-15의 실패와 정확히
+  # 일치한다 — 즉 이 표는 이 배포의 실제 제약을 맞게 설명하고 있고, 그 표가 HTTP/3는
+  # 된다고 말한다. price_class(PriceClass_All)나 WAF 연결과도 무관한 항목이다.
+  # 요금제가 바뀌는 게 아니므로 새 리소스도, 월 과금도 생기지 않는다.
+  #
+  # 구형 클라이언트는 어떻게 되는가: "http2and3"는 **HTTP/3를 추가로 제안**하는 것이지
+  # 강제가 아니다. QUIC은 TLSv1.3 + SNI를 지원하는 뷰어만 쓰고, 안 되는 쪽은 그대로
+  # HTTP/2나 HTTP/1.1로 붙는다. 즉 잃는 사용자가 없다.
+  # 얻는 것: 이 사이트는 모바일 방문이 있고 첫 화면에 정적 자산이 여러 개 붙는다.
+  # QUIC은 연결 수립이 짧고(0/1-RTT) 네트워크가 바뀌어도 연결을 유지한다(connection
+  # migration, RFC 9000) — 지하철에서 Wi-Fi↔LTE가 바뀌는 방문이 그 대상이다.
+  #
+  # ⚠️ 이 저장소의 습관대로: **설정했다와 동작한다는 다르다.** 적용 뒤에 실제로
+  # 확인할 것 — 응답에 alt-svc: h3=":443" 이 붙는지, 또는
+  #   curl --http3 -s -o /dev/null -w '%{http_version}\n' https://<배포>/ → 3
+  # 이 나오는지. 안 나오면 켜진 게 아니다.
+  http_version = "http2and3"
+  price_class  = "PriceClass_All"
   # CloudFront Free(flat-rate) 요금제에 '번들로 포함된' 무료 WAF (CreatedByCloudFront).
   # 이 요금제는 WAF를 필수로 요구해서 뗄 수 없다 — 떼려면 pay-as-you-go 전환이 필요하고
   # 그럼 오히려 CloudFront가 과금된다. 즉 이 WAF는 사실상 무료라 그대로 둔다.
@@ -72,6 +99,31 @@ resource "aws_cloudfront_distribution" "main" {
   origin {
     origin_id   = "api-backend"
     domain_name = local.api_origin_domain
+
+    # 주차(서버 정지) 상태에서 /api/*가 30초를 끌다 504가 되던 문제. 2026-09-02 실측:
+    #   curl -w '%{http_code} %{time_starttransfer}' .../api/posts → 504 30.1s
+    # 원인은 기본값이다 — 연결 시도 3회 × 연결 타임아웃 10초 = 30초. 주차는 '빨리
+    # 실패하라'는 fail-closed 장치인데, 30초를 끌면 브라우저 탭이 멈춘 것처럼 보이고
+    # 그 사이 CloudFront 연결도 붙잡고 있다. 1 × 1초로 낮춰 1초 안에 끝내게 한다.
+    #
+    # 왜 안전한가:
+    #   · 이건 **TCP 연결 수립 단계에만** 걸리는 노브다. 오리진이 응답을 만드는 데
+    #     걸리는 시간은 아래 origin_read_timeout(60초)이 따로 담당한다 — AI 초안
+    #     생성이 60초를 쓰는 것과 이 값은 무관하다. 둘을 헷갈려 read를 1초로 만든
+    #     것이 아니라는 뜻이다.
+    #   · 서버가 켜져 있을 때 연결은 1초 안에 붙는다. 오리진이 같은 리전(서울)의
+    #     EC2이고 CloudFront 서울 엣지에서의 RTT가 수 ms 수준이라, TCP 3-way에
+    #     1초는 정상 구간 대비 두 자릿수 배 여유다.
+    #   · 재시도를 3회→1회로 줄이면 '한 번의 SYN 유실'을 흡수하지 못하는 것은 맞다.
+    #     그 대가로 얻는 게 크다고 봤다: 실패 경로가 30초에서 1초가 되고, 정상
+    #     경로에서는 애초에 재시도가 일어나지 않으므로 잃는 게 없다. 되돌리려면
+    #     connection_attempts만 3으로 올리면 된다(연결 지연은 다시 최대 30초).
+    #
+    # 값의 유효 범위(CloudFront가 강제한다. 벗어나면 apply가 400으로 실패한다):
+    #   connection_attempts 1~3 (기본 3), connection_timeout 1~10초 (기본 10).
+    # 즉 여기 쓴 1·1이 각각 허용 최소값이고, 주차 상태의 최대 지연은 1×1=1초다.
+    connection_attempts = 1
+    connection_timeout  = 1
 
     custom_origin_config {
       http_port              = local.api_origin_port
@@ -131,7 +183,8 @@ resource "aws_cloudfront_distribution" "main" {
     origin_request_policy_id   = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewerExceptHostHeader
     response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
 
-    # 큰 요청 본문(>6MB)을 엣지에서 413 차단 (원본 DoS 방지). API 경로에만 연결.
+    # 큰 요청 본문을 엣지에서 413 차단 (원본 DoS 방지). API 경로에만 연결.
+    # 상한은 함수가 request.uri로 고른다: /api/upload 6MB, 그 외 512KB.
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.reqsize.arn
