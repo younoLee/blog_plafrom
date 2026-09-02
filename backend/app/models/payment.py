@@ -22,7 +22,13 @@ class Payment(Base):
     # 우리가 발급하는 주문 고유 ID (토스 orderId로 사용). 유니크 = 멱등 키
     order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     amount: Mapped[int] = mapped_column(Integer)  # 원 단위
-    # pending(주문생성) / paid(승인완료) / failed(승인거절)
+    # pending(주문생성) / confirming(승인 호출 중) / paid(승인완료) / failed(승인거절)
+    #
+    # confirming 은 2026-09-02에 생겼다. 그전에는 행을 잠근 채로 토스를 최대 15초
+    # 기다려서, 그동안 커넥션과 잠금을 함께 쥐고 있었다. 지금은 confirming 으로 먼저
+    # 커밋해 잠금을 풀고 외부 호출을 한다(routers/ai.py 가 먼저 쓰던 방식).
+    # 그래서 confirming 은 '결제가 확정되지 않았다'는 뜻이지 실패가 아니다 —
+    # 같은 paymentKey 로 다시 오면 재시도가 허용된다(routers/payments.py 참고).
     status: Mapped[str] = mapped_column(String(20), server_default="pending")
     order_name: Mapped[str] = mapped_column(String(100), server_default="")
     # 토스가 발급한 결제 키 (승인 후 저장, 환불 등에 사용)
