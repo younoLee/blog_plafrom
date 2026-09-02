@@ -254,6 +254,15 @@ async def db_bad_value(request: Request, exc: DataError):
     '코드가 틀렸다'와 '제약을 어겼다'가 '입력이 나쁘다'로 둔갑한다 — 위 두 핸들러와 같은 이유다.
 
     원인 문자열은 로그에만 남긴다(스키마·컬럼명을 밖에 알려줄 이유가 없다).
+
+    그런데 그 '원인 문자열'에 **바인딩 값이 딸려 온다**. SQLAlchemy는 예외를 문자열로
+    만들 때 실행한 SQL과 파라미터를 함께 붙이므로, 여기서 `exc`를 통째로 찍으면
+    사용자가 보낸 원문(이메일·글 본문 등)이 액세스 로그에 그대로 남았다.
+    위 db_unavailable이 `exc.orig`만 찍는 것이 같은 함정을 이미 한 번 피한 자리인데
+    이 핸들러만 안 쓸려 있었다(2026-09-02에 확인).
+    막는 자리는 여기가 아니라 **엔진**이다 — core/database.py에 `hide_parameters=True`를
+    줬다. 예외를 문자열로 만드는 자리는 여기 말고도 또 생기므로(위 '고친 자리 옆의
+    안 쓸린 입구'와 같은 판단), 필드가 아니라 입구에서 막는 것과 같은 이유다.
     """
     logger.warning("DB가 값을 거절: %s", exc)
     return JSONResponse({"detail": "입력에 사용할 수 없는 값이 있어."}, status_code=400)
@@ -265,9 +274,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 요청 본문 크기 상한 (t2.micro 메모리 고갈 DoS 방지).
-# 이미지 업로드(5MB)는 통과하도록 6MB.
-MAX_BODY_BYTES = 6 * 1024 * 1024
+# 요청 본문 크기 상한 (t2.micro 메모리 고갈 DoS 방지). **경로마다 다르다**(2026-09-02).
+#
+# 왜 둘인가. 예전엔 전 경로 6MB 하나였다. 6MB는 이미지 업로드(5MB, routers/uploads.py의
+# MAX_BYTES)를 통과시키려고 잡은 값인데, 그 값이 `/api/auth/login`·익명 댓글·
+# `/api/auth/forgot-password` 같은 **무인증 JSON 경로**에도 그대로 걸려 있었다.
+# JSON 본문은 파싱 전에 통째로 메모리에 올라오고 slowapi 레이트리밋은 그 **뒤**에 돈다 —
+# 한도에 걸리기 전에 이미 5.9MB를 받는다는 뜻이다. 운영은 t2.micro(호스트 957MB·스왑 0)에
+# backend 컨테이너 400m 상한이라 그런 연결 수십 개면 OOM으로 컨테이너가 죽는다.
+# 업로드 때문에 넓힌 문이 업로드와 무관한 입구까지 같이 넓혀둔 모양이다.
+#
+# 512KB의 근거 — **정상 JSON 요청 중 가장 큰 것을 스키마에서 실제로 세어봤다**:
+#   · POST/PUT /api/posts : content 50,000자(schemas/post.py CONTENT_MAX) + 제목 200
+#     + 태그 10×30 + 커버 500 + 연재 100 ≈ 51,100자. 이게 최대다.
+#   · PUT /api/skin       : custom_css 50,000자(schemas/user.py CSS_MAX)
+#   · 나머지(로그인·댓글 2,000자·AI 메모 5,000자·푸시 구독)는 자릿수가 다르다.
+#   브라우저가 보내는 모양(JSON.stringify는 비ASCII를 이스케이프하지 않는다) 기준으로
+#   한글 3바이트/자 ≈ 150KB, 전부 이모지(4바이트/자)여도 ≈ 205KB다. 512KB는 그 2.5배다.
+#
+# 엣지와 같은 값이기도 하다 — terraform/reqsize-function.js가 같은 정책(업로드만
+# 6291456, 나머지 524288)을 Content-Length로 본다. 두 곳이 갈리면 "엣지는 통과시켰는데
+# 앱이 413"(또는 반대)이 되어, 어느 층이 막았는지 로그만 보고는 못 가린다. 한쪽을
+# 고치면 다른 쪽도 같이 고쳐야 한다.
+#
+# **안 덮는 경계도 적어둔다**(재보고 고른 것이지 잊은 것이 아니다): ensure_ascii로
+# 이스케이프하는 클라이언트(파이썬 requests의 `json=`)가 50,000자를 **전부 BMP 밖
+# 문자**로 보내면 대리쌍 이스케이프라 12바이트/자 ≈ 600KB가 되어 여기 걸린다.
+# 브라우저에서는 만들어질 수 없는 모양이고, 걸려도 413이라 조용하지 않다. 상한을 더
+# 올려 그 경우까지 덮기보다 이 경계를 적어두는 쪽을 골랐다 — 상한을 1MB로 하면 위
+# OOM 계산에서 남는 여유가 절반으로 준다.
+MAX_BODY_BYTES = 512 * 1024
+
+# 업로드만 예외로 6MB(5MB 파일 + multipart 경계·헤더 여유). **정확히 이 한 경로만**이다.
+UPLOAD_PATH = "/api/upload"
+MAX_UPLOAD_BODY_BYTES = 6 * 1024 * 1024
+
+
+def _mb(n: int) -> str:
+    """413 문구에 쓸 MB 표기. 정수 나눗셈(`n // (1024*1024)`)을 그대로 두면 512KB가
+    **'최대 0MB'**가 되어 문구가 거짓말을 한다. 문장은 그대로 두고 숫자만 맞춘다."""
+    return f"{n / (1024 * 1024):g}"
 
 
 async def _no_body() -> dict:
@@ -297,13 +343,30 @@ class BodySizeLimitMiddleware:
     receive 채널을 우리가 쥐고 있어야 세면서 끊을 수 있다.
     """
 
-    def __init__(self, app, max_bytes: int) -> None:
+    def __init__(self, app, max_bytes: int, upload_max_bytes: int | None = None) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        # 업로드 상한을 안 주면 예전처럼 전 경로 한 값으로 돈다. ASGI 레벨 테스트가
+        # 그 모양(상한 하나)으로 스트림 동작을 검증하므로 기본값을 남겨둔다.
+        self.upload_max_bytes = max_bytes if upload_max_bytes is None else upload_max_bytes
 
-    async def _too_large(self, scope, send) -> None:
+    def _limit_for(self, scope) -> int:
+        """이 요청에 걸 상한. **판정은 ASGI scope의 path로 한다**(2026-09-02).
+
+        `scope["path"]`에는 쿼리스트링이 안 들어간다(그건 `query_string`에 따로 있다).
+        그래서 여기서 접을 것은 후행 슬래시뿐이고, 비교는 **정확히 같은가**로 한다 —
+        접두사 매칭(`startswith`)이면 `/api/uploadsomething` 같은 경로가 6MB를 얻는다.
+        무인증 경로 하나만 잘못 넓혀도 위 OOM 계산이 그대로 되살아난다.
+        """
+        path = scope.get("path", "")
+        if path.rstrip("/") == UPLOAD_PATH:
+            return self.upload_max_bytes
+        return self.max_bytes
+
+    async def _too_large(self, scope, send, limit: int) -> None:
+        # 문구는 예전 것 그대로다. 상한만 경로에서 뽑아 쓴다.
         response = JSONResponse(
-            {"detail": f"요청 본문이 너무 큽니다 (최대 {self.max_bytes // (1024 * 1024)}MB)"},
+            {"detail": f"요청 본문이 너무 큽니다 (최대 {_mb(limit)}MB)"},
             status_code=413,
         )
         await response(scope, _no_body, send)
@@ -311,6 +374,10 @@ class BodySizeLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+
+        # Content-Length 경로와 chunked 버퍼링 경로가 **같은 값**을 봐야 한다.
+        # 한쪽만 경로별로 만들면 넓은 쪽이 그대로 우회로가 된다(07-30에 배운 그 모양).
+        limit = self._limit_for(scope)
 
         cl = Headers(scope=scope).get("content-length")
         if cl is not None:
@@ -320,12 +387,12 @@ class BodySizeLimitMiddleware:
                 declared = None  # 깨진 CL은 판단 근거가 아니다 → 아래 스트림 검사로 넘긴다
             if declared is not None:
                 # 가장 싼 경로: 본문을 한 바이트도 읽지 않고 판정한다.
-                if declared > self.max_bytes:
-                    return await self._too_large(scope, send)
+                if declared > limit:
+                    return await self._too_large(scope, send, limit)
                 return await self.app(scope, receive, send)
 
         # CL이 없다(chunked) → 상한까지만 버퍼링하며 읽고, 넘는 순간 앱을 부르지 않고 끊는다.
-        # 버퍼가 상한(6MB)으로 묶이므로 노출은 위 CL 경로와 같다.
+        # 버퍼가 그 경로의 상한(업로드 6MB, 그 외 512KB)으로 묶이므로 노출은 위 CL 경로와 같다.
         buffered: list[dict] = []
         total = 0
         while True:
@@ -334,8 +401,8 @@ class BodySizeLimitMiddleware:
                 buffered.append(message)  # http.disconnect 등은 그대로 전달
                 break
             total += len(message.get("body", b""))
-            if total > self.max_bytes:
-                return await self._too_large(scope, send)
+            if total > limit:
+                return await self._too_large(scope, send, limit)
             buffered.append(message)
             if not message.get("more_body", False):
                 break
@@ -350,7 +417,11 @@ class BodySizeLimitMiddleware:
         await self.app(scope, replay, send)
 
 
-app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_BODY_BYTES)
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_bytes=MAX_BODY_BYTES,
+    upload_max_bytes=MAX_UPLOAD_BODY_BYTES,
+)
 
 
 # 헬스체크만 시크릿 검사에서 뺀다. 이 둘은 CloudFront를 거치지 않고 오리진을 직접

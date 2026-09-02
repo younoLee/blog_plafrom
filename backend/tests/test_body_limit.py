@@ -9,22 +9,43 @@
   ② 상한 이하 요청의 본문은 **조각 순서까지 그대로** 앱에 전달된다(replay).
 ②가 없으면 ①을 고치다가 정상 업로드를 조용히 망가뜨린다.
 
+2026-09-02에 셋째가 붙었다:
+  ③ 상한은 **경로마다 다르다**. 6MB는 이미지 업로드 때문에 잡은 값인데 그게 무인증
+     JSON 경로(로그인·댓글·비밀번호 찾기)에도 그대로 걸려 있었다. 그 경로들의 본문은
+     파싱 전에 통째로 메모리에 쌓이고 레이트리밋은 그 뒤에 돈다 → t2.micro 400m
+     컨테이너에서 OOM 경로다. 이제 `/api/upload`만 6MB, 나머지는 512KB다.
+     이 파일의 기존 테스트는 전 경로 6MB를 가정하고 쓰였으므로, 상수를 그대로 쓰되
+     그 상수의 값이 512KB로 바뀐 것을 따라간다(아래 주석 참고).
+
 HTTP 레벨(TestClient)은 본문을 한 덩어리로 합쳐 넘기므로 조각 경계를 재현하지 못한다.
 그래서 스트리밍 동작은 미들웨어를 ASGI 레벨에서 직접 호출해 검증한다.
+경로별 상한도 마찬가지다 — 조각난 스트림에서 어느 상한이 골라지는지는 ASGI 레벨에서 본다.
 """
 import asyncio
 import json
 
-from app.main import MAX_BODY_BYTES, BodySizeLimitMiddleware
+from app.main import (
+    MAX_BODY_BYTES,
+    MAX_UPLOAD_BODY_BYTES,
+    UPLOAD_PATH,
+    BodySizeLimitMiddleware,
+)
+
+# 유효 PNG 매직바이트(test_uploads.py와 같은 것). 업로드 경로를 실제로 태우는 데 쓴다.
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+ONE_MB = 1024 * 1024
 
 # ── HTTP 레벨: 실제 앱을 통과시켜 우회가 막혔는지 본다 ──────────────────────
 
 
-def _over_limit_chunks():
+def _over_limit_chunks(limit: int = MAX_BODY_BYTES):
     """상한을 넘기는 본문. content=제너레이터면 httpx가 Content-Length를 안 붙이고
-    Transfer-Encoding: chunked로 보낸다 = 어제 우회에 쓰인 그 모양."""
+    Transfer-Encoding: chunked로 보낸다 = 어제 우회에 쓰인 그 모양.
+
+    limit을 인자로 받게 바꿨다(2026-09-02) — 경로마다 상한이 달라져서, '넘긴다'가
+    어느 상한 기준인지 호출부가 말해야 한다."""
     sent = 0
-    while sent <= MAX_BODY_BYTES:
+    while sent <= limit:
         yield b"a" * (256 * 1024)
         sent += 256 * 1024
 
@@ -66,6 +87,50 @@ def test_chunked_body_under_limit_reaches_app_intact(client):
     assert r.status_code == 401
 
 
+# ── 경로별 상한 (2026-09-02) ──────────────────────────────────────────────
+#
+# 이 셋이 못박는 것: 업로드 때문에 넓힌 문이 **업로드 경로에만** 넓다.
+# 예전엔 셋 다 6MB 하나로 통과했으므로, 여기가 회귀하면 OOM 경로가 그대로 돌아온다.
+
+
+def test_json_route_blocks_1mb_body(client):
+    """무인증 JSON 경로는 1MB에서 막힌다. 이게 이번 변경의 본체다.
+
+    1MB는 정상 요청 중 가장 큰 것(POST /api/posts, 본문 50,000자 ≈ 150~205KB)보다
+    한참 위다 — 정상 트래픽을 자르지 않으면서 6MB 노출만 없앤 자리를 고른 것이다.
+    """
+    r = client.post(
+        "/api/auth/login",
+        content=b"a" * ONE_MB,
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+
+
+def test_upload_route_still_accepts_1mb_body(client):
+    """같은 1MB라도 `/api/upload`는 막히지 않는다.
+
+    401(= 인증에서 걸림)은 **본문이 미들웨어를 통과해 앱까지 갔다**는 뜻이다.
+    413이 나오면 상한을 경로와 무관하게 좁힌 것이고, 그 순간 5MB 이미지 업로드가 죽는다.
+    (test_uploads.py의 test_upload_requires_auth와 같은 모양에 크기만 키웠다)
+    """
+    r = client.post(
+        "/api/upload",
+        files={"file": ("big.png", PNG + b"0" * ONE_MB, "image/png")},
+    )
+    assert r.status_code == 401
+
+
+def test_upload_route_blocks_over_its_own_limit(client):
+    """업로드 경로에도 상한은 있다 — 6MB를 넘으면 여전히 413."""
+    r = client.post(
+        "/api/upload",
+        content=b"a" * (MAX_UPLOAD_BODY_BYTES + 1),
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    assert r.status_code == 413
+
+
 # ── ASGI 레벨: 조각난 스트림에서의 동작 ────────────────────────────────────
 
 
@@ -93,17 +158,28 @@ class _Downstream:
         return b"".join(self.chunks)
 
 
-def _run(messages: list[dict], max_bytes: int = 64):
+def _run(
+    messages: list[dict],
+    max_bytes: int = 64,
+    path: str = "/x",
+    upload_max_bytes: int | None = None,
+    query_string: bytes = b"",
+):
     """Content-Length 없는 http scope로 미들웨어를 돌리고
-    (하위앱, 나간 응답들, receive 호출 횟수)를 돌려준다."""
+    (하위앱, 나간 응답들, receive 호출 횟수)를 돌려준다.
+
+    path·upload_max_bytes·query_string은 2026-09-02에 붙였다. 경로별 상한이
+    **chunked 경로에서도** 도는지 보려면 scope의 path를 갈아끼울 수 있어야 한다."""
     downstream = _Downstream()
-    mw = BodySizeLimitMiddleware(downstream, max_bytes=max_bytes)
+    mw = BodySizeLimitMiddleware(
+        downstream, max_bytes=max_bytes, upload_max_bytes=upload_max_bytes
+    )
     scope = {
         "type": "http",
         "http_version": "1.1",
         "method": "POST",
-        "path": "/x",
-        "query_string": b"",
+        "path": path,
+        "query_string": query_string,
         "headers": [],  # Content-Length 없음 → 스트림 검사 경로
     }
     queue = list(messages)
@@ -161,6 +237,65 @@ def test_body_exactly_at_limit_is_allowed():
 
     assert downstream.body == b"a" * 64
     assert _status(sent) == 200
+
+
+def _chunks(total: int, piece: int = 40) -> list[dict]:
+    """total 바이트를 piece 크기 조각으로 쪼갠 http.request 메시지들."""
+    parts = [piece] * (total // piece) + ([total % piece] if total % piece else [])
+    return [
+        {"type": "http.request", "body": b"a" * n, "more_body": i < len(parts) - 1}
+        for i, n in enumerate(parts)
+    ]
+
+
+def test_chunked_stream_uses_the_upload_limit_on_the_upload_path():
+    """chunked 경로도 경로별 상한을 따른다 — 같은 본문, 다른 경로, 다른 결과.
+
+    Content-Length 경로만 고치고 여기를 안 고치면 넓은 쪽이 그대로 우회로가 된다
+    (07-30에 배운 그 모양이 정확히 이것이다).
+    """
+    messages = _chunks(200)
+
+    on_upload, sent_up, _ = _run(messages, max_bytes=64, path=UPLOAD_PATH, upload_max_bytes=256)
+    assert on_upload.body == b"a" * 200
+    assert _status(sent_up) == 200
+
+    on_json, sent_json, _ = _run(
+        _chunks(200), max_bytes=64, path="/api/auth/login", upload_max_bytes=256
+    )
+    assert not on_json.called
+    assert _status(sent_json) == 413
+
+
+def test_upload_limit_is_matched_exactly_not_by_prefix():
+    """`/api/uploadsomething`은 업로드가 아니다.
+
+    접두사 매칭으로 짰다면 이 경로가 6MB를 얻는다. 무인증 경로 하나만 잘못 넓혀도
+    이번에 없앤 OOM 경로가 그대로 되살아나므로, 여기는 '정확히 같은가'여야 한다.
+    """
+    downstream, sent, _ = _run(
+        _chunks(200), max_bytes=64, path=UPLOAD_PATH + "something", upload_max_bytes=256
+    )
+    assert not downstream.called
+    assert _status(sent) == 413
+
+
+def test_trailing_slash_and_query_still_count_as_upload():
+    """후행 슬래시·쿼리스트링이 붙어도 업로드는 업로드다.
+
+    쿼리스트링은 scope의 path에 안 들어가므로(따로 query_string에 있다) 원래 영향이
+    없어야 하는데, '없어야 한다'와 '없다'는 다르다 — 그래서 여기서 한 번 확인한다.
+    """
+    for path, qs in ((UPLOAD_PATH + "/", b""), (UPLOAD_PATH, b"x=1"), (UPLOAD_PATH + "/", b"x=1")):
+        downstream, sent, _ = _run(
+            _chunks(200),
+            max_bytes=64,
+            path=path,
+            upload_max_bytes=256,
+            query_string=qs,
+        )
+        assert downstream.body == b"a" * 200, path
+        assert _status(sent) == 200, path
 
 
 def test_disconnect_before_body_is_passed_through():
