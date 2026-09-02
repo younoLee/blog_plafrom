@@ -460,6 +460,93 @@ for u in $users; do
   fi
 done
 
+# ── 5-B. 계정에 EBS 스냅샷이 남아 있는가 ────────────────────────────────────
+# **이 운영의 정상 상태는 '자기 소유 스냅샷 0건'이다.** 근거를 다 확인하고 적는다
+# (2026-09-02):
+#   · terraform/ 전체에 스냅샷을 만드는 자원이 없다 — aws_ebs_snapshot·aws_dlm_lifecycle_policy·
+#     aws_backup_plan/vault/selection 전부 0건. 루트 볼륨은 관리 자원조차 아니고
+#     ec2.tf 의 인라인 root_block_device 다.
+#   · RECOVERY.md 388줄에 '스냅샷'이라는 낱말이 **한 번도 안 나온다.** :56-63 자산 표의
+#     '사본' 칸은 전부 S3·GitHub·SSM·버저닝이고, 시나리오 B는 맨 AMI에서 다시 세운 뒤
+#     S3 덤프(keep/latest.sql.gz)로 복원한다. 스냅샷을 쓰는 복구 경로가 아예 없다.
+#   · terraform/rds.tf:54 는 오히려 skip_final_snapshot=true 로 스냅샷을 **끈다**
+#     (그 RDS 블록 자체가 enable_ecs=false 로 꺼져 있어 실물도 없다).
+#   즉 스냅샷은 백업 수단이 아니다. 여기 남아 있는 것은 예외 없이 '치우다 만 것'이다.
+#
+# 왜 그게 위험한가 — 게임데이의 break-glass 스냅샷은 **옛 루트 볼륨 통째**라 pgdata와
+# `.env` 21개 키가 전부 들어 있다. 그런데 그 사본은 에스크로의 "셋"(서버·이 PC·SSM)에도,
+# docs/incident-response.md:13-27 유출 자산 표에도, 이 파일 어디에도 없었다.
+# 계정 기본 EBS 암호화가 꺼져 있어 **비암호화**로 누워 있기까지 하다. 08-11에 ecs.tf 가
+# 겪은 '넷째 사본이 어느 문서에도 어느 점검에도 없었다'와 글자 그대로 같은 모양이다.
+#
+# 왜 사람 기억에 맡기면 안 되는가 — 뜨는 절차(게임데이 문서)는 있는데 지우는 절차가 없다.
+# 07-27 것은 지웠지만 **그 기록조차 없다.** 07-27은 지워졌고 08-27은 남아 있다는 사실이
+# 곧 '기억은 두 번 중 한 번 샌다'는 실측이다.
+#
+# 왜 warn 이 아니라 fail 인가 — 스냅샷 하나하나가 시크릿 사본이다. 그리고 이건 영구
+# 빨간불이 아니다: 지우면 꺼진다. 게임데이 중에는 몇 시간 빨간불인데, 그게 정확히
+# "끝나면 지워라"는 알림이다.
+#
+# 예외 목록. **지금은 비어 있다** — 위 근거대로 정상적으로 존재해야 하는 스냅샷이
+# 하나도 없기 때문이다. 나중에 정말 상시로 둘 것이 생기면 여기에 ID를 적고 **왜**
+# 예외인지 한 줄 남긴다. 검사를 통째로 끄지 말고 여기 한 줄로 적으라는 뜻이다
+# (check_publish_secrets.py 의 ALLOW 와 같은 규칙).
+SNAPSHOT_ALLOW=""
+
+# 조회 실패를 '0건'으로 읽지 않는다. `--output text` 는 0건이면 빈 문자열에 종료코드 0,
+# 권한 없음·자격증명 만료면 종료코드가 0이 아니다 — 그 둘을 가른다. 이 파일이 2·3절에서
+# 이미 같은 실수를 했다(AccessDenied 가 "백업 0건"이라는 사실 주장으로 나갔다).
+if ! snaps=$(aws ec2 describe-snapshots --owner-ids self --region "$REGION" \
+    --query 'Snapshots[].[SnapshotId,StartTime,VolumeId,VolumeSize,Encrypted]' \
+    --output text 2>&1); then
+  fail "EBS 스냅샷 목록을 못 읽었다 — 권한이나 자격증명 확인. '0건'과 다르다."
+  sed 's/^/       /' <<< "$snaps"
+else
+  snap_n=0      # 예외를 뺀 '치워야 할' 개수
+  snap_total=0  # 실제로 존재하는 개수
+  # 파이프가 아니라 here-string 을 쓴다 — 파이프면 while 이 서브셸에서 돌아
+  # snap_n 증가가 밖으로 안 나오고, 그러면 아래 판정이 항상 '0건'이 된다.
+  # 0건일 때 here-string 은 빈 줄 하나를 주므로 그 줄은 건너뛴다.
+  while IFS=$'\t' read -r sid start vol size enc; do
+    [ -n "${sid:-}" ] || continue
+    snap_total=$((snap_total + 1))
+    case " $SNAPSHOT_ALLOW " in
+      *" $sid "*)
+        ok "스냅샷 $sid 는 예외 목록에 있다 (근거는 watch.sh 5-B 주석)"
+        continue
+        ;;
+    esac
+    snap_n=$((snap_n + 1))
+    # 나이도 같이 찍는다. '어제 뜬 것'과 '두 달째 누워 있는 것'은 다른 이야기다.
+    if age_s=$(date -u -d "${start:-}" +%s 2>/dev/null); then
+      age="$(( (now - age_s) / 86400 ))일 전"
+    else
+      # 시각을 못 읽었다고 나이를 0으로 채우지 않는다 — 그건 '방금 떴다'는 거짓 사실이 된다.
+      age="나이 미상(StartTime='${start:-비어있음}')"
+    fi
+    # `--output text` 의 불리언은 파이썬 표기라 True/False 다(2026-09-02 라이브 실측).
+    # 소문자로만 비교하면 **항상 '미상'**으로 떨어져 비암호화 사실이 묻힌다.
+    case "${enc:-}" in
+      True | true)   encnote="암호화됨" ;;
+      False | false) encnote="**비암호화**" ;;
+      *)             encnote="암호화 여부 미상('${enc:-비어있음}')" ;;
+    esac
+    fail "EBS 스냅샷이 남아 있다: $sid ($age · 볼륨 ${vol:-?} ${size:-?}GB · $encnote)"
+    echo "       루트 볼륨 스냅샷은 pgdata 와 .env 를 통째로 담은 **시크릿 사본**이다."
+    echo "       게임데이가 끝났으면 지운다(사용자가 직접 — 규칙상 이 스크립트는 안 지운다):"
+    echo "         aws ec2 delete-snapshot --snapshot-id $sid --region $REGION"
+    echo "       상시로 둘 것이면 watch.sh 5-B 의 SNAPSHOT_ALLOW 에 이유와 함께 적을 것."
+  done <<< "$snaps"
+
+  # 전부 예외였을 때 "0건 (정상 상태)"라고 찍으면 **없는 것과 있는 것이 같은 문구**가
+  # 된다. 이 파일이 내내 가르는 그 구분이라 여기서도 가른다.
+  if [ "$snap_total" -eq 0 ]; then
+    ok "자기 소유 EBS 스냅샷 0건 (이 운영의 정상 상태)"
+  elif [ "$snap_n" -eq 0 ]; then
+    ok "EBS 스냅샷 ${snap_total}건 — 전부 예외 목록에 있다"
+  fi
+fi
+
 # ── 6. 비용 가드레일이 살아 있는가 ──────────────────────────────────────────
 # 2026-07-30 비용 가드레일 훈련에서 나온 것(docs/cost-guardrail-drill-20260730.md).
 # 이 파일 머리말이 "살아 있는 감시는 월 예산 알림 하나뿐이었다"고 적어둔 그 알림을,

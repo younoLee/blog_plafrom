@@ -295,6 +295,79 @@ else
   echo "   ⚠️  정리 실패 — 정지는 계속합니다: $out"
 fi
 
+# ── 4-C. 보안 패치 ──────────────────────────────────────────────────────────
+# 2026-09-02: 저장소 전체에 `dnf upgrade`도 `dnf-automatic`도 **0건**이었다. AMI는
+# terraform에서 갱신하지만 그건 '다음에 만들 서버'의 이야기고, **지금 살아 있는 서버**는
+# 만든 날의 패키지 그대로 몇 달을 돈다. 재건은 드물고 이 인스턴스는 오래 산다.
+#
+# 왜 cron이 아니라 정지 절차인가 —
+#   이 서버는 필요할 때만 켠다. 옛 백업 cron(0 18 * * * = KST 03시)이 그 시각에 서버가
+#   꺼져 있어 **4개월간 0건** 돈 것과 정확히 같은 이유로, 패치 cron도 안 돈다.
+#   서버가 켜져 있는 게 확실한 유일한 시점이 이 절차다. dnf-automatic도 마찬가지다.
+#
+# 왜 하필 정지 **직전**인가 —
+#   ① 커널·glibc 패치는 재부팅이나 재시작이 있어야 실제로 적용된다. 바로 다음 단계가
+#      정지이고 그다음 기동이 곧 재부팅이라, 여기가 재부팅 비용이 0인 유일한 자리다.
+#   ② 백업이 이미 S3에 올라가 검증까지 끝난 뒤다. 패치가 DB를 건드릴 일은 없지만,
+#      순서를 뒤집어 '사본 없이 패키지를 갈아끼우는' 창을 만들 이유도 없다.
+#
+# **패치 실패가 정지를 막으면 안 된다.** 3·4·4-B와 같은 등급이다 — 여기서 죽으면
+# 인스턴스가 안 꺼지고 계속 과금된다(2026-07-22에 실제로 그랬다). 자리를 비운 사이라면
+# 더 나쁘다. 그래서 경고만 하고 정지는 진행하며, 종료코드도 그 세 단계와 같이 건드리지
+# 않는다(이 스크립트의 종료코드는 6절의 정지·과금 검증만 말한다).
+#
+# --security 만 받는다: 이 서버의 전체 업그레이드는 도커·커널까지 한꺼번에 움직여
+# 정지 직전에 낼 위험이 아니다. 보안 권고가 붙은 것만 받아 창을 좁힌다.
+# 시간이 오래 걸릴 수 있어 ConnectTimeout 과 별개로 ServerAlive* 로 연결을 붙잡는다.
+say "4-C/6 보안 패치 — dnf -y upgrade --security"
+# 커널이 올라갔는지를 **출력에 남긴다.** 안 남기면 "정지했으니 다음 기동에 새 커널"인지
+# "받을 게 없었다"인지 구분이 안 되고, 그 구분이 없으면 패치했다는 사실만 믿게 된다.
+# 지금 도는 커널(uname -r)과 설치된 것 중 가장 높은 커널(rpm -q kernel)을 나란히 본다.
+#
+# ⚠️ dnf의 종료코드를 **원격에서 따로 찍어 보낸다.** 원격 셸에는 이 스크립트의 `set -e`가
+# 안 걸리므로 ssh의 종료코드는 마지막 echo의 0이 된다. 즉 dnf가 실패해도 아래 if는
+# 성공 가지로 떨어진다 — '못 돌았다'가 '받을 게 없었다'로 둔갑하는, 이 저장소가
+# 반복해서 겪은 바로 그 모양이다. DNF_RC로 갈라 본다.
+if patch_out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+                 -o ServerAliveInterval=15 -o ServerAliveCountMax=40 \
+                 -i "$SSH_KEY" "ec2-user@$DNS" '
+                   set -o pipefail
+                   rc=0
+                   sudo dnf -y upgrade --security 2>&1 | tail -25 || rc=$?
+                   echo "DNF_RC=$rc"
+                   echo "KERNEL_RUNNING=$(uname -r)"
+                   echo "KERNEL_LATEST=$(rpm -q --queryformat "%{VERSION}-%{RELEASE}.%{ARCH}\n" kernel \
+                                          2>/dev/null | sort -V | tail -1)"
+                 ' 2>&1); then
+  printf '%s\n' "$patch_out" | sed 's/^/   /'
+  dnf_rc=$(sed -n 's/^DNF_RC=//p' <<< "$patch_out" | tail -1)
+  running=$(sed -n 's/^KERNEL_RUNNING=//p' <<< "$patch_out" | tail -1)
+  latest=$(sed -n 's/^KERNEL_LATEST=//p' <<< "$patch_out" | tail -1)
+
+  if [ "${dnf_rc:-미확인}" = "0" ]; then
+    echo "   OK   보안 패치 적용 (dnf upgrade --security 성공)"
+  else
+    echo "   ⚠️  dnf가 실패했습니다(종료코드 ${dnf_rc:-미확인}) — 정지는 계속합니다. 위 출력을 보세요."
+  fi
+
+  # 값을 못 읽었으면 **조용히 '커널 그대로'라고 말하지 않는다.** 커널 이름은
+  # `6.1.x-y.amzn2023.x86_64` 처럼 공백이 없다 — 공백이 섞였으면 rpm의 오류 문구다.
+  if [ -z "$running" ] || [ -z "$latest" ] || [ "$latest" != "${latest// /}" ]; then
+    echo "   ⚠️  커널 버전을 못 읽었습니다(실행 '$running' / 설치 '$latest') — 커널 변경 여부는 확인 못 했습니다."
+  elif [ "$running" = "$latest" ]; then
+    echo "   OK   커널 변경 없음 (실행 중 $running = 설치된 최신)"
+  else
+    echo "   ⚠️  커널이 갱신됐습니다: 실행 중 $running → 설치된 최신 $latest"
+    echo "        다음에 켤 때 새 커널로 뜹니다. 켠 뒤 uname -r 로 확인하세요."
+  fi
+else
+  # 접속·명령 실패를 '패치할 게 없었다'로 읽으면 안 된다. 그건 이 저장소가 이름 붙인
+  # '없음'과 '못 봤음'을 뭉개는 자리다.
+  echo "   ⚠️  보안 패치를 못 돌렸습니다 — 정지는 계속합니다. 다음에 켠 뒤 직접:"
+  echo "      ssh -i $SSH_KEY ec2-user@<DNS> 'sudo dnf -y upgrade --security'"
+  printf '%s\n' "$patch_out" | sed 's/^/      /'
+fi
+
 # ── 5. 정지 ─────────────────────────────────────────────────────────────────
 say "5/6 EC2 정지"
 aws ec2 stop-instances --instance-ids "$INSTANCE_ID" \
