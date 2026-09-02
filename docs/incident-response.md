@@ -27,6 +27,8 @@
 | `prod.env`의 `ORIGIN_SECRET` | CloudFront 우회 | 오리진(EC2:8000)을 직접 칠 수 있게 된다 → 엣지의 WAF·요청크기 제한을 통째로 건너뛴다 |
 | **`~/.aws/credentials` → SSM `/blog/prod/env`** | **위 `prod.env` 전 항목** | 관리자 키 한 장이 이 표의 다른 행 **전부의 상위 집합**이다. 우선순위는 항상 이것이 먼저다 |
 | **`~/.blog-secrets/prod.env.<타임스탬프>`** | **옛 세대 키 전부** | 에스크로가 로테이션 이력을 보관하므로, 이 PC가 털리면 '이미 교체한 옛 키'까지 같이 나간다. 옛 암호문(BYOK)은 옛 키로 풀린다 |
+| **EBS 스냅샷 `snap-04ae9ee933923302a`** | **DB 전체 + `.env` 전체** | 08-27 게임데이의 break-glass다. 옛 루트 볼륨 8GB를 통째로 뜬 것이라 `pgdata`와 `~/blog/.env`(당시 키 21개)가 그 안에 그대로 있다. **비암호화**라 스냅샷을 볼륨으로 붙이기만 하면 읽힌다. 이 표의 `prod.env` 행 전부 + DB 행의 합집합이고, 사고 시점의 값이 아니라 **08-27 시점의 값**이라는 점만 다르다. **2026-09-02에 삭제했고 현재 계정에 자기 소유 스냅샷은 0건이다**(`describe-snapshots --owner-ids self` 확인). 이 행을 지우지 않고 남기는 이유는, 다음 게임데이에서 같은 스냅샷이 또 생기기 때문이다 — 그때 무엇이 노출되는지가 여기 적혀 있어야 한다. 재발 방지는 `scripts/watch.sh` 5-B가 맡는다(자기 소유 스냅샷 1건이라도 있으면 실패). `ec2:CreateVolume`·`ec2:DescribeSnapshots`만 있으면 되므로 관리자 키가 아니어도 열린다 |
+| S3 `blog-tfstate-181568979775` | `origin_secret` 평문 | terraform은 `sensitive` 변수도 state에 평문으로 적는다. 시크릿 사본이 셋이라고 적힌 곳이 여럿인데 실질 넷째가 여기다. 버저닝이 켜져 있어 옛 세대 값도 남는다. **2026-09-02부터 Object Lock COMPLIANCE 14일**이라 지울 수 없다 — 유출 시 대응은 삭제가 아니라 `origin_secret` 교체다 |
 
 ### 서버가 털려도 백업은 산다 (`simulate-principal-policy`로 실증)
 
@@ -188,7 +190,9 @@ aws iam delete-access-key --user-name IAM_cli --access-key-id 옛키            
 ### 3-3. `SECRET_KEY`
 
 새 값 생성 → 서버 `.env` 교체 → 백엔드 재생성. **모든 기존 세션과 발송 대기 중인
-이메일 인증·비번재설정·구독확인 링크가 무효가 된다**(의도된 결과다).
+이메일 인증·비번재설정 링크가 무효가 된다**(의도된 결과다). 구독 확인 링크도 여기 적혀
+있었는데 그런 링크는 없다. 이메일 확인 단계는 2026-07-31 뉴스레터 폐지 때 사라졌고
+(`backend/app/services/email.py`의 폐지 주석), 지금 구독은 신청을 글쓴이가 승인한다.
 
 검증: 옛 `SECRET_KEY`로 서명한 JWT가 거부되는지 직접 확인한다.
 

@@ -59,8 +59,41 @@ flowchart LR
 - 프론트엔드는 S3 정적 호스팅, `/api/*`는 CloudFront가 EC2로 라우팅 → **전부 같은 HTTPS 도메인**(CORS·혼합콘텐츠 없음)
 - DB는 RDS가 아니라 **EC2 안 Postgres 컨테이너**(비용 최적화). 백업은 `pg_dump` → S3인데 **일일 cron이 아니라 '서버를 끌 때'** 돈다 — 이 서버는 필요할 때만 켜므로 cron 시각엔 늘 꺼져 있었고 2026-07-20까지 한 번도 실행되지 않았다. RPO는 '하루'가 아니라 **'마지막 정지 시점'**이다. 복구 절차는 [`RECOVERY.md`](./RECOVERY.md), 상세 배경은 [`PROGRESS.md`](./PROGRESS.md)
 - AWS 리소스 대부분을 `terraform/`에 코드화(import 방식으로 라이브 인프라 1:1 반영).
-  **밖에 남은 것 셋**: tfstate 버킷(자기 자신을 담는 곳) · SSM 파라미터 · IAM 유저 3명.
-  즉 `terraform plan`이 조용해도 그 셋의 콘솔 변경은 안 잡힌다(`RECOVERY.md:63` 참고).
+  밖에 남은 것은 바로 아래에 목록으로 둔다.
+
+### terraform 밖에 있는 것 (2026-09-02 조회)
+
+**개수는 적지 않는다.** 예전에 "콘솔 생성 마지막 리소스"라고 못 박았다가 WAF가 빠져 있었고,
+그때 배운 것이 개수를 적어두면 그 자리를 다시 안 본다는 것이었는데 같은 실수를 또 했다
+(`PROGRESS.md:1412`). 그래서 숫자 대신 목록과 확인 날짜, 다시 세는 명령을 둔다.
+
+| 코드 밖 | 확인한 값 |
+|---|---|
+| tfstate 버킷 | `blog-tfstate-181568979775` (자기 자신을 담는 곳) |
+| SSM 파라미터 | `/blog/prod/env` (SecureString) |
+| IAM 유저 | `IAM_cli`, `ses-smtp-user.20260625-184915`, `youno` |
+| EC2 키페어 | `blog-key.pem`. `ec2.tf:28`이 이름으로 참조만 하고 리소스로는 안 갖는다 |
+| SES 검증 신원 | 개인 메일 주소들이라 여기 안 적는다. `aws ses list-identities`로 본다 |
+| AWS Budgets | `My Monthly Cost Budget`($10/월) · `My Zero-Spend Budget`($1/월) |
+| EBS 스냅샷 | `snap-04ae9ee933923302a` (2026-08-27 게임데이의 break-glass, 비암호화) |
+
+즉 `terraform plan`이 조용해도 이것들의 콘솔 변경은 안 잡힌다. 아래를 돌려 결과가 위 표와
+다르면 표를 고치고 제목의 날짜를 갱신한다.
+
+```bash
+aws s3api list-buckets --query 'Buckets[].Name'
+aws ssm describe-parameters --query 'Parameters[].Name'
+aws iam list-users --query 'Users[].UserName'
+aws ec2 describe-key-pairs --query 'KeyPairs[].KeyName'
+aws ses list-identities
+aws budgets describe-budgets --account-id 181568979775 --query 'Budgets[].BudgetName'
+aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].SnapshotId'
+```
+
+코드 안에 있으면서도 드리프트가 안 잡히는 자리가 하나 더 있다. `ec2.tf:29`가 서브넷을
+`subnet-04bf4b4e44fe4defe`로 박아 쓴다. `network.tf:20`에 `data.aws_subnets.default`가
+있는데도 그렇고, 그 서브넷이 사라지면 재건 1단계가 첫 삽에서 죽는다.
+자산이 어디 사는지는 [`RECOVERY.md`](./RECOVERY.md)의 0장이 함께 본다.
 
 ## 로컬에서 실행하기
 
@@ -77,7 +110,7 @@ docker compose up -d --build
 | Mailpit(메일 확인) | http://localhost:8025 |
 
 **첫 사용:** 회원가입 화면은 **닫혀 있다.** `allow_signup`의 기본값이 `False`라
-(`backend/app/core/config.py:91`) `POST /api/auth/register`가 403을 준다 — 이 블로그는
+(`backend/app/core/config.py:103`) `POST /api/auth/register`가 403을 준다. 이 블로그는
 2026-08-07부터 초대제이고, 그 기본값은 로컬에도 그대로 적용된다.
 
 첫 계정은 스크립트로 만든다:
@@ -90,8 +123,10 @@ docker compose exec backend python scripts/create_user.py you@example.com --role
 이 경로가 유일하게 열려 있다 — 화면의 회원가입을 따라가면 403에서 막힌다.
 스크립트는 가입 라우터를 안 거치므로 `email_verified=True`로 바로 로그인된다(인증메일 불필요).
 
-만든 뒤 로그인하면 된다. 메일이 필요한 흐름(비밀번호 재설정·구독 확인)은 로컬에서
-실제로 발송되지 않고 **Mailpit(:8025)**이 전부 잡아준다.
+만든 뒤 로그인하면 된다. 메일이 필요한 흐름(가입 인증, 비밀번호 재설정, 새 글 알림)은
+로컬에서 실제로 발송되지 않고 Mailpit(:8025)이 전부 잡아준다. 구독 확인 메일은 없다.
+이메일 확인 단계는 2026-07-31 뉴스레터 폐지 때 코드에서 사라졌고(`backend/app/services/email.py`의 폐지 주석),
+지금 구독은 신청을 글쓴이가 승인하는 흐름이다.
 
 글쓰기 권한(writer)은 관리자 승인이 필요하다 — 위처럼 `--role admin`으로 만든 계정이면 바로 쓸 수 있다.
 
@@ -118,7 +153,7 @@ CI(GitHub Actions)가 push·PR마다 백엔드 테스트(+커버리지 70% 게�
 backend/       FastAPI 앱 (routers/ models/ schemas/ services/ core/) + alembic 마이그레이션 + tests/
 frontend/      React 앱 (pages/ components/ api/ auth/)
 terraform/     AWS 인프라 코드 (EC2·CloudFront·S3·IAM·백업)
-.github/        CI(ci.yml) + 프론트 배포(deploy.yml)
+.github/        워크플로: ci.yml(검사) · deploy.yml(프론트 배포) · build-backend.yml(백엔드 이미지) · watch.yml(매시 감시)
 PROGRESS.md     개발일지 — 결정과 그 이유의 기록
 ```
 

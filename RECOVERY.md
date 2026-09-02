@@ -60,9 +60,10 @@
 | 시크릿(`.env`) | EC2 `~/blog/.env` (600) | **BYOK 키 영구 복구 불가** | ① 이 PC `~/.blog-secrets/prod.env` ② SSM SecureString `/blog/prod/env` — 둘 다 `scripts/env_escrow.sh save`가 함께 갱신 |
 | 코드 | 이 저장소 | — | GitHub |
 | 인프라 | `terraform/` | — | 저장소 |
-| terraform state | S3 `blog-tfstate-181568979775` (**terraform 관리 밖**, 버저닝 켜짐) | 시나리오 B의 1단계부터 못 밟는다 | 버킷 버저닝뿐 |
+| terraform state | S3 `blog-tfstate-181568979775` (**terraform 관리 밖**, 버저닝 켜짐) | 시나리오 B의 1단계부터 못 밟는다 | 버저닝 + Object Lock COMPLIANCE 14일(2026-09-02 적용) |
+| SSH 키페어 | 이 PC `~/.ssh/blog-key.pem` (AWS에는 `blog-key.pem` 이름만 등록돼 있다) | **서버에 들어갈 방법이 0이 된다.** 인스턴스에 SSM Session Manager 권한이 없어서 대체 경로가 없다 | 없다. 잃으면 시나리오 B(재건)로만 되찾는다 |
 
-두 가지를 특히 기억할 것:
+세 가지를 특히 기억할 것:
 
 - **EC2를 terminate하면 DB도 같이 사라진다.** `ec2.tf`의 `root_block_device`가
   `delete_on_termination = true`이고 `pgdata`는 그 루트 볼륨 위에 있다. stop은
@@ -71,6 +72,24 @@
   `scripts/stop_server.sh`가 돌 때만 뜬다(옛 cron은 그 시각에 서버가 꺼져 있어
   한 번도 안 돌았다, 2026-07-20). 서버를 켜둔 채 사고가 나면 켜 있던 동안의
   변경은 백업에 없다.
+- **tfstate는 시크릿의 넷째 사본이다.** terraform은 `sensitive` 변수도 state에는
+  평문으로 적는다. 그래서 `blog-tfstate-181568979775`의 state 파일 안에
+  `origin_secret`의 원문이 들어 있다(`terraform/variables.tf`의 그 변수). 이 저장소는
+  시크릿 사본이 서버·이 PC·SSM 셋이라고 여러 곳에서 못박는데, 실질 넷째가 여기 있다.
+  에스크로 대조(`env_escrow.sh check`)는 그 셋만 보므로 이 사본은 어느 점검에도 안 잡힌다.
+  버저닝이 켜져 있어 **옛 세대 state까지 남는다** = 이미 교체한 옛 값도 같이 산다.
+  버킷을 읽을 수 있는 주체가 늘어나면 그만큼 `origin_secret`이 새는 것으로 본다.
+
+  <ins>(**2026-09-02**) 이 버킷만 Object Lock이 없어 백업·감사 버킷과 보호 수준이 달랐다.
+  같은 값(COMPLIANCE 14일)으로 맞췄다. 이제 관리자 키가 유출돼도 state 버전을 지울 수 없다
+  (`get-object-lock-configuration`으로 세 버킷이 같은 모양인 것을 확인).
+
+  **대가를 알고 받는다**: COMPLIANCE는 되돌릴 수도 기간을 줄일 수도 없다. 위에 적은 대로
+  이 버킷에는 `origin_secret` 평문이 들어 있으므로, 앞으로 state에 시크릿이 실수로 섞이면
+  **14일 동안 그 버전을 지울 수 없다.** 그때의 대응은 파일을 지우는 것이 아니라 **값을
+  교체하는 것**이다(`origin_secret`은 terraform 변수라 교체가 곧 무효화다). 지울 수 있어야
+  한다면 GOVERNANCE가 맞았지만, 여기서 막으려는 것이 '유출된 관리자 키의 삭제'라
+  특별 권한으로 열리는 문을 남기면 그 목적이 반쯤 사라진다.</ins>
 
 ## 시나리오 A — DB만 깨졌다 (인스턴스는 살아 있음)
 
@@ -353,11 +372,11 @@ aws s3api list-object-versions --bucket blogplafromops --prefix uploads/ \
 | 잃은 값 | 결과 | 복구 |
 |---|---|---|
 | `LLM_ENCRYPTION_KEY` | `llm_credentials`의 BYOK 키를 **영원히 못 푼다** | 사본에서 복원(이 PC 또는 SSM). 셋 다 잃었으면 없음 — 해당 행을 지우고 사용자에게 재입력 요청 |
-| `SECRET_KEY` | 세션뿐 아니라 **발송 대기 중인 이메일 인증·비번재설정·구독확인 링크까지** 전부 무효 | 새 값 생성. 세션은 재로그인, 링크는 재발송. 미인증 계정은 24h 뒤 자동 삭제되므로 재가입 안내 필요 |
+| `SECRET_KEY` | 세션뿐 아니라 **발송 대기 중인 이메일 인증·비번재설정 링크까지** 전부 무효. 구독 확인 링크도 여기 적혀 있었지만 그런 링크는 2026-07-31 뉴스레터 폐지 이후 존재하지 않는다(`backend/app/services/email.py`의 폐지 주석) | 새 값 생성. 세션은 재로그인, 링크는 재발송. 미인증 계정은 24h 뒤 자동 삭제되므로 재가입 안내 필요 |
 | `DB_PASSWORD` | 컨테이너가 새로 뜨면 초기화됨 | 새 값으로 재설정 |
 | `ANTHROPIC_API_KEY` / `TOSS_SECRET_KEY` | 해당 기능 정지 | 각 콘솔에서 재발급. **토스 키는 `PAYMENTS_REQUIRE_LIVE`와 짝이다** — 아래 참고 |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` | **푸시 전체 정지. 앱은 정상 기동하고 경보도 없다.** `push_enabled`가 두 키의 AND라 False가 되고, `/api/push/*`가 503을 내며 프론트가 '알림 켜기'를 아예 숨긴다. 백업에 `push_subscriptions` 행은 복원되므로 **구독자는 있는데 아무것도 안 나가는** 상태가 된다 | `backend/scripts/gen_vapid_keys.py`로 재발급. ⚠️ **재발급하면 기존 구독이 전부 무효**다 — 모든 사용자가 알림을 끄고 다시 켜야 한다 |
-| `SMTP_USER` · `SMTP_PASSWORD` | **메일이 통째로 안 나간다** — 가입 인증·비번재설정·구독확인 링크가 전부 발송 실패한다. 그런데 앱은 정상 기동하고 `/api/*`도 200이라, 알아채는 건 사용자가 "메일이 안 와요"라고 말할 때다(발송 실패는 202를 유지한다 — 07-28의 의도된 선택). `/api/status`의 `mail`이 유일한 신호다 | SES 콘솔에서 SMTP 자격증명 재발급. **재발급하면 옛 값은 못 되살린다** — 새로 만들어 `.env`와 에스크로를 같이 갱신한다 |
+| `SMTP_USER` · `SMTP_PASSWORD` | **메일이 통째로 안 나간다.** 가입 인증·비번재설정 링크와 새 글 알림이 전부 발송 실패한다(구독 확인 메일은 2026-07-31에 없어졌다). 그런데 앱은 정상 기동하고 `/api/*`도 200이라, 알아채는 건 사용자가 "메일이 안 와요"라고 말할 때다(발송 실패는 202를 유지한다 — 07-28의 의도된 선택). `/api/status`의 `mail`이 유일한 신호다 | SES 콘솔에서 SMTP 자격증명 재발급. **재발급하면 옛 값은 못 되살린다** — 새로 만들어 `.env`와 에스크로를 같이 갱신한다 |
 | `DATABASE_URL` | 컨테이너가 아예 안 뜬다(가장 시끄러운 부류라 오래 안 숨는다). **다만 DB 이름이 `postgres`라는 걸 잊으면 재조립 때 `blog`로 적고, 그러면 빈 DB가 새로 만들어져 "복구했는데 글이 0편"이 된다** | `postgresql://postgres:<DB_PASSWORD>@db:5432/postgres`. `DB_PASSWORD`와 짝이라 둘을 같이 맞춘다 |
 | `ORIGIN_SECRET` | CloudFront가 헤더를 안 붙이는데 서버는 계속 검사한다 → **`/api/*`가 전부 403**. 증상이 그냥 403이라 원인과 안 닮았다 | terraform 변수와 서버 `.env`를 **같은 값으로** 다시 맞춘다(둘 중 하나만 고치면 계속 403) |
 | `PAYMENTS_REQUIRE_LIVE` | 이건 '잃는' 값이 아니라 **빠뜨리는** 값이다. 기본값이 `false`라 한 줄이 없으면 토스 **테스트 키로 승인된 결제가 Pro로 붙는다**(공짜 Pro) | `main.py`의 기동 가드가 프로드에서 이걸 막는다 — 재조립한 `.env`로 컨테이너가 안 뜨면 이 줄을 의심한다 |
