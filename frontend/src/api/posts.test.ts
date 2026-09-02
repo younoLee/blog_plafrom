@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { POSTS_PAGE_SIZE, fetchPosts, getPost } from './posts'
-import { QUICK_TIMEOUT_MS, ServerAsleepError } from './http'
+import { QUICK_TIMEOUT_MS, ServerAsleepError, forgetAsleep } from './http'
 
 // authHeaders()가 토큰을 localStorage에서 읽는데 vitest 기본 환경(node)엔 없다.
 // jsdom을 새로 들이는 대신 필요한 만큼만 stub한다(의존성 추가 0).
@@ -107,6 +107,10 @@ describe('상태코드 → 사용자 메시지', () => {
 })
 
 describe('절전 감지 — 서버를 꺼두는 운영 습관을 화면이 견디게', () => {
+  // http.ts 가 절전을 60초 기억한다(2026-09-02). 그 기억은 모듈 변수라 테스트 사이에
+  // 넘어가서, 안 지우면 앞 테스트의 504 때문에 뒤 테스트가 fetch 를 타지도 못한다.
+  afterEach(() => forgetAsleep())
+
   it('504(오리진 안 뜸)는 ServerAsleepError로 구분된다', async () => {
     stubFetch({ status: 504 })
     await expect(fetchPosts()).rejects.toBeInstanceOf(ServerAsleepError)

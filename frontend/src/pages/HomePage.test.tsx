@@ -19,6 +19,7 @@ import { StrictMode, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import HomePage from './HomePage'
+import { forgetAsleep } from '../api/http'
 import { AuthContext, type AuthState } from '../auth/auth-context'
 
 const INDEX = {
@@ -105,6 +106,10 @@ class IOStub {
 }
 
 beforeEach(() => {
+  // http.ts 는 절전을 60초 기억한다(2026-09-02). 모듈 변수라 **테스트 사이에 넘어가서**,
+  // 안 지우면 앞 테스트의 504 때문에 뒤 테스트가 fetch 를 타지도 못하고 절전으로 끝난다.
+  // head.ts 의 resetHeadBaseline 과 같은 자리의 같은 처리다.
+  forgetAsleep()
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   vi.stubGlobal('IntersectionObserver', IOStub)
   container = document.createElement('div')

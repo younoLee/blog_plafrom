@@ -1,4 +1,4 @@
-import { QUICK_TIMEOUT_MS, fetchWithTimeout } from './http'
+import { QUICK_TIMEOUT_MS, apiFetch, fetchWithTimeout } from './http'
 import { authHeaders, clearToken, getToken, setToken } from './session'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -30,9 +30,28 @@ export function canWrite(user: User | null): boolean {
 // 위해서다 — 한 자리로 모으는 변경에 호출부 40곳 수정을 얹으면 위험이 섞인다.
 export { authHeaders, clearToken, getToken } from './session'
 
-// --- 인증 요청 ---
+/**
+ * --- 인증 요청 ---
+ *
+ * **왜 이 다섯이 맨 `fetch` 였고, 왜 이제 `apiFetch` 인가 (2026-09-02).**
+ *
+ * register·verifyEmail·forgotPassword·resetPassword·redeemInvite 는 signal 이 없어
+ * **타임아웃이 아예 없었다.** 그래서 서버가 꺼져 있으면 이 다섯 화면은 CloudFront 가
+ * 504를 줄 때까지(실측 30.1초) 아무 말도 없는 백지다. 로그인만 20초 상한을 들고
+ * 있었고 나머지는 그 옆에서 조용히 빠져 있었다 — 헤더가 달라서가 아니라(다섯 다
+ * 토큰이 없고 헤더도 login 과 같다) 그냥 안 옮겨진 자리다.
+ *
+ * 그렇다고 8초 상한을 걸지는 않는다. 다섯 다 **쓰기**다. abort 는 내 기다림만 끊고
+ * 서버가 하던 일은 안 되돌린다 — resetPassword·redeemInvite 는 그 사이에 1회용
+ * 토큰이 소각되므로, 끊으면 "실패한 줄 알았는데 링크는 이미 죽은" 상태가 된다.
+ * redeemInvite 주석이 그 함정을 이미 자세히 적어뒀고 그 판단은 지금도 옳다.
+ *
+ * 그래서 `apiFetch` 다. 상한은 여전히 없지만 http.ts 의 공통 경로를 타므로
+ * **절전 기억**이 걸린다. 목록 한 번으로 절전을 확인한 뒤에는 이 다섯도 30초를
+ * 기다리지 않고 즉시 "서버가 절전 중이야"로 끝난다. 첫 번째 요청만 제값을 낸다.
+ */
 export async function register(email: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/register`, {
+  const res = await apiFetch(`${BASE}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -46,7 +65,7 @@ export async function register(email: string, password: string): Promise<void> {
 
 // 메일 링크의 토큰으로 이메일 인증 처리
 export async function verifyEmail(token: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/verify?token=${encodeURIComponent(token)}`, {
+  const res = await apiFetch(`${BASE}/auth/verify?token=${encodeURIComponent(token)}`, {
     method: 'POST',
   })
   if (!res.ok) throw new Error('유효하지 않거나 만료된 인증 링크야')
@@ -54,7 +73,7 @@ export async function verifyEmail(token: string): Promise<void> {
 
 // 비밀번호 재설정 요청 (재설정 링크 메일 발송)
 export async function forgotPassword(email: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/forgot-password`, {
+  const res = await apiFetch(`${BASE}/auth/forgot-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -65,7 +84,7 @@ export async function forgotPassword(email: string): Promise<void> {
 
 // 메일 링크의 토큰으로 새 비밀번호 설정
 export async function resetPassword(token: string, newPassword: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/reset-password`, {
+  const res = await apiFetch(`${BASE}/auth/reset-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, new_password: newPassword }),
@@ -146,14 +165,15 @@ export async function previewInvite(token: string): Promise<InvitePreview | null
 
 /** 초대 토큰 소각 + 계정 생성. 성공하면 그대로 로그인 상태가 된다(토큰 저장).
  *
- * **여기엔 fetchWithTimeout을 쓰지 않는다.** abort는 내 기다림만 끊을 뿐 서버 일을
+ * **여기엔 상한을 안 건다**(그래서 fetchWithTimeout 이 아니라 apiFetch 다).
+ * abort는 내 기다림만 끊을 뿐 서버 일을
  * 되돌리지 않는다 — 8초에 끊어도 소각과 계정 생성은 그대로 끝난다. 그러면 상대는
  * "서버가 절전 중"을 보고 새로고침하고, 이번엔 "더 이상 쓸 수 없는 링크"를 만난다.
  * 1회용이라 그걸로 끝이고 관리자만 되살릴 수 있다. 하필 갓 건넨 링크를 누르는 순간이
  * 오리진이 차가울 확률이 제일 높은 때다(거기에 bcrypt까지 얹힌다).
  * 이 저장소가 읽기에만 타임아웃을 거는 것도 같은 이유다(api/http.ts). */
 export async function redeemInvite(token: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/register/invite`, {
+  const res = await apiFetch(`${BASE}/auth/register/invite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, password }),

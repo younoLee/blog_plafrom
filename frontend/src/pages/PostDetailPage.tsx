@@ -83,6 +83,18 @@ function PostDetailPage() {
   const [archiveIndex, setArchiveIndex] = useState<ArchivePost[] | null>(null)
 
   const [comments, setComments] = useState<Comment[]>([])
+  // 댓글이 **도착했는가**. 이게 없으면 "댓글 (0)"이 로딩 중에도 사실처럼 뜬다.
+  // HomePage 가 목록 개수에 대해 이미 지키는 규칙이다("로딩 중엔 개수를 단언하지 않는다").
+  const [commentsLoaded, setCommentsLoaded] = useState(false)
+  // 댓글 목록 조회 실패. 본문 쪽 error 와 섞으면 톤 판정(asleep)에 같이 묻힌다.
+  const [commentsError, setCommentsError] = useState('')
+  // 댓글 폼·삭제의 실패. **폼 바로 아래**에 그리려고 따로 둔다(2026-09-02).
+  // 예전엔 이것도 위쪽 error 로 갔는데 그 자리가 `error && !asleep` 조건이라,
+  // 절전 중에 댓글을 보내면 실패 문구가 화면 어디에도 안 나왔다 — 사용자는 글을
+  // 썼는데 아무 일도 안 일어난 것처럼 본다. 실패는 누른 자리 옆에서 보여야 한다.
+  const [commentError, setCommentError] = useState('')
+  // 구독 토글·공개범위 변경의 실패. 같은 이유로 절전 여부와 무관하게 보인다.
+  const [actionError, setActionError] = useState('')
   const [author, setAuthor] = useState('')
   const [text, setText] = useState('')
   // 댓글 전송 중. 쓰기 요청에는 일부러 타임아웃이 없어서(api/http.ts의 apiFetch 주석:
@@ -113,6 +125,10 @@ function PostDetailPage() {
     setShownId(id)
     setPost(null)
     setComments([])
+    setCommentsLoaded(false)
+    setCommentsError('')
+    setCommentError('')
+    setActionError('')
     setSeries(null)
     setError('')
     setAsleep(false)
@@ -145,10 +161,22 @@ function PostDetailPage() {
         setError((e as Error).message)
       })
     fetchComments(postId)
-      .then((c) => alive && setComments(c))
+      .then((c) => {
+        if (!alive) return
+        setComments(c)
+        setCommentsLoaded(true)
+      })
       .catch((e) => {
         // 댓글 실패로 글 읽기의 에러 톤을 덮어쓰지 않는다 — 본문 쪽 상태가 우선이다.
-        if (alive) setAsleep((prev) => prev || e instanceof ServerAsleepError)
+        if (!alive) return
+        setAsleep((prev) => prev || e instanceof ServerAsleepError)
+        // 실패도 '도착'이다. 안 그러면 영영 "불러오는 중"으로 남는다.
+        setCommentsLoaded(true)
+        setCommentsError(
+          e instanceof ServerAsleepError
+            ? '서버가 깨어난 뒤에 댓글을 보여줄게.'
+            : '댓글을 불러오지 못했어.',
+        )
       })
     // 연재는 부가정보 — 실패해도 글 읽기를 막지 않는다(fetchSeries가 null을 준다)
     fetchSeries(postId).then((s) => alive && setSeries(s))
@@ -171,8 +199,9 @@ function PostDetailPage() {
       if (subscribed) await unsubscribeAuthor(post.owner_id)
       else await subscribeAuthor(post.owner_id)
       setSubscribed(!subscribed)
+      setActionError('')
     } catch (e) {
-      setError((e as Error).message)
+      setActionError((e as Error).message)
     }
   }
 
@@ -190,8 +219,9 @@ function PostDetailPage() {
       await addComment(postId, name, text)
       setText('')
       setComments(await fetchComments(postId))
+      setCommentError('')
     } catch (e) {
-      setError((e as Error).message)
+      setCommentError((e as Error).message)
     } finally {
       setPosting(false)
     }
@@ -206,8 +236,9 @@ function PostDetailPage() {
     try {
       const updated = await changeVisibility(post.id, v)
       setPost(updated)
+      setActionError('')
     } catch (e) {
-      setError((e as Error).message)
+      setActionError((e as Error).message)
     }
   }
 
@@ -215,8 +246,9 @@ function PostDetailPage() {
     try {
       await deleteComment(postId, commentId)
       setComments(await fetchComments(postId))
+      setCommentError('')
     } catch (e) {
-      setError((e as Error).message)
+      setCommentError((e as Error).message)
     }
   }
 
@@ -406,8 +438,8 @@ function PostDetailPage() {
               copiedLabel="복사됨 ✓"
               title={
                 archiveUrl
-                  ? '서버가 꺼져 있어도 열리는 주소를 복사한다 (미리보기 카드도 이 글로 뜬다)'
-                  : '이 페이지 주소를 복사한다'
+                  ? '서버가 꺼져 있어도 열리는 주소를 복사해 (미리보기 카드도 이 글로 떠)'
+                  : '이 페이지 주소를 복사해'
               }
               className="rounded-btn border border-black/[0.1] px-3 py-1 text-sm text-gray-500 transition hover:bg-black/[0.03] dark:border-white/15 dark:text-gray-400 dark:hover:bg-white/[0.06]"
             />
@@ -436,6 +468,11 @@ function PostDetailPage() {
               </label>
             )}
           </div>
+          {/* 구독·공개범위 변경의 실패는 **누른 자리 옆**에서 보여야 한다. 위쪽 에러 줄은
+              `!asleep` 조건이 걸려 있어 절전 중엔 아무 말도 안 나왔다(2026-09-02). */}
+          {actionError && (
+            <p role="alert" className="mt-3 text-sm text-red-600">{actionError}</p>
+          )}
           {post.tags.length > 0 && (
             <div data-skin="article-tags" className="mt-4 flex flex-wrap gap-1.5">
               {post.tags.map((t) => (
@@ -495,15 +532,32 @@ function PostDetailPage() {
         </section>
       )}
 
+      {/* **글이 있을 때만 그린다** (2026-09-02).
+          예전엔 이 섹션이 `post` 조건 밖에 있어서, 글을 못 불러온 화면에도 "댓글 (0)"과
+          입력 폼이 그대로 떴다. 거기서 보내면 요청이 오래 끌다 실패하는데 실패 문구는
+          위쪽 `error && !asleep` 에 걸려 화면에 안 나온다 — 쓴 사람은 아무 일도 안
+          일어난 것으로 본다. 없는 글의 댓글 칸은 그릴 이유도 없다. */}
+      {post && (
       <section
         id="comments"
         data-skin="comments"
         className="mt-6 rounded-2xl border border-black/[0.07] bg-white p-6 dark:border-white/10 dark:bg-white/[0.06]"
       >
+        {/* 개수는 **도착한 뒤에만** 말한다. 로딩 중의 "(0)"은 사실 주장이다. */}
         <h2 className="mb-4 text-lg font-semibold tracking-tight">
-          댓글 <span className="text-gray-500 dark:text-gray-400">({comments.length})</span>
+          댓글{' '}
+          {commentsLoaded && (
+            <span className="text-gray-500 dark:text-gray-400">({comments.length})</span>
+          )}
         </h2>
-        {comments.length === 0 && <p className="text-gray-500 dark:text-gray-400">아직 댓글이 없어. 첫 댓글을 남겨봐.</p>}
+        {/* 셋을 화면에서 가른다: 아직 안 옴 · 못 가져옴(절전 포함) · 진짜로 0개 */}
+        {!commentsLoaded ? (
+          <p className="text-gray-500 dark:text-gray-400">댓글을 불러오는 중이야.</p>
+        ) : commentsError ? (
+          <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{commentsError}</p>
+        ) : comments.length === 0 ? (
+          <p className="text-gray-500 dark:text-gray-400">아직 댓글이 없어. 첫 댓글을 남겨봐.</p>
+        ) : null}
         <div className="space-y-3">
           {comments.map((c) => (
             <div key={c.id} className="rounded-xl bg-black/[0.03] p-3 dark:bg-white/[0.04]">
@@ -525,7 +579,7 @@ function PostDetailPage() {
                   <button
                     type="button"
                     onClick={() => handleDeleteComment(c.id)}
-                    className="ml-auto text-xs text-gray-400 hover:text-red-500"
+                    className="ml-auto text-xs text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
                     aria-label="댓글 삭제"
                   >
                     삭제
@@ -543,9 +597,24 @@ function PostDetailPage() {
               작성자: <strong className="text-gray-700 dark:text-gray-200">{user.email.split('@')[0]}</strong>
             </p>
           ) : (
-            <input placeholder="이름" value={author} onChange={(e) => setAuthor(e.target.value)} className={`${input} max-w-xs`} />
+            /* placeholder 는 라벨이 아니다 — 입력을 시작하면 사라지고, 화면낭독기는
+               칸 이름을 못 읽는다. 이 화면이 이미 쓰는 방식(aria-label)을 그대로 쓴다. */
+            <input
+              placeholder="이름"
+              aria-label="이름"
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+              className={`${input} max-w-xs`}
+            />
           )}
-          <textarea placeholder="댓글 내용" rows={3} value={text} onChange={(e) => setText(e.target.value)} className={input} />
+          <textarea
+            placeholder="댓글 내용"
+            aria-label="댓글 내용"
+            rows={3}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className={input}
+          />
           <button
             type="submit"
             className={`${btnPrimary} justify-self-start disabled:opacity-50`}
@@ -554,8 +623,13 @@ function PostDetailPage() {
           >
             {posting ? '보내는 중…' : '댓글 작성'}
           </button>
+          {/* 실패는 **폼 바로 아래**. 절전 여부와 무관하게 항상 보인다. */}
+          {commentError && (
+            <p role="alert" className="text-sm text-red-600">{commentError}</p>
+          )}
         </form>
       </section>
+      )}
       </div>
 
       {/* 왼쪽 고정 목차 — 넓은 화면에서만. **DOM에서는 본문 뒤에 둔다.**

@@ -7,7 +7,7 @@ import {
   type UptimeHistory,
   type ServiceUptime,
 } from '../api/status'
-import { ServerAsleepError } from '../api/http'
+import { ServerAsleepError, forgetAsleep } from '../api/http'
 import { ui } from '../ui'
 import { IconActivity, IconRefresh } from '../components/icons'
 
@@ -105,6 +105,10 @@ function StatusPage() {
 
   // 새로고침 버튼 전용 (이벤트 핸들러라 동기 setState 허용)
   async function load() {
+    // 절전 기억을 버리고 실제로 물어본다(2026-09-02). http.ts 는 절전을 확인한 뒤
+    // 60초 동안 요청을 안 보내는데, 이 버튼은 **바로 그걸 확인하려고** 누르는 것이다.
+    // 안 버리면 서버를 방금 켠 사람에게 60초 동안 "자고 있어"만 되풀이한다.
+    forgetAsleep()
     setLoading(true)
     setError('')
     try {

@@ -14,11 +14,22 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { QUICK_TIMEOUT_MS, ServerAsleepError, fetchWithTimeout, isAsleepStatus } from './http'
+import {
+  ASLEEP_MEMORY_MS,
+  QUICK_TIMEOUT_MS,
+  ServerAsleepError,
+  apiFetch,
+  fetchWithTimeout,
+  forgetAsleep,
+  isAsleepStatus,
+} from './http'
 
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  // 절전 기억은 **모듈 변수**라 테스트 사이에 넘어간다. 안 지우면 앞 테스트가 남긴
+  // 절전 때문에 뒤 테스트의 fetch 가 아예 안 불려 결과가 조용히 뒤바뀐다.
+  forgetAsleep()
 })
 
 describe('isAsleepStatus', () => {
@@ -75,5 +86,68 @@ describe('fetchWithTimeout', () => {
   it('네트워크 오류는 절전으로 바꾸지 않는다 — 원인을 덮으면 진단이 어긋난다', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
     await expect(fetchWithTimeout('/x')).rejects.toBeInstanceOf(TypeError)
+  })
+})
+
+/**
+ * **절전을 기억한다** (2026-09-02).
+ *
+ * 판정은 08-11부터 있었는데 그 사실을 아무도 안 들고 있었다. 목록에서 8초를 내고
+ * 절전 안내를 본 사람이 글을 누르면 또 8초, 뒤로 가서 태그를 누르면 또 8초다.
+ * 서버가 꺼져 있는 게 이 사이트의 평상시라 그 낭비가 기본 경로였다.
+ *
+ * 잠그는 것 넷:
+ *   ① 절전을 확인한 뒤에는 fetch 를 **부르지도 않는다** (기다림이 0이 된다)
+ *   ② 상한 없는 쓰기(apiFetch)도 같은 기억을 본다 — 거기가 제일 오래 매달리는 자리다
+ *   ③ 응답이 오면 기억을 버린다 (서버가 켜졌는데 앱만 우기는 창이 없어야 한다)
+ *   ④ 기억은 60초짜리다 — 영구히 들고 있으면 켜진 서버를 못 만난다
+ */
+describe('절전 기억', () => {
+  it('① 한 번 절전을 보면 다음 요청은 보내지도 않는다', async () => {
+    const f = vi.fn(async () => new Response('', { status: 504 }))
+    vi.stubGlobal('fetch', f)
+    await expect(fetchWithTimeout('/x')).rejects.toBeInstanceOf(ServerAsleepError)
+    await expect(fetchWithTimeout('/y')).rejects.toBeInstanceOf(ServerAsleepError)
+    expect(f).toHaveBeenCalledTimes(1) // 두 번째는 네트워크를 안 탄다
+  })
+
+  it('② 상한 없는 쓰기(apiFetch)도 같은 기억에 걸린다', async () => {
+    const f = vi.fn(async () => new Response('', { status: 503 }))
+    vi.stubGlobal('fetch', f)
+    await expect(apiFetch('/write')).rejects.toBeInstanceOf(ServerAsleepError)
+    await expect(apiFetch('/write')).rejects.toBeInstanceOf(ServerAsleepError)
+    expect(f).toHaveBeenCalledTimes(1)
+  })
+
+  it('③ 응답이 한 번 오면 기억을 버린다 — 404도 서버가 만든 답이다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 504 })))
+    await expect(fetchWithTimeout('/x')).rejects.toBeInstanceOf(ServerAsleepError)
+    const f = vi.fn(async () => new Response('', { status: 404 }))
+    vi.stubGlobal('fetch', f)
+    forgetAsleep() // 사람이 새로고침을 누른 경우(StatusPage)
+    expect((await fetchWithTimeout('/x')).status).toBe(404)
+    // 404를 받았으니 서버는 살아 있다 → 그다음 요청도 실제로 나간다
+    await fetchWithTimeout('/y')
+    expect(f).toHaveBeenCalledTimes(2)
+  })
+
+  it('④ 60초가 지나면 다시 물어본다', async () => {
+    vi.useFakeTimers()
+    const f = vi.fn(async () => new Response('', { status: 504 }))
+    vi.stubGlobal('fetch', f)
+    await expect(fetchWithTimeout('/x')).rejects.toBeInstanceOf(ServerAsleepError)
+    vi.advanceTimersByTime(ASLEEP_MEMORY_MS + 1)
+    await expect(fetchWithTimeout('/x')).rejects.toBeInstanceOf(ServerAsleepError)
+    expect(f).toHaveBeenCalledTimes(2) // 이번엔 실제로 다시 물었다
+  })
+
+  it('네트워크 오류는 기억하지 않는다 — 서버 상태를 말해 주는 신호가 아니다', async () => {
+    const f = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    vi.stubGlobal('fetch', f)
+    await expect(fetchWithTimeout('/x')).rejects.toBeInstanceOf(TypeError)
+    await expect(fetchWithTimeout('/x')).rejects.toBeInstanceOf(TypeError)
+    expect(f).toHaveBeenCalledTimes(2)
   })
 })
