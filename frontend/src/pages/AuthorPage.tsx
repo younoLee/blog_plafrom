@@ -9,7 +9,7 @@ import { useAuth } from '../auth/auth-context'
 import { ServerAsleepError } from '../api/http'
 import { HtmlSlot } from '../components/HtmlSlot'
 import { PostRow } from '../components/PostRow'
-import { useDocumentTitle } from '../useDocumentTitle'
+import { useHead } from '../useDocumentTitle'
 import NotFoundPage from './NotFoundPage'
 import { ui } from '../ui'
 
@@ -160,7 +160,25 @@ function AuthorPage() {
     load(handle, page, tag, series, q)
   }, [handle, page, tag, series, q])
 
-  useDocumentTitle(author ? `${author.name}의 블로그` : null)
+  /**
+   * 이 화면만 **탭 제목밖에 없었다** (2026-09-02). description 도 canonical 도 없어서,
+   * JS 를 실행하는 크롤러가 보는 설명이 개인 블로그마다 전부 사이트 공통 1종이고
+   * `?page=2`·`?tag=aws`·`?q=…` 가 저마다 다른 주소로 잡혔다. 같은 목록을 다르게
+   * 자른 것뿐인데 서로의 중복이 된다.
+   *
+   * PostDetailPage 가 쓰는 방식 그대로다(useHead + 원시값 의존성).
+   *
+   * canonical 은 쿼리를 뗀 `/@handle` 로 고정한다. head.ts 의 기본값도 쿼리를 떼지만
+   * 여기서는 **뭘 표준으로 삼는지가 이 화면의 판단**이라 명시한다.
+   * 사람이 없으면(missing) 아래에서 NotFoundPage 로 빠지므로 여기 값은 안 쓰인다.
+   */
+  useHead({
+    title: author ? `${author.name}의 블로그` : null,
+    description: author
+      ? `${author.name}의 블로그. 공개 글 ${author.posts}편.`
+      : undefined,
+    canonical: handle ? `${window.location.origin}/@${handle}` : undefined,
+  })
 
   // @로 시작하지 않는 한 글자짜리 주소(/foo)이거나, 그런 사람이 없을 때.
   if (!handle || (loaded && missing)) return <NotFoundPage />

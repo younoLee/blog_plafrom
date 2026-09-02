@@ -15,7 +15,7 @@
 // 회수 장치 3겹(분석이 0인 것을 보완한다):
 //   ① /sw-kill.json 이 {"disabled":true}면 캐시를 비우고 스스로 등록해제 —
 //      **배포 없이 파일 하나로** 전 사용자에게서 회수된다
-//   ② 캐시 이름에 버전을 박고 activate에서 다른 이름을 전부 지운다
+//   ② 캐시 이름에 **빌드 지문**을 박고 activate에서 다른 이름을 전부 지운다 (아래 CACHE)
 //   ③ skipWaiting + clients.claim (아래)
 //
 // 갱신: 파일 내용이 1바이트라도 바뀌면 브라우저가 새 워커를 받는다. 아래 두 줄이
@@ -103,7 +103,32 @@ function routeFor(url) {
 // 테스트가 이 함수를 꺼내 쓸 수 있게 노출한다(브라우저에서는 무해하다).
 if (typeof module !== 'undefined') module.exports = { routeFor }
 
-const CACHE = 'docs-v1'
+/**
+ * 캐시 이름. `__BUILD_ID__` 는 **빌드가 찍는 도장**이다 —
+ * `scripts/gen-static.mjs` 의 stampServiceWorker() 가 dist/sw.js 를 쓸 때 dist/index.html
+ * 의 지문 8자로 바꾼다. 그래서 번들이 바뀐 배포마다 이름이 달라지고, 아래 activate 가
+ * 다른 이름의 통을 전부 지운다.
+ *
+ * **왜 자동화인가 (2026-09-02)** — 08-18부터 이름이 `docs-v1` 고정이었다. 그러면
+ * activate 의 "다른 이름을 지운다"가 **한 번도 지울 게 없는 코드**가 된다. 여기서
+ * cache-first 로 담기는 건 해시가 박힌 번들(/index-A1b2C3d4.js)인데, 배포하면 새
+ * 이름으로 하나 더 담길 뿐 옛 사본은 그대로 남는다. 이미 방문한 기기마다 옛 번들
+ * 약 620KB 가 영원히 누워 있었다.
+ *
+ * 손으로 v2, v3 을 올리는 방법도 있는데 그건 **절차도 검사도 없는 규칙**이라
+ * 이 저장소가 이미 여러 번 겪은 모양이다(사람이 잊는 자리에 규칙만 적어두기).
+ * 반대로 sw.js 는 public/ 에 있어 Vite 의 해시를 안 타므로 스스로는 알 길이 없다.
+ * 그래서 빌드가 대신 찍는다. 잊을 사람이 없어진다.
+ *
+ * 이 자리에 그냥 이름을 박으면 빌드가 **멈춘다** — stampServiceWorker() 가
+ * `__BUILD_ID__` 를 못 찾으면 실패한다. CI 의 프론트 잡이 `npm run build` 를 돌리므로
+ * 회귀는 거기서 걸린다. 원문에 이 표식이 남아 있는지는 src/sw.test.ts 도 본다.
+ *
+ * 도장을 안 찍은 원문 그대로도 **정상 동작한다**(이름이 리터럴 문자열이라 문법이
+ * 깨지지 않는다). dev 서버는 그 이름을 쓰고, 그래서 이 파일을 테스트에서 그대로
+ * 읽어 돌릴 수 있다.
+ */
+const CACHE = 'docs-__BUILD_ID__'
 
 self.addEventListener('fetch', (event) => {
   const req = event.request
@@ -148,7 +173,8 @@ self.addEventListener('activate', (event) =>
   event.waitUntil(
     (async () => {
       if (await checkKillSwitch()) return // 회수됐으면 나머지는 할 필요가 없다
-      // 옛 버전 캐시를 지운다. 이름에 버전이 박혀 있어 새 워커는 새 통을 쓴다.
+      // 옛 버전 캐시를 지운다. 이름에 빌드 지문이 박혀 있어 **새 배포는 새 통을 쓰고**,
+      // 여기서 옛 통이 통째로 사라진다. 이게 옛 번들을 회수하는 유일한 장치다.
       const names = await caches.keys()
       await Promise.all(names.filter((n) => n !== CACHE).map((n) => caches.delete(n)))
       await self.clients.claim()

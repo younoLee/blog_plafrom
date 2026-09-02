@@ -219,7 +219,7 @@ function HomePage() {
           onChange={(e) => setQueryInput(e.target.value)}
           placeholder="제목·본문 검색 (2글자 이상)"
           aria-label="글 검색"
-          className="min-w-0 flex-1 rounded-btn border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-400 focus:border-accent dark:border-white/15 dark:bg-white/5"
+          className="min-w-0 flex-1 rounded-btn border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-accent dark:border-white/15 dark:bg-white/5"
         />
         <button
           type="submit"
@@ -229,24 +229,27 @@ function HomePage() {
         </button>
       </form>
 
+      {/* 대비: `text-gray-400` 은 흰 배경에서 3:1 아래라 WCAG AA(4.5:1)에 못 미친다.
+          밝은 쪽만 gray-500 으로 올리고 어두운 배경에서는 gray-400 을 유지한다 —
+          다크 모드에서는 같은 색이 충분히 밝다. (2026-08-11 검사 9번의 잔여, 09-02 정리) */}
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
           {q ? (
             <>
               <span className="text-accent">"{q}"</span>
-              <span className="text-base font-normal text-gray-400">검색 결과</span>
-              <Link to={tag ? `/blog?tag=${encodeURIComponent(tag)}` : '/blog'} className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 검색 취소</Link>
+              <span className="text-base font-normal text-gray-500 dark:text-gray-400">검색 결과</span>
+              <Link to={tag ? `/blog?tag=${encodeURIComponent(tag)}` : '/blog'} className="text-sm font-normal text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">✕ 검색 취소</Link>
             </>
           ) : tag ? (
             <>
               <span className="text-accent">#{tag}</span>
-              <Link to="/blog" className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 전체보기</Link>
+              <Link to="/blog" className="text-sm font-normal text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">✕ 전체보기</Link>
             </>
           ) : series ? (
             <>
-              <span className="text-base font-normal text-gray-400">연재</span>
+              <span className="text-base font-normal text-gray-500 dark:text-gray-400">연재</span>
               <span className="text-accent">{series}</span>
-              <Link to="/blog" className="text-sm font-normal text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕ 전체보기</Link>
+              <Link to="/blog" className="text-sm font-normal text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">✕ 전체보기</Link>
             </>
           ) : (
             '최근 글'

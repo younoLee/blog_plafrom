@@ -112,6 +112,9 @@ function WritePostPage() {
   const [error, setError] = useState('')
   // 저장 진행 중 — 중복 제출을 막는다(같은 글이 여러 개 생기던 자리)
   const [saving, setSaving] = useState(false)
+  // 이미지 업로드 진행 중. 세 입구(버튼·붙여넣기·드롭)가 같은 표시를 쓴다.
+  // 붙여넣기·드롭에는 누른 버튼이 없어서, 표시가 없으면 아무 일도 안 일어난 것처럼 보인다.
+  const [uploading, setUploading] = useState(false)
 
   // 초안 임시보관. key는 새 글/수정에 따라 다르다(draftKey 주석).
   const key = draftKey(editingId)
@@ -235,24 +238,75 @@ function WritePostPage() {
       .catch((e) => setError((e as Error).message))
   }, [editingId])
 
-  async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // alt 를 파일 이름으로 채운다(2026-08-31). 예전에는 `![](url)` 로 **항상 빈 값**이라
+  // 화면낭독기가 본문의 그 이미지를 통째로 건너뛰었다. 같은 uploadImage 를 쓰는
+  // SlotEditor 는 처음부터 파일명으로 채우고 그 이유까지 주석에 적어뒀는데, 정작
+  // 더 많이 쓰는 본문 쪽에 그 규약이 안 닿아 있었다.
+  // 마음에 안 들면 고치면 된다 — 무엇을 고쳐야 하는지가 눈에 보이는 게 중요하다.
+  // 대괄호는 마크다운 링크 문법을 깨므로 뺀다.
+  function altFrom(name: string): string {
+    return name.replace(/\.[^.]+$/, '').replace(/[[\]]/g, '').slice(0, 60)
+  }
+
+  /**
+   * 업로드해서 본문에 `![alt](url)` 로 넣는다. **세 입구가 여기 하나로 모인다** —
+   * 첨부 버튼, 붙여넣기, 드래그드롭. (2026-09-02)
+   *
+   * 왜 지금까지 붙여넣기·드롭이 없었나: 재료는 다 있었는데 입구가 없었다. 업로드
+   * 함수도, 커서 위치 삽입(insertAt)도 진작 있었고 스크린샷을 붙여넣는 건 글 쓰다
+   * 가장 흔한 동작인데, 그때 브라우저 기본 동작은 **이미지를 그냥 버리는 것**이다
+   * (textarea 에 파일을 떨구면 그 파일로 페이지를 이동해 쓰던 글이 날아가기도 한다).
+   *
+   * `at` 이 null 이면 본문 끝에 붙인다(첨부 버튼의 기존 동작). 숫자면 그 자리에
+   * 넣는다 — 붙여넣기·드롭은 커서가 있는 자리가 사용자가 기대하는 자리다.
+   *
+   * setContent 를 **함수형으로** 부른다. 업로드는 초 단위라 그동안 사용자가 계속
+   * 타이핑할 수 있는데, 렌더 시점의 content 를 닫아 쓰면 그 타이핑이 통째로 날아간다.
+   */
+  async function uploadAndInsert(files: File[], at: number | null) {
+    if (files.length === 0 || uploading) return
+    setUploading(true)
+    setError('')
+    let pos = at
     try {
-      const url = await uploadImage(file)
-      // alt 를 파일 이름으로 채운다(2026-08-31). 예전에는 `![](url)` 로 **항상 빈 값**이라
-      // 화면낭독기가 본문의 그 이미지를 통째로 건너뛰었다. 같은 uploadImage 를 쓰는
-      // SlotEditor 는 처음부터 파일명으로 채우고 그 이유까지 주석에 적어뒀는데, 정작
-      // 더 많이 쓰는 본문 쪽에 그 규약이 안 닿아 있었다.
-      // 마음에 안 들면 고치면 된다 — 무엇을 고쳐야 하는지가 눈에 보이는 게 중요하다.
-      // 대괄호는 마크다운 링크 문법을 깨므로 뺀다.
-      const alt = file.name.replace(/\.[^.]+$/, '').replace(/[[\]]/g, '').slice(0, 60)
-      setContent((prev) => `${prev}\n![${alt}](${url})\n`)
+      for (const file of files) {
+        const url = await uploadImage(file)
+        const md = `\n![${altFrom(file.name)}](${url})\n`
+        const insertAtPos = pos
+        setContent((prev) =>
+          insertAtPos === null ? `${prev}${md}` : prev.slice(0, insertAtPos) + md + prev.slice(insertAtPos),
+        )
+        if (pos !== null) {
+          pos += md.length
+          const caret = pos
+          requestAnimationFrame(() => {
+            const ta = contentRef.current
+            if (!ta) return
+            ta.focus()
+            ta.selectionStart = ta.selectionEnd = caret
+          })
+        }
+      }
     } catch (err) {
+      // 실패 처리는 버튼 경로와 같다 — 폼 아래 빨간 줄 하나(아래 error).
       setError((err as Error).message)
     } finally {
-      e.target.value = ''
+      setUploading(false)
     }
+  }
+
+  /** 클립보드·드롭에서 **이미지 파일만** 골라낸다. 나머지는 손대지 않는다. */
+  function imageFilesOf(dt: DataTransfer | null): File[] {
+    if (!dt) return []
+    return Array.from(dt.files).filter((f) => f.type.startsWith('image/'))
+  }
+
+  async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    // 같은 파일을 연달아 고를 수 있게 먼저 비운다(await 뒤엔 target 이 이미 바뀔 수 있다).
+    e.target.value = ''
+    if (!file) return
+    await uploadAndInsert([file], null)
   }
 
   // 커버 이미지: 업로드해서 URL만 보관 (본문엔 안 넣음). 홈 카드 썸네일 + 글 상단에 크게 표시됨
@@ -473,8 +527,12 @@ function WritePostPage() {
             </span>
           </p>
         )}
+        {/* placeholder 는 라벨이 아니다 — 입력을 시작하면 사라지고, 화면낭독기는 칸
+            이름을 못 읽는다. 이 파일이 이미 쓰는 방식(aria-label)을 그대로 쓴다.
+            (2026-08-11 검사 9번의 잔여 6칸, 09-02 정리) */}
         <textarea
           placeholder="예: 오늘 AWS Summit 갔다왔는데 EKS 세션이 인상깊었음. 비용 얘기도 나왔고…"
+          aria-label="AI 초안용 메모"
           rows={3}
           maxLength={MEMO_MAX}
           value={memo}
@@ -518,7 +576,7 @@ function WritePostPage() {
                   </optgroup>
                 )}
               </select>
-              <IconChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <IconChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
             </div>
             {/* 직접 입력 모드면 모델 ID 입력 칸 */}
             {model.startsWith('custom:') && (
@@ -567,7 +625,13 @@ function WritePostPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="grid gap-3">
-        <input placeholder="제목" value={title} onChange={(e) => setTitle(e.target.value)} className={`${input} text-lg`} />
+        <input
+          placeholder="제목"
+          aria-label="제목"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className={`${input} text-lg`}
+        />
         {/* 커버(대표) 이미지: 홈 목록 카드 썸네일 + 글 상단에 크게 노출 */}
         <div className="grid gap-2">
           <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
@@ -617,6 +681,7 @@ function WritePostPage() {
           )}
           <input
             value={tagInput}
+            aria-label="태그 추가"
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ',') {
@@ -669,16 +734,50 @@ function WritePostPage() {
         ) : (
           <textarea
             ref={contentRef}
-            placeholder="내용 (위 버튼으로 꾸미거나 마크다운 직접 입력, 이미지 첨부하면 ![파일이름](url) 삽입)"
+            id="content-input"
+            aria-label="본문"
+            placeholder="내용 (위 버튼으로 꾸미거나 마크다운 직접 입력. 이미지는 붙여넣거나 끌어다 놓으면 커서 자리에 들어가)"
             rows={14}
             value={content}
             onChange={(e) => setContent(e.target.value)}
+            // **이미지가 아닌 붙여넣기는 기본 동작을 막지 않는다.** 글 쓰는 칸에서
+            // 가장 흔한 붙여넣기는 그냥 텍스트라, 여기서 preventDefault 를 먼저 부르면
+            // 평범한 복사·붙여넣기가 통째로 죽는다. 이미지가 있을 때만 가로챈다.
+            onPaste={(e) => {
+              const files = imageFilesOf(e.clipboardData)
+              if (files.length === 0) return
+              e.preventDefault()
+              void uploadAndInsert(files, e.currentTarget.selectionStart)
+            }}
+            // dragover 에서 기본 동작을 막아야 drop 이 우리에게 온다. 안 막으면 브라우저가
+            // **그 파일로 페이지를 이동해** 쓰던 글이 통째로 날아간다(초안 백업이 있어도
+            // 겪을 이유가 없는 사고다). 파일 드래그일 때만 막는다.
+            onDragOver={(e) => {
+              if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault()
+            }}
+            onDrop={(e) => {
+              const files = imageFilesOf(e.dataTransfer)
+              if (files.length === 0) return
+              e.preventDefault()
+              void uploadAndInsert(files, e.currentTarget.selectionStart)
+            }}
             className={`${input} font-mono`}
           />
         )}
-        <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+        <label className="flex flex-wrap items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
           <IconImage className="h-4 w-4" />이미지 첨부:
-          <input type="file" accept="image/*" onChange={handleImagePick} className="text-sm" />
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImagePick}
+            disabled={uploading}
+            className="text-sm"
+          />
+          {/* 자리를 항상 잡아 둔다 — 형제 노드가 생겼다 사라지면 번역기·인앱 브라우저에서
+              재조정이 깨진다(이 파일의 AI 상태줄이 같은 이유로 고정 컨테이너다). */}
+          <span aria-live="polite" className="text-gray-600 dark:text-gray-300">
+            {uploading ? '이미지 올리는 중…' : ''}
+          </span>
         </label>
         <div className="flex flex-wrap gap-4 text-sm text-gray-700 dark:text-gray-300">
           <span>공개범위:</span>

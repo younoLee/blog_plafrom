@@ -21,6 +21,7 @@ import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { Marked } from 'marked'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -400,12 +401,31 @@ const LESSONS_FILTER_JS = `// 생성물 — frontend/scripts/gen-static.mjs가 �
 })()
 `
 
+/**
+ * 정적 페이지 한 장.
+ *
+ * **`title` 은 사이트명을 뺀 제목이다.** 붙이는 자리는 여기 한 곳뿐이고, 붙이는
+ * 곳은 `<title>` 뿐이다 (2026-09-02).
+ *
+ * 왜 (2026-09-02): 호출부 10곳이 전부 `"제목 — 블로그 만들기"` 를 넘겼고 그 값이
+ * `<title>` 과 og:title·twitter:title·JSON-LD headline 에 **다 같이** 들어갔다.
+ * 그런데 공유 카드에는 og:site_name 이 따로 뜬다 — 카톡·트위터에서 이 페이지들은
+ * "제목 — 블로그 만들기 · 블로그 만들기" 로 사이트명을 두 번 달고 나갔다.
+ * 서버가 평소 꺼져 있어 **실제로 공유되는 게 이 정적 34장**이라 여기가 본 무대다.
+ *
+ * 같은 저장소의 `src/head.ts:89-91` 이 SPA 에서 이미 이 함정을 피하고 있었다.
+ * 정적 판만 안 따라와 있었다 — 이 저장소의 단골 모양이다(한쪽에만 있는 규약).
+ *
+ * `<title>` 에는 붙인다. 탭과 검색결과에는 사이트명을 같이 보여 주는 게 맞고,
+ * 거기엔 og:site_name 같은 별도 표시가 없어서 안 붙이면 어느 사이트인지 사라진다.
+ * 요구가 서로 달라 값도 달라야 한다.
+ */
 const page = ({ title, description, url, body, article, published, script }) => `<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>
+<title>${esc(`${title} — ${TITLE}`)}</title>
 <meta name="description" content="${esc(description)}">
 <link rel="canonical" href="${url}">
 <link rel="alternate" type="application/rss+xml" title="${esc(TITLE)}" href="${SITE}/rss.xml">
@@ -579,6 +599,58 @@ ${body}
 }</body>
 </html>
 `
+
+// ── 서비스워커 캐시 이름에 빌드 도장 찍기 ────────────────────────────────────
+//
+// **왜 (2026-09-02)** — `public/sw.js` 의 캐시 이름이 `docs-v1` 고정이었다. 그래서
+// 워커의 activate 가 하는 "다른 이름의 통을 전부 지운다"가 **지울 게 영영 없는 코드**
+// 였다. 거기 cache-first 로 담기는 건 해시가 박힌 번들인데, 배포하면 새 이름으로 하나
+// 더 담길 뿐 옛 사본이 안 사라진다 — 이미 방문한 기기마다 옛 번들 약 620KB 가 남는다.
+//
+// 고르는 방법이 셋 있었다:
+//   ① 사람이 v2, v3 으로 올린다 → 절차도 검사도 없다. 잊는 게 기본값인 자리다.
+//   ② sw.js 를 Vite 에 태워 해시를 받는다 → 워커의 **주소가 바뀌면 안 된다.**
+//      등록 주소가 `/sw.js` 이고 scope 도 그 경로에서 나온다(api/push.ts).
+//   ③ 빌드가 파일 안의 표식을 바꿔 쓴다 ← 이걸 골랐다.
+// ③은 원문을 그대로 두고(테스트가 `?raw` 로 읽어 돌린다) 산출물만 도장을 찍는다.
+// 자동화가 가능하면 자동화가 낫다는 판단이고, 사람이 기억할 일이 0이 된다.
+//
+// 지문의 재료는 `dist/index.html` 이다. 그 파일이 해시 박힌 번들 이름을 전부 참조하므로
+// **번들이 바뀔 때만, 그리고 바뀌면 반드시** 지문이 바뀐다. 날짜나 난수를 쓰면 내용이
+// 같은 재배포에도 전 사용자의 캐시를 버리게 된다.
+// **줄 전체로 찾는다.** 처음엔 `__BUILD_ID__` 가 파일 안에 있는지만 봤는데, 그 표식은
+// 바로 위 주석에도 세 번 나온다 — 캐시 이름을 손으로 `docs-v9` 로 박아도 검사가 통과했다.
+// 실제로 그렇게 재현해 보고 알았다(2026-09-02). 문자열이 들어 있는지만 보는 검사가
+// 초록인데 실제로는 안 도는 모양은 이 저장소가 sw.js 회수 스위치에서 이미 겪었다.
+const SW_CACHE_LINE = "const CACHE = 'docs-__BUILD_ID__'"
+
+function stampServiceWorker() {
+  // vite build 없이 이 스크립트만 돌린 경우(부분 실행). 쓸 곳이 없으니 넘어간다.
+  if (!existsSync(OUT)) {
+    console.log('  (건너뜀) dist/ 없음 — 서비스워커 도장을 안 찍었다')
+    return
+  }
+  const srcPath = join(HERE, '..', 'public', 'sw.js')
+  const src = readFileSync(srcPath, 'utf8')
+  // **여기서 시끄럽게 실패한다.** 누가 캐시 이름을 다시 손으로 박으면 증상이
+  // '아무 일도 안 일어남'이라 아무도 모른다. 그건 규칙이 없는 것과 같다.
+  if (!src.includes(SW_CACHE_LINE)) {
+    console.error('\n❌ public/sw.js 의 캐시 이름 줄을 못 찾았다.')
+    console.error('   캐시 이름은 배포마다 달라져야 한다 — 고정하면 옛 번들이 기기에 영원히 남는다.')
+    console.error(`   → 이 줄 그대로 되돌려라: ${SW_CACHE_LINE}  (이유는 public/sw.js 주석)\n`)
+    process.exit(1)
+  }
+  const entry = join(OUT, 'index.html')
+  if (!existsSync(entry)) {
+    console.log('  (건너뜀) dist/index.html 없음 — 서비스워커 도장을 안 찍었다')
+    return
+  }
+  const id = createHash('sha256').update(readFileSync(entry)).digest('hex').slice(0, 8)
+  // **그 한 줄만** 바꾼다. 파일 전체에서 표식을 치환하면 왜 이렇게 하는지 적어둔
+  // 주석까지 지문으로 바뀌어, 배포된 워커를 열어본 사람이 근거를 못 읽는다.
+  writeFileSync(join(OUT, 'sw.js'), src.replace(SW_CACHE_LINE, `const CACHE = 'docs-${id}'`))
+  console.log(`  서비스워커 캐시 이름: docs-${id} (dist/index.html 지문)`)
+}
 
 function main() {
   // content/는 저장소 루트에 있는데 **프론트 Docker 이미지의 빌드 컨텍스트는
@@ -888,7 +960,7 @@ function main() {
     writeFileSync(
       join(OUT, 'devlog', `${p.date}.html`),
       page({
-        title: `${p.title} — ${TITLE}`,
+        title: p.title,
         description: p.summary || DESC,
         url: `${SITE}/${p.slug}`,
         article: true,
@@ -926,7 +998,7 @@ function main() {
   writeFileSync(
     join(OUT, 'devlog.html'),
     page({
-      title: `개발일지 — ${TITLE}`,
+      title: '개발일지',
       description: `개발일지 ${posts.length}편. 서버 없이도 읽을 수 있습니다.`,
       url: `${SITE}/devlog.html`,
       script: '/devlog-filter.js',
@@ -992,7 +1064,7 @@ function main() {
     writeFileSync(
       join(OUT, 'infra.html'),
       page({
-        title: `인프라 실측 — ${TITLE}`,
+        title: '인프라 실측',
         description: `이 블로그가 실제로 올라가 있는 AWS 자원. ${inf.measured_at} 실측.`,
         url: `${SITE}/infra.html`,
         body:
@@ -1030,7 +1102,7 @@ function main() {
   writeFileSync(
     join(OUT, 'map.html'),
     page({
-      title: `사이트 구조 — ${TITLE}`,
+      title: '사이트 구조',
       description: '이 블로그는 두 갈래로 산다 — 서버 없이 항상 열리는 쪽과, 서버를 켠 날만 도는 쪽.',
       url: `${SITE}/map.html`,
       body:
@@ -1127,7 +1199,7 @@ function main() {
     writeFileSync(
       join(OUT, 'k', `${t.slug}.html`),
       page({
-        title: `${t.name} — ${TITLE}`,
+        title: t.name,
         description: `'${t.name}'이(가) 나오는 개발일지 ${t.hits.length}편.`,
         url: `${SITE}/k/${t.slug}.html`,
         body:
@@ -1152,7 +1224,7 @@ function main() {
     writeFileSync(
       join(OUT, 'keywords.html'),
       page({
-        title: `용어 색인 — ${TITLE}`,
+        title: '용어 색인',
         description: `이 블로그에 나오는 도구·개념 ${termHits.length}가지. 각 용어가 나오는 편으로 갑니다.`,
         url: `${SITE}/keywords.html`,
         body:
@@ -1189,7 +1261,7 @@ function main() {
     writeFileSync(
       join(OUT, 'log.html'),
       page({
-        title: `커밋 로그 — ${TITLE}`,
+        title: '커밋 로그',
         description: `이 블로그를 만든 커밋 ${commits.length}개. 개발일지 ${posts.length}편과 날짜로 이어집니다.`,
         url: `${SITE}/log.html`,
         body:
@@ -1241,7 +1313,7 @@ function main() {
     writeFileSync(
       join(OUT, 'tag', tagFile(t)),
       page({
-        title: `#${t} — ${TITLE}`,
+        title: `#${t}`,
         description: `'${t}' 태그가 붙은 개발일지 ${inTag.length}편.`,
         url: `${SITE}${tagHref(t)}`,
         body:
@@ -1278,7 +1350,7 @@ function main() {
   writeFileSync(
     join(OUT, 'lessons.html'),
     page({
-      title: `함정과 교훈 — ${TITLE}`,
+      title: '함정과 교훈',
       description: `개발일지 ${posts.length}편에서 뽑은 함정 ${traps.length}건과 전문가 노트 ${notes.length}건. 서버 없이 읽을 수 있습니다.`,
       url: `${SITE}/lessons.html`,
       script: '/lessons-filter.js',
@@ -1371,7 +1443,7 @@ function main() {
     writeFileSync(
       join(OUT, 'about.html'),
       page({
-        title: `소개 — ${TITLE}`,
+        title: '소개',
         description: `${TITLE}를 만든 사람과, 이 사이트를 만든 방식.`,
         url: `${SITE}/about.html`,
         body: `<h1>${esc(h1 ? h1[1].trim() : '소개')}</h1>${md.parse(aboutBody)}`,
@@ -1461,4 +1533,7 @@ ${urls
   )
 }
 
+// 정적 아카이브(content/devlog)가 없어도 도장은 찍어야 한다 — main() 은 그 경우
+// 일찍 돌아가는데, 서비스워커 캐시는 개발일지와 아무 상관이 없다.
+stampServiceWorker()
 main()
