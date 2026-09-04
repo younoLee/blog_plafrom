@@ -393,6 +393,14 @@ scripts/env_escrow.sh check   # .env 사본(PC·SSM)이 서버와 같은지
 scripts/watch.sh              # 예약으로도 돌지만(매시는 아니다) 수동 확인도 가능
 ```
 
+> ⚠️ **위 셋 중 앞의 둘은 서버가 켜져 있어야 하고, 켜기 전에 SSH 대역을 갱신해야 한다.**
+> `restore_drill.sh`와 `env_escrow.sh`는 SSH로 서버에 들어가 `.env`를 읽는다. 집 공인 IP가
+> 고정이 아니라서 `ssh_cidr`이 시간이 지나면 어긋나고(09-02와 09-04 사이에 실제로
+> 바뀌었다), 어긋난 채로 켜면 인스턴스는 running인데 SSH가 안 붙는다.
+> 09-04에 실제로 여기서 막혔다 — 그때 이 문서에도 배포 문서에도 이 단계가 없었다.
+> 절차는 `docs/invite-signup-deploy.md` 2-A(대역 갱신) → 2-B(켜기)를 그대로 따른다.
+> `watch.sh`는 서버 밖에서 공개 주소를 찌르므로 서버가 꺼져 있어도 그대로 돈다.
+
 시크릿 사본은 셋이다 — 서버 원본 · 이 PC · SSM SecureString(`/blog/prod/env`,
 Standard 티어라 무료). PC만 잃어도, 서버만 잃어도, 둘을 동시에 잃어도 복구된다.
 **다만 AWS 계정 자체를 잃으면 이 PC 사본만 남는다** — 그래서 비밀번호 관리자에

@@ -55,6 +55,35 @@ git push origin main
 
 ## 2. 서버 켜기
 
+### 2-A. 먼저 SSH 대역을 지금 IP로 (2026-09-04 추가)
+
+**이 단계가 빠지면 인스턴스는 running인데 SSH가 안 붙는다.** 집 공인 IP가 고정이
+아니라서 `ssh_cidr`이 시간이 지나면 어긋난다 — 09-02와 09-04 사이에 실제로 바뀌었다
+(값은 여기 안 적는다. 아래 `checkip`으로 그때그때 읽는다). 09-04에 여기서 막혔고, 그때 이 문서에도
+`RECOVERY.md`에도 이 단계가 없었다. 3절 배포도 4절 확인도 전부 SSH를 쓰므로
+여기서 막히면 그 뒤가 통째로 멈춘다(`scripts/env_escrow.sh`도 마찬가지다 —
+서버 `.env`를 SSH로 먼저 읽는다).
+
+```bash
+curl -s https://checkip.amazonaws.com          # 지금 내 공인 IP
+```
+
+나온 값이 `terraform/terraform.tfvars`의 `ssh_cidr`과 다르면 고치고 적용한다.
+(tfvars는 gitignore다 — 공개 저장소에 거주지 IP를 안 박는 의도된 설계.
+ 근거는 `terraform/ec2.tf`의 ingress 주석)
+
+```bash
+sed -i 's#^ssh_cidr.*#ssh_cidr      = "<위에서 나온 IP>/32"#' terraform/terraform.tfvars
+terraform -chdir=terraform apply -auto-approve -target=aws_security_group.ec2
+```
+
+> ⚠️ plan 에서 ingress 블록이 **통째로 다시 그려진다.** 22번 대역만 바뀌고
+> 8000번(CloudFront 프리픽스 `pl-22a6434b`)은 그대로여야 한다 — 포트별로 확인할 것.
+> 대상 `aws_security_group.ec2`는 실물 이름이 `launch-wizard-1`이라 콘솔에서 만든
+> 비관리 자원처럼 보이지만 **terraform이 관리한다.** 드리프트가 아니다.
+
+### 2-B. 켜기
+
 ```bash
 # ID를 박지 않는다 — 재건하면 바뀐다(DR 결함 F5). 태그로 찾는다.
 IID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=blog-backend" \
@@ -64,7 +93,20 @@ echo "$IID"   # 비었거나 None이면 태그부터 확인할 것
 
 aws ec2 start-instances --instance-ids "$IID"
 aws ec2 wait instance-running --instance-ids "$IID"
+
+# **'running'과 '들어갈 수 있다'는 다르다.** wait 가 끝나도 sshd 는 몇 초 더 걸리고,
+# 2-A 를 빠뜨렸다면 여기서 비로소 드러난다. 실제로 붙는 것까지 확인하고 다음으로 간다.
+DNS=$(aws ec2 describe-instances --instance-ids "$IID" \
+  --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
+for i in $(seq 1 30); do
+  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+    -i ~/.ssh/blog-key.pem "ec2-user@$DNS" true 2>/dev/null && { echo "SSH OK"; break; }
+  sleep 5
+done
 ```
+
+> 30회(약 150초) 안에 `SSH OK`가 안 나오면 거의 항상 2-A 를 빠뜨린 것이다.
+> `curl -s https://checkip.amazonaws.com` 과 보안그룹의 22번 대역을 나란히 놓고 본다.
 
 ## 3. 백엔드 배포
 
