@@ -390,7 +390,7 @@ aws s3api list-object-versions --bucket blogplafromops --prefix uploads/ \
 ```bash
 scripts/restore_drill.sh      # 복원되는지 + 이미지·사본·시크릿까지
 scripts/env_escrow.sh check   # .env 사본(PC·SSM)이 서버와 같은지
-scripts/watch.sh              # 매시 자동으로도 돌지만 수동 확인도 가능
+scripts/watch.sh              # 예약으로도 돌지만(매시는 아니다) 수동 확인도 가능
 ```
 
 시크릿 사본은 셋이다 — 서버 원본 · 이 PC · SSM SecureString(`/blog/prod/env`,

@@ -153,7 +153,7 @@ CI(GitHub Actions)가 push·PR마다 백엔드 테스트(+커버리지 70% 게�
 backend/       FastAPI 앱 (routers/ models/ schemas/ services/ core/) + alembic 마이그레이션 + tests/
 frontend/      React 앱 (pages/ components/ api/ auth/)
 terraform/     AWS 인프라 코드 (EC2·CloudFront·S3·IAM·백업)
-.github/        워크플로: ci.yml(검사) · deploy.yml(프론트 배포) · build-backend.yml(백엔드 이미지) · watch.yml(매시 감시)
+.github/        워크플로: ci.yml(검사) · deploy.yml(프론트 배포) · build-backend.yml(백엔드 이미지) · watch.yml(예약 감시)
 PROGRESS.md     개발일지 — 결정과 그 이유의 기록
 ```
 

@@ -17,7 +17,11 @@
 #
 # 사용:
 #   scripts/watch.sh          # 로컬에서 수동 실행
-#   .github/workflows/watch.yml 이 매시 자동 실행 (실패하면 GitHub이 메일로 알림)
+#   .github/workflows/watch.yml 이 예약 실행 (실패하면 GitHub이 메일로 알림)
+#   ⚠️ **매시가 아니다.** cron 은 '17 * * * *' 이지만 GitHub 이 지연·누락시켜서
+#      실측은 기대치의 24~37%다(2026-09-04, 간격 중앙값 1.4~4.4시간·최대 13.3시간).
+#      숫자와 근거는 watch.yml 의 schedule 주석에. 이 파일이 "매시 초록"이라고
+#      쓴 자리들도 같은 뜻으로 읽을 것 — 실제로는 그보다 드물게 본다.
 #
 # 종료코드: 문제가 하나라도 있으면 1. Actions가 빨간불이 되고 알림이 간다.
 #
@@ -687,7 +691,10 @@ else
   alarm_state=$(printf '%s\n' "$alarm" | awk '{print $1}')
   alarm_topic=$(printf '%s\n' "$alarm" | awk '{print $2}')
   if [ "$alarm_state" = "None" ] || [ -z "$alarm_state" ]; then
-    fail "'$ALARM_NAME' 알람이 없다 — 인스턴스가 통째로 죽으면 이 감시(매시)가 알 때까지 최대 1시간이다."
+    # "최대 1시간"이라고 쓰여 있었는데 틀린 값이었다(2026-09-04). 이 감시는 매시
+    # 돌지 않는다 — 08-31 이후 실측 간격이 중앙값 4.4시간, 최대 8.3시간이다.
+    # 알람이 없을 때의 공백을 1시간으로 말하면 그 위험을 실제보다 작게 알린다.
+    fail "'$ALARM_NAME' 알람이 없다 — 인스턴스가 통째로 죽으면 이 감시가 알 때까지 몇 시간이다(예약이 매시를 보장하지 않는다. watch.yml 참고)."
     echo "     복구: terraform -chdir=terraform apply (alerts.tf)"
   elif [ "$alarm_topic" = "None" ] || [ -z "$alarm_topic" ]; then
     fail "'$ALARM_NAME'에 알림 대상이 없다 — 상태는 바뀌지만 아무도 안 부른다."
