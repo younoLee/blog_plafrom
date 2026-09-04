@@ -14,7 +14,7 @@
 > **글 내용은 서버 없이도 읽을 수 있습니다** — 웹에서도 그렇습니다:
 > [개발일지 아카이브](https://d2j66m9udyg9yq.cloudfront.net/devlog.html) ·
 > [RSS](https://d2j66m9udyg9yq.cloudfront.net/rss.xml) ·
-> 저장소에서는 [`content/devlog/`](./content/devlog) (개발일지 40편).
+> 저장소에서는 [`content/devlog/`](./content/devlog) (개발일지 41편).
 > 이 셋은 S3에서 정적으로 나가므로 EC2가 꺼져 있어도 열립니다.
 
 > 이 프로젝트는 기능뿐 아니라 **왜 그렇게 만들었는지**를 개발일지로 남긴다 —
@@ -61,7 +61,7 @@ flowchart LR
 - AWS 리소스 대부분을 `terraform/`에 코드화(import 방식으로 라이브 인프라 1:1 반영).
   밖에 남은 것은 바로 아래에 목록으로 둔다.
 
-### terraform 밖에 있는 것 (2026-09-02 조회)
+### terraform 밖에 있는 것 (2026-09-04 조회)
 
 **개수는 적지 않는다.** 예전에 "콘솔 생성 마지막 리소스"라고 못 박았다가 WAF가 빠져 있었고,
 그때 배운 것이 개수를 적어두면 그 자리를 다시 안 본다는 것이었는데 같은 실수를 또 했다
@@ -70,12 +70,12 @@ flowchart LR
 | 코드 밖 | 확인한 값 |
 |---|---|
 | tfstate 버킷 | `blog-tfstate-181568979775` (자기 자신을 담는 곳) |
-| SSM 파라미터 | `/blog/prod/env` (SecureString) |
+| SSM 파라미터 | `/blog/prod/env` · `/blog/prod/ssh-key` (둘 다 SecureString). 열쇠 쪽은 2026-09-04에 처음 넣었다 — 그전까지 개인키 사본은 이 PC 하나뿐이었다 |
 | IAM 유저 | `IAM_cli`, `ses-smtp-user.20260625-184915`, `youno` |
 | EC2 키페어 | `blog-key.pem`. `ec2.tf:28`이 이름으로 참조만 하고 리소스로는 안 갖는다 |
 | SES 검증 신원 | 개인 메일 주소들이라 여기 안 적는다. `aws ses list-identities`로 본다 |
 | AWS Budgets | `My Monthly Cost Budget`($10/월) · `My Zero-Spend Budget`($1/월) |
-| EBS 스냅샷 | `snap-04ae9ee933923302a` (2026-08-27 게임데이의 break-glass, 비암호화) |
+| EBS 스냅샷 | **0건**(이 운영의 정상 상태). 2026-08-27 게임데이의 break-glass 사본은 09-02에 지웠고, 이제 `scripts/watch.sh` 5-B가 하나라도 남으면 실패한다 |
 
 즉 `terraform plan`이 조용해도 이것들의 콘솔 변경은 안 잡힌다. 아래를 돌려 결과가 위 표와
 다르면 표를 고치고 제목의 날짜를 갱신한다.
