@@ -184,6 +184,22 @@ resource "aws_iam_role_policy" "github_watch" {
         Resource = "*"
       },
       {
+        # watch.sh 5-B가 "자기 소유 EBS 스냅샷 0건"을 확인하는 자리.
+        # Describe*는 리소스 수준 권한을 지원하지 않아 Resource를 좁힐 수 없다 —
+        # 좁히면 조회 자체가 AccessDenied가 된다.
+        #
+        # ⚠️ **아래 ReadFrontDeployStamp의 경고가 그대로 재현됐다.** 2026-09-02에 5-B를
+        # 넣은 푸시가 watch.sh만 고치고 이 파일을 안 건드렸다. 결과: 09-02 14:29 UTC부터
+        # watch 워크플로가 **11회 연속 failure**(2026-09-04에 GitHub API로 실측).
+        # 5-B는 조회 실패를 '0건'과 구분해 fail로 처리하므로 — 그건 옳다 —
+        # 스냅샷 판정에는 도달조차 못 했다. 이번에도 **로컬만 초록**이었다.
+        # 감시에 AWS 호출을 더할 때는 이 파일을 같은 커밋에서 연다. 두 번 당했다.
+        Sid      = "ReadSnapshotInventory"
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeSnapshots"]
+        Resource = "*"
+      },
+      {
         # 백업이 실제로 쌓이는지, 만료 안 되는 사본이 있는지, 이미지 사본 개수.
         Sid    = "ListBackupsAndImages"
         Effect = "Allow"
@@ -192,6 +208,20 @@ resource "aws_iam_role_policy" "github_watch" {
           aws_s3_bucket.db_backups.arn,
           aws_s3_bucket.frontend.arn,
         ]
+      },
+      {
+        # watch.sh 3절이 '원본 0 · 사본 N'을 만났을 때 부르는 list-object-versions.
+        # 삭제 표식이 있으면 진짜 지워진 것, 없으면 정상적으로 비운 것 — 그 둘을
+        # 가르는 유일한 근거다. s3:ListBucket 으로는 안 되고 별도 권한이 필요하다.
+        #
+        # 지금은 원본이 있어서 그 분기에 안 들어가므로 **아직 안 터진 자리**다.
+        # 그래서 더 나쁘다: 터지는 날은 이미지가 사라진 날이고, 그날 감시는
+        # 삭제 표식을 못 읽어 "권한 확인" 경고부터 뱉는다. 5-B로 두 번 당한 뒤라
+        # 미리 닫는다(2026-09-04, 역할 권한을 watch.sh 호출과 대조하다 발견).
+        Sid      = "ReadImageDeleteMarkers"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucketVersions"]
+        Resource = aws_s3_bucket.frontend.arn
       },
       {
         # head-object로 keep/latest.sql.gz 존재 확인 (GetObject 권한이 필요하다).
