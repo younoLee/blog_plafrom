@@ -241,15 +241,15 @@ docker compose up -d          # db·mailpit·backend·frontend
 **비용 메모:** 신규 계정이라 12개월 프리티어 무료. 안 쓸 땐 EC2·RDS **중지(stop)**하면 과금 거의 0. 나중 Terraform 가면 destroy/apply로 내렸다 올리기. 콘솔 예상요금 숫자는 정가표시(프리티어 할인 미반영) — 실제 $0.
 
 **[백엔드 LIVE 달성] (2026-06-24):**
-- EC2: `i-06da19f44d1f38eff`, 퍼블릭 IP **15.164.102.25**, Amazon Linux 2023, Docker 25 + compose v5 + buildx v0.35 + nano 설치됨
+- EC2: `i-06da19f44d1f38eff`, 퍼블릭 IP **203.0.113.10**, Amazon Linux 2023, Docker 25 + compose v5 + buildx v0.35 + nano 설치됨
 - EC2 SG `sg-09ab4afd4472bb186`(launch-wizard-1): 22(내 IP), 8000(0.0.0.0/0). RDS SG `sg-04befe624e377b573`: 5432(EC2 SG에서만)
 - RDS 엔드포인트 `blog-db.czk2i6usy011.ap-northeast-2.rds.amazonaws.com:5432`, **prod는 기본 `postgres` DB 사용**(별도 blog DB 안 만듦 — alembic이 테이블 생성). 마이그레이션 7개 전부 적용됨
-- EC2 `~/blog/`: 백엔드 코드 + `docker-compose.prod.yml`(backend만, env_file, restart) + `.env`(DATABASE_URL→RDS postgres, 비번은 사용자가 nano로 입력, 나는 안 봄). SSH: `ssh -i ~/.ssh/blog-key.pem ec2-user@15.164.102.25`
-- 검증: 인터넷에서 `http://15.164.102.25:8000/health`·`/status` → ok, database:ok(RDS연결). mail:down(prod 메일서버 없음, 나중 SES)
+- EC2 `~/blog/`: 백엔드 코드 + `docker-compose.prod.yml`(backend만, env_file, restart) + `.env`(DATABASE_URL→RDS postgres, 비번은 사용자가 nano로 입력, 나는 안 봄). SSH: `ssh -i ~/.ssh/blog-key.pem ec2-user@203.0.113.10`
+- 검증: 인터넷에서 `http://203.0.113.10:8000/health`·`/status` → ok, database:ok(RDS연결). mail:down(prod 메일서버 없음, 나중 SES)
 - 재배포(코드 수정 시): 로컬 backend tar→scp→EC2 `~/blog`, `sudo docker compose -f docker-compose.prod.yml up -d --build`
 
 **🔴 다음 할 일 (프론트 연결 — 여기 HTTPS 함정 있음):**
-1. ⚠️ **혼합 콘텐츠 문제**: 프론트(CloudFront)는 HTTPS인데 백엔드는 HTTP(`http://15.164.102.25:8000`) → 브라우저가 HTTPS페이지에서 HTTP API 호출을 **차단**함. 해결 필요:
+1. ⚠️ **혼합 콘텐츠 문제**: 프론트(CloudFront)는 HTTPS인데 백엔드는 HTTP(`http://203.0.113.10:8000`) → 브라우저가 HTTPS페이지에서 HTTP API 호출을 **차단**함. 해결 필요:
    - (추천) CloudFront에 **두 번째 오리진(EC2)** 추가 + 경로 패턴(예 `/api/*`)을 EC2로 → 전부 같은 HTTPS 도메인 = CORS·혼합콘텐츠 동시 해결. 단 백엔드 라우트에 `/api` prefix 필요(또는 CloudFront에서 경로 재작성)
    - (대안) 도메인 사서 ACM 인증서 + 백엔드 앞단 HTTPS
 2. 프론트 api/*.ts의 `BASE='http://localhost:8000'` → 백엔드 주소로 교체 후 재빌드 → S3 재업로드(`aws s3 sync`) → CloudFront 무효화(invalidation)
@@ -263,7 +263,7 @@ docker compose up -d          # db·mailpit·backend·frontend
    ├─ 기본동작(/, /blog, /status…)  → S3 (blogplafromops, OAC)          [정적 화면]
    ├─ /api/*   → EC2 오리진(ec2-backend, http-only :8000)               [백엔드 API]
    └─ /uploads/* → EC2 오리진                                            [이미지]
-                          EC2(15.164.102.25) Docker 백엔드 → RDS(blog-db, postgres DB)
+                          EC2(203.0.113.10) Docker 백엔드 → RDS(blog-db, postgres DB)
 ```
 - **혼합콘텐츠+CORS 해결법**: 백엔드 라우트를 전부 `/api` 밑으로(main.py: include_router prefix='/api', /api/health·/api/status), CloudFront에 EC2 2번째 오리진 + behavior(/api/*=CachingDisabled+AllViewerExceptHostHeader, /uploads/*=CachingOptimized) 추가 → 전부 같은 HTTPS 도메인 = CORS 불필요, 혼합콘텐츠 없음
 - 프론트: api/*.ts의 BASE를 `import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'`로 통일. prod 빌드는 `VITE_API_BASE=https://d2j66m9udyg9yq.cloudfront.net/api npm run build`
@@ -322,7 +322,7 @@ docker compose up -d          # db·mailpit·backend·frontend
 
 ### 4단계 Terraform ④ EC2 + 보안그룹 import [완료] (`ec2.tf`)
 - 보안그룹 실제 규칙은 `aws ec2 describe-security-groups`로 조회 후 코드화
-- `aws_security_group.ec2`(sg-09ab4afd4472bb186, 실제 GroupName=launch-wizard-1): inbound 8000(전체)·22(내 IP 211.108.159.167/32), egress 전체. **ingress description은 실제로 빈값** → 코드에서도 빼야 No changes(미리 맞춰 한 방)
+- `aws_security_group.ec2`(sg-09ab4afd4472bb186, 실제 GroupName=launch-wizard-1): inbound 8000(전체)·22(내 IP <내 공인 IP>/32), egress 전체. **ingress description은 실제로 빈값** → 코드에서도 빼야 No changes(미리 맞춰 한 방)
 - **발견**: DB용 SG가 별도 생성이 아니라 **VPC default 보안그룹**(sg-04befe624e377b573, GroupName=default)이었음 → `aws_security_group` 아니라 **`aws_default_security_group.default`** 전용 리소스로 import(삭제 아닌 관리만). 규칙: 5432(EC2 SG에서만, `security_groups=[aws_security_group.ec2.id]`)·self 전체·egress 전체
 - `aws_instance.backend`(i-06da19f44d1f38eff): describe-instances로 핵심 조회 → ami `ami-0436b3a61a7a7e22a`, t2.micro, key `blog-key.pem`, subnet, EC2 SG, metadata_options(IMDSv2 http_tokens=required), root_block_device(delete_on_termination). **태그 `Name="blog-backend "`(끝 공백 포함)** 그대로 맞춤 → 핵심만 적었는데 한 방에 No changes(나머지 computed는 terraform 자동)
 - 생략: 키페어(공개키 원문 필요, 인스턴스가 key_name 문자열로 참조하면 충분), EIP(없음)
@@ -392,7 +392,7 @@ docker compose up -d          # db·mailpit·backend·frontend
   - **첫 관리자 부트스트랩**: `.env`의 `ADMIN_EMAIL`과 일치하는 이메일로 가입/로그인하면 자동 admin(수동 SQL 불필요). 비밀 아님
   - `schemas/user.py` UserRead에 `role` 포함(프론트가 권한 알게)
 - 환경: 로컬 백엔드는 docker 컨테이너로 실행 중 → `.env`는 venv용, **docker는 compose `environment:`에도 `ADMIN_EMAIL` 넣어야 함**(둘 다 등록함). env 변경은 `docker compose up -d backend`로 컨테이너 재생성해야 반영
-- 검증: curl e2e — 가입→role=pending, pending 글쓰기 403, DB로 writer 승격 후 201, 정리 완료. 브라우저에서 admin(es2646526@gmail.com) 가입→자동 admin→글쓰기 성공 확인
+- 검증: curl e2e — 가입→role=pending, pending 글쓰기 403, DB로 writer 승격 후 201, 정리 완료. 브라우저에서 admin(admin@example.com) 가입→자동 admin→글쓰기 성공 확인
 - 막혔던 것: docker 프론트엔드가 3일 전(2026-06-22) 빌드라 `/api` 경로 통일(06-24)·오늘 리디자인 반영 안 됨 → 옛 프론트가 `localhost:8000/auth/...`(/api 없음) 호출해 가입 실패 → `docker compose up -d --build frontend`로 재빌드 해결
 - 다음: 2단계 관리자 승인 API(`/admin/users` 목록 + 승인/해제) → 3단계 프론트 권한 UI → 4단계 비번 재설정(이메일 링크)
 
@@ -460,20 +460,20 @@ docker compose up -d          # db·mailpit·backend·frontend
 - 🔴 **CI/CD 함정**: deploy.yml이 frontend/** push마다 자동배포 → 백엔드+SES 준비 전에 frontend 또 push하면 프로드 다시 어긋남. 프로드 풀배포 전까진 frontend push 주의(또는 워크플로 일시중단 고려)
 
 ### 🎉 계정 시스템 AWS 프로드 풀 배포 완료 (2026-06-25)
-- **SES 셋업**: SES 콘솔(서울 ap-northeast-2)에서 이메일 ID(es2646526@gmail.com) verify + SMTP 자격증명 생성(IAM `ses-smtp-user.20260625-184915`, username=AKIA…). 엔드포인트 `email-smtp.ap-northeast-2.amazonaws.com:587`(STARTTLS). ⚠️ 아직 **샌드박스** → verify된 수신자에게만 발송됨(공개가입 받으려면 production access 요청 필요)
+- **SES 셋업**: SES 콘솔(서울 ap-northeast-2)에서 이메일 ID(admin@example.com) verify + SMTP 자격증명 생성(IAM `ses-smtp-user.20260625-184915`, username=AKIA…). 엔드포인트 `email-smtp.ap-northeast-2.amazonaws.com:587`(STARTTLS). ⚠️ 아직 **샌드박스** → verify된 수신자에게만 발송됨(공개가입 받으려면 production access 요청 필요)
 - **코드**: `config`에 smtp_user/password/use_tls, `email.send_email`에 STARTTLS+login 분기(로컬 Mailpit은 평문 그대로). 커밋 f59dea3
-- **백엔드 배포(EC2 15.164.102.25)**: 로컬 backend tar→scp→`~/blog` 추출, `.env`에 SMTP_*(SES)·MAIL_FROM·FRONTEND_BASE_URL(CloudFront)·ADMIN_EMAIL 추가(비번은 사용자가 nano로, 나는 안 봄), `sudo docker compose -f docker-compose.prod.yml up -d --build` → slowapi 설치 + **alembic이 role·email_verified 마이그레이션 RDS에 자동 적용**(로그 확인)
+- **백엔드 배포(EC2 203.0.113.10)**: 로컬 backend tar→scp→`~/blog` 추출, `.env`에 SMTP_*(SES)·MAIL_FROM·FRONTEND_BASE_URL(CloudFront)·ADMIN_EMAIL 추가(비번은 사용자가 nano로, 나는 안 봄), `sudo docker compose -f docker-compose.prod.yml up -d --build` → slowapi 설치 + **alembic이 role·email_verified 마이그레이션 RDS에 자동 적용**(로그 확인)
 - **프론트 배포**: 최신(HEAD) `VITE_API_BASE=CloudFront/api` 빌드 → `aws s3 sync --delete` → 무효화(I1SBWZYI7HCAF3IXCZRJ9DENZG). 라이브 JS=index-Cl94fXKg.js
 - 검증: 라이브 `/api/auth/verify` 400·`/forgot-password` 202·`/admin/users` 401(전부 살아남, 옛날엔 404), `/api/posts` 200, 포털 200, 프론트=백엔드 일치
-- **프로드 관리자 만들기**: 라이브에서 es2646526@gmail.com으로 가입 → ADMIN_EMAIL이라 **자동 admin+자동 인증(메일 불필요)** → 바로 로그인 가능
+- **프로드 관리자 만들기**: 라이브에서 admin@example.com으로 가입 → ADMIN_EMAIL이라 **자동 admin+자동 인증(메일 불필요)** → 바로 로그인 가능
 - 이제 CI 함정 해소(백엔드가 최신이라 frontend push 자동배포돼도 일치). 남은 선택: SES 프로덕션 액세스(공개가입), 커밋들 GitHub push
 
 ### 보안: ADMIN_EMAIL 자동승격 부트스트랩 제거 (2026-06-25) — 커밋 4363542
-- 라이브에서 es2646526@gmail.com 가입 → admin 됨(부트스트랩으로). **첫 관리자 생겼으니 부트스트랩 제거**(이메일 장악/비번재설정 악용 시 admin 탈취 위험)
+- 라이브에서 admin@example.com 가입 → admin 됨(부트스트랩으로). **첫 관리자 생겼으니 부트스트랩 제거**(이메일 장악/비번재설정 악용 시 admin 탈취 위험)
 - 제거: auth.py `_is_admin_email`·register admin특례·login 자동승격, config `admin_email`, docker-compose `ADMIN_EMAIL`. 이제 register는 전부 pending+미인증
 - 기존 admin 계정(role=admin)은 DB에 남아있어 영향 없음(코드 제거해도 행은 유지)
 - **앞으로 관리자 승격은 DB에서만**: `ssh ec2 → sudo docker compose -f docker-compose.prod.yml exec backend python` 또는 psql로 `UPDATE users SET role='admin' WHERE email='...'`
-- 프로드 재배포(tar→scp→up --build) 완료, 배포코드 `_is_admin_email` 0개 확인, es2646526 admin 유지 확인. prod .env의 ADMIN_EMAIL은 이제 코드가 안 읽음(무해, 지워도 됨)
+- 프로드 재배포(tar→scp→up --build) 완료, 배포코드 `_is_admin_email` 0개 확인, admin admin 유지 확인. prod .env의 ADMIN_EMAIL은 이제 코드가 안 읽음(무해, 지워도 됨)
 - 로컬/원격 git: 로컬 다수 커밋 앞섬 → 외부터미널 `git push origin main` 필요
 
 ### 🏁 오늘(2026-06-25) 마무리
@@ -493,7 +493,7 @@ docker compose up -d          # db·mailpit·backend·frontend
 ### 🔓→🔒 권한받은 침투 테스트(자기 사이트) + 2차 구멍 차단 [완료]
 - 공격1: 공개 기본키로 admin(id3) JWT 위조 → 라이브 /auth/me·/admin/users **401 거부**(SECRET_KEY 교체 효과 입증). 이게 "10초 털이"의 정체(위조 토큰 admin화 + 비번재설정 토큰 위조로 임의계정 탈취까지 가능했음)
 - 공격2: 무인증 /admin/users → 401(접근제어 정상)
-- **공격3 발견🔴**: EC2가 `http://15.164.102.25:8000` 인터넷 직접 노출 — /docs·/openapi.json 200 = WAF·HTTPS 우회 + 평문 + API 지도 노출. 원인 SG 8000=0.0.0.0/0
+- **공격3 발견🔴**: EC2가 `http://203.0.113.10:8000` 인터넷 직접 노출 — /docs·/openapi.json 200 = WAF·HTTPS 우회 + 평문 + API 지도 노출. 원인 SG 8000=0.0.0.0/0
 - **조치**: `terraform/ec2.tf` 8000 ingress를 `0.0.0.0/0` → CloudFront 관리형 prefix list `pl-22a6434b`(com.amazonaws.global.cloudfront.origin-facing)로. plan=in-place 1변경/0파괴, apply 완료. 검증: 직접 IP:8000 전 경로 000(차단), CloudFront 경유 200(정상)
 - mass-assignment 안전(UserCreate는 email/password만 → role/email_verified 주입 불가). 남은 default 시크릿 없음(DB·SMTP는 실값)
 - 🔴 재발 위험: config.py secret_key 기본값 `change-me-in-production` 여전히 코드에 존재 → 다음 배포 때 .env 빠뜨리면 또 뚫림. 코드가 기본값 거부하게 가드 필요(미적용, 다음)
@@ -525,7 +525,7 @@ docker compose up -d          # db·mailpit·backend·frontend
 - **이미지 다른 기기서 안 보임**: 원인 = 프로드 compose에 uploads 볼륨이 없어 이미지가 컨테이너 안에만 저장 → 오늘 보안 재배포(--build) 반복으로 매번 uploads 폴더 초기화됨(0개). URL은 정상(PUBLIC_BASE_URL=CloudFront)
   - 조치: docker-compose.prod.yml에 `volumes: ./uploads:/app/uploads` 추가 + `mkdir uploads` → 호스트 디스크 영구저장. 검증: 호스트 파일이 컨테이너에 보이고 --build 재빌드 후에도 생존. prod compose를 저장소에도 추가(이전엔 EC2에만)
   - ⚠️ 이미 사라진 기존 이미지는 복구 불가 → 재업로드 필요. 장기적으론 S3 업로드가 정석(인스턴스 교체에도 안전)
-- SES: youno3249@gmail.com 발신ID 등록(verify 대기, 사용자가 메일 링크 클릭 필요). jinukkim0305@naver.com은 사용자 것 아님(프로드 계정 삭제함, SES ID는 남아있음)
+- SES: sender@example.com 발신ID 등록(verify 대기, 사용자가 메일 링크 클릭 필요). third-party@example.com은 사용자 것 아님(프로드 계정 삭제함, SES ID는 남아있음)
 
 ### 🖼 이미지 업로드 S3 이전 [완료] (2026-06-26)
 - 동기: 볼륨 방식은 재배포엔 안전하나 인스턴스 교체엔 취약 → S3로 영구화(정석)
@@ -535,7 +535,7 @@ docker compose up -d          # db·mailpit·backend·frontend
 - prod .env: S3_BUCKET=blogplafromops, AWS_REGION=ap-northeast-2
 - 검증: 컨테이너 boto3로 S3 put 성공(인스턴스 역할 작동) + CloudFront /uploads/_roletest.png 200·image/png. 테스트객체 삭제
 - 결과: 새 업로드는 S3에 저장→CloudFront 서빙→인스턴스 교체에도 안전. (볼륨 마운트는 폴백으로 남겨둠, 무해)
-- ②글쓰기: youno3249·jinukkim·ppap 모두 이미 writer 상태(사용자가 /admin서 승인했거나). ①SES youno3249 verified 완료
+- ②글쓰기: sender·third-party·ppap 모두 이미 writer 상태(사용자가 /admin서 승인했거나). ①SES sender verified 완료
 
 ### 🐛 새로고침 로그인튕김 + 이미지삭제 함정 [완료] (2026-06-26)
 - 새로고침 시 /login 튕김: WritePostPage 가드가 인증복구(fetchMe) loading 중 user=null을 보고 즉시 navigate('/login') → `if(loading)return`으로 보류하게 수정(AdminPage 패턴과 동일)
@@ -545,7 +545,7 @@ docker compose up -d          # db·mailpit·backend·frontend
 - 증상: 구독해도 일부공개 글 안 보임. 진단: author_subscriptions **0건**(구독이 실제로 안 됨) + 데이터상 admin(주인장)은 공개글이 없음(일부공개만)
 - 근본원인: "글쓴이 구독" 버튼이 **글 상세에만** 있는데, 일부공개 글은 구독 전 못 열어(404) → 공개글 없는 작성자는 **구독 입구가 없어** 영영 구독 불가(막다른 길). 백엔드·구독로직 자체는 정상(로컬 e2e: 구독전 404→구독→200·목록반영)
 - 해결(개인블로그형): `GET /api/blog-owner`(admin id 반환) + 홈에 **"이 블로그 구독"** 버튼 → 주인장 구독 → loadPosts로 일부공개 글 즉시 반영. 라벨 "일부공개(나만)"→"일부공개(구독자에게만)" 모순 수정. (메일구독=새글알림 / 블로그구독=일부공개열람, 둘 다 홈에)
-- 검증: blog-owner 프로드 {id:3,es2646526}, build/lint 통과, 라이브 반영
+- 검증: blog-owner 프로드 {id:3,admin}, build/lint 통과, 라이브 반영
 
 ### 🔒 보안검사 2차 (신규 기능 포함 전수) [완료] (2026-06-26)
 - 권한받은 재점검(자동공격+코드리뷰). 기존 방어 전부 유지 확인:
@@ -710,7 +710,7 @@ AI 초안 surface 전체 검토. 기본기(require_writer·키 Fernet 암호화�
 
 ### 🔑 프로드 AI 활성화 + 라이브 e2e 검증 (2026-06-28)
 - EC2 `~/blog/.env`에 `ANTHROPIC_API_KEY`(서버 Claude) + `LLM_ENCRYPTION_KEY`(BYOK 암호화) 둘 다 추가(사용자가 직접 nano, 값은 안 봄) → `up -d --force-recreate`로 반영. ⚠️ 혼동주의: 로컬 레포 루트 `.env`(개발용, 이미 키 있음)와 EC2 `~/blog/.env`(프로드, 별도)는 완전히 다른 파일. 처음에 로컬 루트만 건드려서 프로드엔 안 들어갔었음.
-- 검증: 프로드 .env 형식 OK(sk-ant-…)·컨테이너가 두 키 읽음·컨테이너 내부 generate_draft 실호출 성공(522자, 코드블록 0개). 라이브 UI(admin es2646526)에서 글쓰기→초안 생성 → `ai_usage` 0→3 증가(일일 17/20·월간 197/200 남음) 서버측 확인. 남은횟수 UI·일일+월간 동시차감 라이브 동작 확인.
+- 검증: 프로드 .env 형식 OK(sk-ant-…)·컨테이너가 두 키 읽음·컨테이너 내부 generate_draft 실호출 성공(522자, 코드블록 0개). 라이브 UI(admin admin)에서 글쓰기→초안 생성 → `ai_usage` 0→3 증가(일일 17/20·월간 197/200 남음) 서버측 확인. 남은횟수 UI·일일+월간 동시차감 라이브 동작 확인.
 - `SECRET_KEY`(토큰 서명)는 프로드가 예전에 EC2에서 자체 생성한 값이라 로컬과 다름 → 건드리면 기존 로그인 전부 무효. AI 두 키만 추가.
 - ✅ **이번 세션 작업 완결**: AI 코드출력 차단 + 월간캡 + 남은횟수 UI + 모바일 헤더 반응형 → 커밋 9e4e2f6 → 백엔드/프론트 프로드 배포 → 프로드 AI 키 활성화 → 라이브 e2e까지 전부 검증.
 
@@ -901,7 +901,7 @@ AI 초안 surface 전체 검토. 기본기(require_writer·키 Fernet 암호화�
 - `scripts/devlog_to_markdown.py`: docx → 마크다운. python-docx로 만든 문단 구조를 되돌린다(Heading→`##`, List Bullet→`-`, 🔎 비유/🛠 전문가 노트→인용문, `field()`→`**라벨** — 내용`). 표지 형식이 3종(06-21 옛 형식 / 06-22·06-24 중간 / 07-11+ 현재)이라 전부 처리. 제목·태그는 자동 추출 대신 `POSTS` 맵에 직접 지정 — 옛 3편엔 `주제:` 줄이 없고, 있는 편들도 제목으로 쓰기엔 너무 길다.
 - `scripts/publish_devlogs.py`: **EC2 백엔드 컨테이너 안에서 실행**. RDS가 퍼블릭이 아니라 EC2에서만 닿고 컨테이너엔 이미 DB 자격증명이 있어 **계정 비밀번호 없이** 발행된다. `PostCreate`로 앱과 같은 검증을 태우고, `created_at`을 실제 작업일로 소급(API는 서버가 `now()`로 채워 소급 불가). **제목 기준 멱등** — 재실행하면 갱신만.
 - **라이브검증(2026-07-17)**: 생성 14건. DB 전체 24개(기존 10 + 신규 14), public 21, `개발일지` 태그 14. `/api/posts`에 날짜(06-21~07-15)·태그 정상, 상세 본문 마크다운 온전.
-- **부수 성과**: EIP 제거 후 **오리진 갱신 절차의 첫 실전 검증** — EC2가 새 주소(15.165.204.91)를 받았고 `terraform apply -var=...` 한 번으로 갱신돼 health 200. 절차가 동작함을 확인.
+- **부수 성과**: EIP 제거 후 **오리진 갱신 절차의 첫 실전 검증** — EC2가 새 주소(203.0.113.20)를 받았고 `terraform apply -var=...` 한 번으로 갱신돼 health 200. 절차가 동작함을 확인.
 - **배운 것**: 콘텐츠가 없다고 생각했지만 이미 있었다 — 만드는 과정 자체가 콘텐츠. python은 스크립트가 있는 디렉터리를 `sys.path`에 넣지 cwd를 넣지 않는다(`-w /app`만으론 부족, `PYTHONPATH=/app` 필요).
 - **남은 것(낮음)**: 커버 이미지 14편 (지금은 제목 이니셜 플레이스홀더).
 
@@ -947,7 +947,7 @@ AI 초안 surface 전체 검토. 기본기(require_writer·키 Fernet 암호화�
 
 - **순서가 절차다**: `terraform apply`(기본값 → 주차) **먼저**, 그다음 정지. 반대로 하면 EC2가 멎어 IP가 반납된 뒤에도 오리진이 옛 `ec2-<IP>...`를 가리키는 **틈**이 생긴다 — 그 사이 `/api/*`는 그 IP를 새로 받은 제3자에게 간다. 절차 문서엔 "끌 때 주차"라고만 적혀 있었는데, **주차가 정지보다 먼저여야 한다**는 게 핵심이다.
 - **라이브검증(2026-07-17)**: apply = 1 changed(오리진 → `blogplafromops.s3...`). 정지 후 EC2 `stopped`·PublicIp `null`, EIP **0개**. 프론트 홈 **200**, `/api/status` **504(30s)** = 주차가 fail closed로 동작(07-15 검증과 동일한 값).
-- ⚠️ **EC2 IP가 또 바뀌었다**: 15.165.204.91 → **54.180.105.7**. 기록해둔 IP는 켤 때마다 무의미해진다 = **문서에 IP를 적지 말 것**, 절차의 `describe-instances` 한 줄이 유일한 출처다. (오리진은 이미 새 IP로 갱신돼 있어 dangling은 아니었다.)
+- ⚠️ **EC2 IP가 또 바뀌었다**: 203.0.113.20 → **203.0.113.30**. 기록해둔 IP는 켤 때마다 무의미해진다 = **문서에 IP를 적지 말 것**, 절차의 `describe-instances` 한 줄이 유일한 출처다. (오리진은 이미 새 IP로 갱신돼 있어 dangling은 아니었다.)
 - ⚠️ **RDS 자동 재시작**: **07-17 정지 기준 ~07-24에 스스로 올라온다**(7일 정책). 그때 재정지 필요 — 07-15 기준 ~07-22 메모는 이 정지로 갱신됨.
 - **배운 것**: 절차를 문서로 적어두는 것과 **순서까지 적어두는 것**은 다르다. "끌 때 주차"는 두 가지로 읽히는데 그중 하나만 안전하다.
 
@@ -1148,7 +1148,7 @@ aws freetier get-free-tier-usage → "Always Free" 4건(Glue·SQS·SNS·KMS)뿐.
 - **DB**: `notifications` 테이블(user_id·post_id FK CASCADE·read) — 마이그레이션 `2a2a9af10b7c`. post FK CASCADE라 글 삭제 시 알림도 정리(깨진 링크 방지).
 - **백엔드**: 글 작성 시(공개·구독자공개) 그 글쓴이를 승인+알림 켠 구독자에게 notification 한 줄씩 **요청 트랜잭션에서** 생성(이메일은 백그라운드, 인앱은 확실히). `GET /notifications`(최근 20 + 안 읽음 수), `POST /notifications/read`(전부 읽음).
 - **프론트**: `NotificationBell` 컴포넌트를 헤더에 — 30초 폴링으로 안 읽음 배지, 클릭 시 드롭다운(글쓴이·제목·글 링크) + 전부 읽음 처리, 바깥 클릭 닫기.
-- **검증**: 백엔드 103개(+6: 알림 생성·미알림·대기·비공개·읽음), ruff clean, 커버리지 78.7%. 프론트 lint 0·build·test 7. **라이브 e2e(도커): admin이 새 글 작성 → test의 `/api/notifications` 안 읽음 1 + "es2646526님의 새 글" 확인.**
+- **검증**: 백엔드 103개(+6: 알림 생성·미알림·대기·비공개·읽음), ruff clean, 커버리지 78.7%. 프론트 lint 0·build·test 7. **라이브 e2e(도커): admin이 새 글 작성 → test의 `/api/notifications` 안 읽음 1 + "admin님의 새 글" 확인.**
 - **배운 것**: 알림은 두 경로(이메일=best-effort 백그라운드, 인앱=요청 트랜잭션에서 확실히 저장)로 신뢰도를 나눴다 — 화면 배지가 틀리면 바로 티가 나므로 인앱은 놓치면 안 되고, 이메일은 SMTP 실패해도 요청을 막으면 안 되니 백그라운드가 맞다.
 
 ### ⚠️ 프론트가 백엔드보다 먼저 나갔다 — [해소됨, 아래 세션에서 배포] (2026-07-20 기록)
