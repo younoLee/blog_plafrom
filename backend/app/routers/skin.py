@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_writer
+from app.core.display import site_owner
 from app.core.html_slots import SLOT_KEYS, sanitize_slots
 from app.core.ratelimit import limiter
 from app.core.textguard import has_nul
@@ -54,7 +55,8 @@ class SkinOut(BaseModel):
 
 def _owner(db: Session) -> User | None:
     # main.py의 /api/blog-owner와 같은 규칙 — role=admin 중 id가 가장 작은 사람.
-    return db.scalar(select(User).where(User.role == "admin").order_by(User.id))
+    # 그 규칙은 core/display.py 한 자리에 있다(09-04 검사 BQ-11).
+    return site_owner(db)
 
 
 def _read_slots(user: User | None) -> dict[str, str]:

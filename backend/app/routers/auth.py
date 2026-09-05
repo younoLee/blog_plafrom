@@ -31,6 +31,7 @@ from app.schemas.user import (
     Token,
     UserCreate,
     UserRead,
+    VerifyEmailRequest,
 )
 from app.services.email import (
     send_already_registered_email,
@@ -231,9 +232,12 @@ def redeem_invite(
 
 
 @router.post("/verify", response_model=UserRead)
-def verify_email(token: str, db: Session = Depends(get_db)):
+def verify_email(data: VerifyEmailRequest, db: Session = Depends(get_db)):
     # 메일 링크의 토큰으로 이메일 인증 처리 (purpose=verify인 토큰만 통과)
-    decoded = decode_email_token(token, purpose="verify")
+    #
+    # **토큰은 본문으로 받는다** — 쿼리스트링이면 액세스 로그에 원문이 남는다.
+    # 근거는 schemas/user.py 의 VerifyEmailRequest 주석에 적었다(09-04 검사 SEC-07).
+    decoded = decode_email_token(data.token, purpose="verify")
     if decoded is None:
         raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크야")
     user_id, tok_ver = decoded
@@ -546,6 +550,15 @@ def update_my_handle(
     # 만드는 문을 잠그면서 나가는 문까지 잠근 셈이다. 공개 읽기 경로가 이제 역할을 보므로
     # 그 사람 블로그는 어차피 안 열리지만, **자기 것을 자기가 못 지우는 상태**는 그것대로
     # 잘못이다 — 주소는 다른 사람이 이어 쓸 수 있어야 하고, 본인이 흔적을 지울 수 있어야 한다.
+    #
+    # ⚠️ **정정(2026-09-05, 09-04 검사 SEC-04): 여기서 되살아난 건 승인취소(pending)뿐이다.**
+    # 차단(banned)은 이 함수 본문에 **도달하지 못한다** — 의존성인 get_current_user 가
+    # `role == BANNED_ROLE` 을 403 으로 먼저 끊고(core/deps.py), 애초에 ban 이
+    # `token_version` 을 올려 기존 토큰을 전부 죽이므로 로그인 자체가 안 된다.
+    # 즉 위 문단의 '차단된 사람도 지울 수 있다'는 **한 번도 사실이었던 적이 없다.**
+    # 그렇다고 banned 를 여기 통과시킬 수도 없다(토큰이 없으니 부를 주체가 없다).
+    # 그래서 회수는 관리자 쪽에 뒀다 — `POST /api/admin/users/{id}/release-handle`.
+    # handle 은 유니크라 안 비우면 그 주소는 계정 삭제 전까지 영구히 예약된 채 남는다.
     if handle and current.role not in ("writer", "admin"):
         raise HTTPException(status_code=403, detail="승인된 계정만 블로그 주소를 정할 수 있어")
 

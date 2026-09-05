@@ -24,16 +24,18 @@ def test_register_closed_when_signup_disabled(client, monkeypatch):
 
 
 # ── 이메일 인증 ──────────────────────────────────────────────────────────────
+# 토큰은 **본문**으로 보낸다. 쿼리스트링이면 액세스 로그에 원문이 남는다
+# (09-04 검사 SEC-07 — 초대 토큰·푸시 endpoint 를 옮긴 규칙의 마지막 자리였다).
 def test_verify_email_flow(client, make_user):
     user = make_user(role="pending", verified=False)
     token = create_email_token(user.id, purpose="verify")
-    r = client.post(f"/api/auth/verify?token={token}")
+    r = client.post("/api/auth/verify", json={"token": token})
     assert r.status_code == 200
     assert r.json()["email_verified"] is True
 
 
 def test_verify_invalid_token_400(client):
-    assert client.post("/api/auth/verify?token=garbage.token.x").status_code == 400
+    assert client.post("/api/auth/verify", json={"token": "garbage.token.x"}).status_code == 400
 
 
 # ── 비번 재설정: 성공 + 기존 세션 무효화 ──────────────────────────────────────
@@ -125,8 +127,8 @@ def test_reregister_unverified_replaces_password(client, db):
     #    재가입이 token_version을 올렸으므로 여기서 0을 쓰면 400이 맞다.
     victim = db.query(User).filter(User.email == victim_email).one()
     assert client.post(
-        "/api/auth/verify?token="
-        + create_email_token(victim.id, purpose="verify", ver=victim.token_version)
+        "/api/auth/verify",
+        json={"token": create_email_token(victim.id, purpose="verify", ver=victim.token_version)},
     ).status_code == 200
 
     # 4) 공격자 비밀번호로는 못 들어가고, 피해자 비밀번호로는 들어가야 한다
@@ -230,7 +232,7 @@ def test_재가입_전에_발급된_인증링크는_죽는다(client, db):
     ).status_code == 202
 
     # 3) 피해자가 옛 링크를 누른다 → 거부돼야 한다
-    r = client.post(f"/api/auth/verify?token={old_link_token}")
+    r = client.post("/api/auth/verify", json={"token": old_link_token})
     assert r.status_code == 400, r.text
 
     # 계정은 여전히 미인증이라 공격자도 로그인 못 한다(미인증은 403)

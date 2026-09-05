@@ -135,3 +135,35 @@ def test_백슬래시는_그_자체로_거부된다(client, make_user, auth_head
     )
     assert r.status_code == 422
     assert client.get("/api/skin").json()["css"] == ""
+
+
+# ── `/api/skin/me` 가 한 번도 안 불렸다 (09-04 검사 BQ-9) ────────────────────
+#
+# 이 라우트가 존재하는 이유는 docstring 이 적어둔 실제 사고다 — 편집기가 사이트 스킨
+# (주인 것)을 채우면 글쓴이가 남의 CSS 를 자기 것으로 저장하게 된다. 그런데 라우트
+# 본문(`return _out(me)`)이 커버리지 미커버였다. `me` 를 `_owner(db)` 로 바꾸는
+# 회귀가 나도 아무 시험이 안 빨개진다.
+
+
+def test_내_스킨은_주인_것이_아니라_내_것이다(client, make_user, auth_headers):
+    admin = make_user(role="admin")
+    writer = make_user(role="writer")
+    client.put("/api/skin", json={"custom_css": ":root { --color-accent: #111111 }"}, headers=auth_headers(admin))
+    client.put("/api/skin", json={"custom_css": ":root { --color-accent: #222222 }"}, headers=auth_headers(writer))
+
+    mine = client.get("/api/skin/me", headers=auth_headers(writer))
+    assert mine.status_code == 200
+    assert "#222222" in mine.json()["css"]
+
+    # 사이트 스킨(무인증 조회)은 여전히 주인 것이다 — 둘이 갈리는 게 이 라우트의 요점이다
+    assert "#111111" in client.get("/api/skin").json()["css"]
+
+
+def test_주인이_부르면_사이트_스킨과_같다(client, make_user, auth_headers):
+    admin = make_user(role="admin")
+    client.put("/api/skin", json={"custom_css": ":root { --color-accent: #333333 }"}, headers=auth_headers(admin))
+    assert client.get("/api/skin/me", headers=auth_headers(admin)).json()["css"] == client.get("/api/skin").json()["css"]
+
+
+def test_내_스킨은_로그인해야_보인다(client):
+    assert client.get("/api/skin/me").status_code == 401

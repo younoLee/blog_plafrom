@@ -7,6 +7,7 @@
 
 import ipaddress
 import socket
+import threading
 from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -84,6 +85,49 @@ def validate_api_key(provider: str, key: str) -> str:
     return k
 
 
+# DNS 조회에 거는 상한(초). getaddrinfo 자체에는 타임아웃 인자가 없다.
+#
+# **왜 상한이 필요한가 (2026-09-04 검사 SEC-02)** — 이 함수는 BYOK 키 등록 경로에서
+# 불린다. 응답을 안 주는 네임서버를 가리키는 호스트명이면 glibc resolver 의 기본값
+# (timeout 5초 × attempts 2 × 네임서버 수)만큼 블록되는데, 그동안 요청 스레드
+# (anyio 정원 40)와 DB 커넥션(pool 10+10)을 **동시에** 쥐고 있었다. 이 저장소는
+# 같은 이유로 ai.py 의 벤더 호출과 uploads.py 의 S3 호출 앞에서 db.commit() 을
+# 넣어 커넥션을 놓았는데(실측 checkedout 1→0 까지 적어뒀다) 이 입구만 안 쓸렸다.
+_DNS_TIMEOUT_S = 3.0
+
+
+def _resolve(host: str, port: int) -> list:
+    """`socket.getaddrinfo` 를 상한을 걸어 부른다.
+
+    getaddrinfo 는 C 호출이라 중간에 끊을 방법이 없다. 그래서 **데몬 스레드에 맡기고
+    우리는 기다리기만 멈춘다** — 남은 스레드는 resolver 가 포기할 때 알아서 끝난다.
+    끊는 게 아니라 놓는 것이라, 요청 쪽이 커넥션과 워커를 붙잡고 있는 시간만 3초로
+    묶인다. 상한을 넘긴 요청은 다른 조회 실패와 같은 문장으로 거절한다 —
+    '주소를 확인할 수 없다'는 사용자에게 같은 뜻이다.
+
+    스레드가 무한히 쌓이지 않는 근거는 호출부의 레이트리밋이다(routers/ai.py 의
+    set_key 에 20/hour). 한 요청이 최대 한 개를 남기고, 그 하나도 resolver 기본값
+    안에서 끝난다.
+    """
+    box: dict[str, object] = {}
+
+    def work() -> None:
+        try:
+            box["ok"] = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        except BaseException as e:  # noqa: BLE001 - 스레드 밖으로 그대로 옮긴다
+            box["err"] = e
+
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    t.join(_DNS_TIMEOUT_S)
+    if t.is_alive():
+        raise InvalidBaseURLError("base URL의 주소를 확인할 수 없어 (응답이 없어)")
+    err = box.get("err")
+    if err is not None:
+        raise err  # type: ignore[misc]
+    return box["ok"]  # type: ignore[return-value]
+
+
 def validate_base_url(url: str) -> str:
     """compatible provider의 base_url을 SSRF 관점에서 검증한다.
 
@@ -130,7 +174,7 @@ def validate_base_url(url: str) -> str:
         raise InvalidBaseURLError("base URL 형식이 올바르지 않아")
     # 호스트네임을 실제 IP로 풀어서(별칭으로 내부 IP 가리키는 것까지) 전부 검사
     try:
-        infos = socket.getaddrinfo(host, port or 443, proto=socket.IPPROTO_TCP)
+        infos = _resolve(host, port or 443)
     except (socket.gaierror, UnicodeError):
         # gaierror만 잡으면 샌다. getaddrinfo는 C 호출 전에 호스트를 idna로 인코딩하는데,
         # DNS 라벨이 63자를 넘으면 gaierror가 아니라 UnicodeError('label empty or too long')가

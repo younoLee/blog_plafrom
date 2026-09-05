@@ -205,3 +205,87 @@ def test_ban_does_not_touch_subscriptions(client, make_user, auth_headers, db):
     assert r.status_code == 200
     db.refresh(sub)
     assert sub.notify is True
+
+
+# ── 차단된 계정에 다른 라우트가 먹으면 차단이 조용히 풀린다 (09-04 검사 SEC-06) ──
+#
+# unban_user 는 `role != BANNED_ROLE` 을 400 으로 막아 '차단 해제는 pending 으로 되돌려
+# 재승인을 받는다'는 정책을 지키는데, 옆의 approve/revoke/toggle-pro 는 대상이 banned
+# 인지 안 보고 role 을 덮었다. 이 저장소는 회수 판정을 전부 '읽는 쪽이 role 을 본다'로
+# 모아뒀기 때문에(models/user.py · services/push.py · email.py) role 이 바뀌는 순간
+# 블로그·알림·글쓰기가 한꺼번에 되살아난다.
+
+
+def test_banned_계정은_승인으로_되살아나지_않는다(client, make_user, auth_headers):
+    admin = make_user(role="admin")
+    banned = make_user(role="banned")
+    r = client.post(f"/api/admin/users/{banned.id}/approve", headers=auth_headers(admin))
+    assert r.status_code == 400
+    assert client.get("/api/admin/users", headers=auth_headers(admin)).status_code == 200
+
+
+def test_banned_계정에는_승인취소도_안_먹는다(client, make_user, auth_headers, db):
+    admin = make_user(role="admin")
+    banned = make_user(role="banned")
+    r = client.post(f"/api/admin/users/{banned.id}/revoke", headers=auth_headers(admin))
+    assert r.status_code == 400
+    db.refresh(banned)
+    assert banned.role == "banned"  # 조용히 pending 으로 내려가지 않는다
+
+
+def test_banned_계정에는_pro_토글도_안_먹는다(client, make_user, auth_headers, db):
+    admin = make_user(role="admin")
+    banned = make_user(role="banned")
+    r = client.post(f"/api/admin/users/{banned.id}/toggle-pro", headers=auth_headers(admin))
+    assert r.status_code == 400
+    db.refresh(banned)
+    assert banned.is_pro is False
+
+
+def test_해제는_unban_한_곳으로만_된다(client, make_user, auth_headers):
+    """정책이 실제로 한 문으로 모였는지 — 해제 뒤에는 승인이 다시 먹어야 한다."""
+    admin = make_user(role="admin")
+    banned = make_user(role="banned")
+    assert client.post(f"/api/admin/users/{banned.id}/unban", headers=auth_headers(admin)).json()["role"] == "pending"
+    r = client.post(f"/api/admin/users/{banned.id}/approve", headers=auth_headers(admin))
+    assert r.status_code == 200
+    assert r.json()["role"] == "writer"
+
+
+# ── 블로그 주소(handle) 회수 (09-04 검사 SEC-04) ──────────────────────────────
+#
+# 차단된 계정은 로그인 자체가 안 되므로(ban 이 token_version 을 올린다) 자기 주소를
+# 내릴 방법이 없다. handle 은 유니크라 그 주소는 계정 삭제 전까지 영구히 예약된 채
+# 남고, 다른 사람이 같은 주소를 쓰려 하면 409 를 받는다.
+
+
+def test_관리자가_주소를_회수하면_다른_사람이_쓸_수_있다(client, make_user, auth_headers, db):
+    admin = make_user(role="admin")
+    squatter = make_user(role="writer")
+    heir = make_user(role="writer")
+    assert client.patch(
+        "/api/auth/me/handle", json={"handle": "yuno"}, headers=auth_headers(squatter)
+    ).status_code == 200
+    # 차단하면 그 사람은 이제 아무 API 도 못 부른다 = 스스로 못 내린다
+    client.post(f"/api/admin/users/{squatter.id}/ban", headers=auth_headers(admin))
+    assert client.patch(
+        "/api/auth/me/handle", json={"handle": ""}, headers=auth_headers(squatter)
+    ).status_code in (401, 403)
+    # 그 상태에서 다른 사람은 같은 주소를 못 쓴다(409)
+    assert client.patch(
+        "/api/auth/me/handle", json={"handle": "yuno"}, headers=auth_headers(heir)
+    ).status_code == 409
+
+    r = client.post(f"/api/admin/users/{squatter.id}/release-handle", headers=auth_headers(admin))
+    assert r.status_code == 200
+    assert r.json()["handle"] is None
+    assert client.patch(
+        "/api/auth/me/handle", json={"handle": "yuno"}, headers=auth_headers(heir)
+    ).status_code == 200
+
+
+def test_주소가_없는_계정을_회수하면_400(client, make_user, auth_headers):
+    admin = make_user(role="admin")
+    u = make_user(role="writer")
+    r = client.post(f"/api/admin/users/{u.id}/release-handle", headers=auth_headers(admin))
+    assert r.status_code == 400

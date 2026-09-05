@@ -211,3 +211,35 @@ def test_display_name_fallback_distinguishes_users(client, make_user, auth_heade
     client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(me))
     rows = client.get("/api/subscriptions/detail", headers=auth_headers(me)).json()
     assert rows[0]["name"] == f"회원 #{author.id}"
+
+
+# ── 이메일 인증 토큰은 본문으로 받는다 (09-04 검사 SEC-07) ───────────────────
+#
+# `token: str` 은 FastAPI 에서 쿼리 파라미터다. uvicorn 액세스 로그는 요청 라인을
+# 통째로 찍으므로 그대로 두면 **원문 토큰이 컨테이너 로그에 평문으로 쌓인다** —
+# 이 저장소는 같은 이유로 초대 토큰(08-27)과 기기 endpoint(09-02)를 이미 본문으로
+# 옮겼고, reset-password 는 처음부터 본문이다. verify 만 남아 있었다.
+
+
+def test_인증_토큰은_본문으로_받는다(client, make_user, db):
+    from app.core.security import create_email_token
+
+    u = make_user(role="pending", verified=False)
+    token = create_email_token(u.id, purpose="verify", ver=u.token_version)
+
+    r = client.post("/api/auth/verify", json={"token": token})
+    assert r.status_code == 200
+    assert r.json()["email_verified"] is True
+
+
+def test_쿼리스트링으로_주면_안_받는다(client, make_user):
+    """구경로가 남아 있으면 로그에 토큰이 계속 쌓인다 — 422 로 끊긴다."""
+    from app.core.security import create_email_token
+
+    u = make_user(role="pending", verified=False)
+    token = create_email_token(u.id, purpose="verify", ver=u.token_version)
+    assert client.post(f"/api/auth/verify?token={token}").status_code == 422
+
+
+def test_위조된_토큰은_400(client):
+    assert client.post("/api/auth/verify", json={"token": "not-a-token"}).status_code == 400

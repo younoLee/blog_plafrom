@@ -225,6 +225,9 @@ fetchAuthors는 !res.ok면 []를 주고 페이지도 catch에서 []로 접는다
 
 ### BE-3 · 글 작성이 두 트랜잭션이라 알림 커밋 실패 시 글은 남고 재시도하면 중복 글이 된다
 
+> ✅ **2026-09-05에 고쳤다.** `db.flush()` 로 id 만 받아 알림을 같은 세션에 담고 커밋을
+> 한 번만 한다. 실패하면 글도 알림도 없으므로 재시도가 중복을 만들지 않는다.
+
 `backend/app/routers/posts.py:476` — 백엔드 정확성 · correctness
 
 create_post는 글을 먼저 commit(460)하고 구독자 알림을 따로 commit(476)한다. 두 번째 commit이 실패하면(DB 순단→OperationalError 503, 풀 고갈→503) 글은 이미 저장됐는데 클라이언트는 실패 응답을 받고, 재시도하면 같은 글이 두 번 만들어진다. 첫 글의 인앱 알림·백그라운드 메일/푸시는 등록되지 않는다.
@@ -236,6 +239,10 @@ create_post는 글을 먼저 commit(460)하고 구독자 알림을 따로 commit
 **검증** (medium) posts.py:459-461과 476이 실제로 두 커밋으로 갈려 있고 둘째 커밋 실패 시 글만 남는 것은 맞으나(주석 472의 '요청 트랜잭션'은 백그라운드 대비 표현이지 단일 트랜잭션 주장은 아니다), 창이 SELECT+INSERT 몇 밀리초라 실제로는 첫 커밋이 먼저 실패할 가능성이 훨씬 크고 결과도 지울 수 있는 중복 글 하나라 low로 내린다.
 
 ### BE-4 · 댓글 작성도 댓글 commit과 알림 commit이 분리돼 같은 중복·유실 모양이다
+
+> ✅ **2026-09-05에 고쳤다.** BE-3 과 같은 모양으로 한 커밋에 모았다. '누구에게 알릴
+> 것인가'를 bool 이 아니라 `notify_owner_id: int | None` 로 들고 가서, 커밋을 사이에 둔
+> 두 번째 분기에서도 타입이 좁혀진 채 남는다(mypy 가 잡아준 자리다).
 
 `backend/app/routers/comments.py:154` — 백엔드 정확성 · correctness
 
@@ -249,6 +256,10 @@ create_comment는 댓글을 commit(140)한 뒤 글쓴이 알림을 따로 commit
 
 ### BE-5 · 공백만 든 검색어가 min_length를 통과해 ILIKE '%%' 전체 스캔이 된다
 
+> ✅ **2026-09-05에 고쳤다.** 핸들러 초입에서 `q` 를 strip 해 정규화하고 2자 미만이면
+> 검색 필터를 걸지 않는다. 시험 둘로 잠갔다 — 공백만이면 전체 목록과 같고, 앞뒤 공백은
+> 털어서 검색한다.
+
 `backend/app/routers/posts.py:274` — 백엔드 정확성 · correctness
 
 q의 min_length=2는 strip 전 길이를 세고, 필터는 `q.strip()`을 쓴다. `?q=%20%20`은 검증을 통과하고 `if q:`도 참이라 패턴이 '%%'가 되어 title·content ILIKE가 전 행에 걸린다 — _like_escape 주석이 막으려던 '와일드카드만 보내 인덱스를 못 타는 무거운 스캔'이 공백으로 그대로 재현된다.
@@ -261,6 +272,10 @@ q의 min_length=2는 strip 전 길이를 세고, 필터는 `q.strip()`을 쓴다
 
 ### BE-6 · 업타임 '전체 N회 점검'이 표에 안 그려지는 하루치 점검까지 합산한다
 
+> ✅ **2026-09-05에 고쳤다.** `date_list` 에 있는 날짜의 total 만 합산한다. 표 안과 표 밖
+> (today-days)에 각각 한 줄씩 심어 두고 머리글 숫자와 각 줄 합계가 같은지 보는 시험을
+> 붙였고, 되돌리면 그 시험이 실패하는 것까지 확인했다.
+
 `backend/app/services/status.py:357` — 백엔드 정확성 · correctness
 
 since는 '지금 - days일'이라 today-days 날짜의 일부(현재 시각 이후)가 집계에 들어오는데, date_list는 today-(days-1)부터 시작해 그 날은 어느 줄에도 안 그려진다. total_checks는 by_date 전체를 합치므로 화면의 '전체 N회'가 각 줄의 checks 합보다 최대 1,439회 크다.
@@ -272,6 +287,10 @@ since는 '지금 - days일'이라 today-days 날짜의 일부(현재 시각 이�
 **검증** (high) since=now-days(305)와 date_list=today-(days-1)부터(326)가 실제로 어긋나고 total_checks(357)만 by_date 전체를 합산해 StatusPage.tsx:202의 '전체 N회 점검'이 각 줄 합계보다 최대 하루치 크지만, 서비스별 uptime은 date_list만 쓰므로 틀리는 건 머리글 숫자 하나뿐이다.
 
 ### BE-7 · set_notify: commit 뒤 sub 속성 재로드가 같은 창에서 500이 될 수 있다
+
+> ✅ **2026-09-05에 고쳤다.** 커밋 전에 `approved, notify` 를 지역변수로 떠두고 응답을
+> 그 값으로 만든다. 바로 아래 author=None 방어가 막으려던 것과 같은 창인데 그보다 먼저
+> 터지던 자리였다.
 
 `backend/app/routers/subscriptions.py:105` — 백엔드 정확성 · correctness
 
@@ -733,6 +752,10 @@ LoginPage가 주석까지 달아 세운 '오류는 낭독기에도 읽혀야 한
 
 #### BQ-11 · '블로그 주인' 조회가 세 파일에 각각 복사돼 있다
 
+> ✅ **2026-09-05에 고쳤다.** `app/core/display.py` 에 `site_owner(db)` 를 두고 세 곳이
+> 그것만 부른다(main.blog_owner · comments._site_owner_id · skin._owner). display_name
+> 폴백이 라우터 넷에 복제돼 있어 이 파일이 생겼던 것과 같은 자리, 같은 이유다.
+
 `backend/app/routers/skin.py:57` — 백엔드 품질·테스트 · quality
 
 role=admin 중 최소 id를 고르는 같은 쿼리가 세 곳에 손으로 적혀 있고, 세 곳 모두 주석으로 '같은 규칙'이라고만 약속하고 있다.
@@ -744,6 +767,8 @@ role=admin 중 최소 id를 고르는 같은 쿼리가 세 곳에 손으로 적�
 **검증** (medium) main.py:527·comments.py:41·skin.py:56-57 에 같은 '주인' 쿼리가 세 벌로 실재하고 강제 장치는 서로를 가리키는 주석뿐이며 이 저장소엔 display.py·BANNED_ROLE 이라는 통합 전례가 있다 — 다만 'PUBLIC_BLOG_ROLES 변경 때 세 곳이 안 고쳐졌다'는 논거는 빗나갔다(주인은 admin 단수가 규칙이라 그 상수를 쓸 자리가 아니다).
 
 #### BQ-12 · 죽은 함수 _reading_minutes
+
+> ✅ **2026-09-05에 지웠다.** 호출부가 없다는 것을 다시 grep 으로 확인하고 두 줄을 뺐다.
 
 `backend/app/routers/posts.py:50` — 백엔드 품질·테스트 · quality
 
@@ -781,6 +806,9 @@ PoolTimeoutError → 503 JSON 핸들러가 한 번도 실행되지 않아, 주�
 
 #### BQ-6 · NUL 가드 전수 목록에 series가 빠졌다 — 파일이 막겠다던 바로 그 모양의 4번째
 
+> ✅ **2026-09-05에 고쳤다.** CASES 에 `?series=` 한 줄을 더했고, 인증이 필요해 그 파일
+> 범위 밖인 `DELETE /api/push?endpoint=` 에도 같은 단언을 test_push.py 에 붙였다.
+
 `backend/tests/test_nul_guard.py:25` — 백엔드 품질·테스트 · test-gap
 
 posts.list_posts가 NUL을 막는 파라미터는 q·tag·author·series 넷인데, '무인증 입구를 전부 훑는다'고 선언한 CASES 목록에는 series만 없다.
@@ -816,6 +844,11 @@ AI 비용을 사람이 볼 수 있는 유일한 화면의 백엔드가 통째로
 **검증** (high) conftest.py:231-249 의 autouse no_ses 가 admin 라우터의 이름을 lambda 로 갈아끼우고 test_invites.py 도 같은 자리를 대체해, services/ses_status.py:29-75 의 sandbox 뒤집기·프로덕션 조기반환·NotFoundException 만 False 로 확정하는 세 갈래가 실제로 한 번도 실행되지 않는다.
 
 #### BQ-9 · 한 번도 호출된 적 없는 라우트 셋
+
+> ✅ **2026-09-05에 고쳤다.** 셋 다 덮었다 — `/subscriptions/authors` 는 역할 필터와
+> '자기 자신 제외'를, 그리고 **그 목록과 POST /subscriptions 의 404 판정이 같은 규칙인지**를
+> 함께 본다. `/skin/me` 는 주인과 다른 writer 가 각각 저장한 뒤 자기 것이 오는지(그리고
+> 사이트 스킨은 여전히 주인 것인지)를 본다. `/status/history` 는 days 클램프 양쪽 끝을 본다.
 
 `backend/app/routers/subscriptions.py:115` — 백엔드 품질·테스트 · test-gap
 
@@ -901,6 +934,12 @@ useDocumentTitle/useHead를 쓰는 화면이 NotFound·PostDetail·About·Author
 
 #### SEC-02 · PUT /api/ai/keys/{provider} 가 DB 커넥션을 쥔 채 시간 상한 없는 getaddrinfo 를 돈다 — 리밋도 없다
 
+> ✅ **2026-09-05에 고쳤다.** 셋 다 했다 — ① `@limiter.limit("20/hour")` + `request`,
+> ② 검증 직전 `db.commit()` 으로 커넥션 반납(만료 대비해 `uid` 를 먼저 떠둔다),
+> ③ `services/llm_keys._resolve` 가 getaddrinfo 를 데몬 스레드에 맡기고 3초에 포기한다.
+> 시험 둘: 등록된 한도가 실제로 걸려 있는지, 그리고 응답 없는 resolver 를 심어 5초 안에
+> 거절하는지(상한이 죽으면 30초를 기다린다).
+
 `backend/app/routers/ai.py:141` — 백엔드 보안 · security
 
 이 저장소가 ai.py·uploads.py 두 곳에서 '느린 외부 호출 앞에 커밋해 커넥션을 놓는다'고 실측까지 적어 고친 그 패턴의 세 번째 자리다. set_key 는 커밋 없이 SSRF 검증용 DNS 조회를 하고, 그 라우트에는 레이트리밋이 없다.
@@ -912,6 +951,10 @@ useDocumentTitle/useHead를 쓰는 화면이 NotFound·PostDetail·About·Author
 **검증** (medium) ai.py:141-168 에 limiter도 request도 없고 llm_keys.py 의 getaddrinfo 에 타임아웃이 없어 커넥션을 쥔 채 블록되는 건 사실이나, 승인된 writer 만 부를 수 있어 영향이 create_draft(:385)·uploads(:120)가 고친 무인증 경로만큼 크지 않다.
 
 #### SEC-03 · InviteOut 의 이메일 세 필드가 EmailStr — UserRead 가 '한 행이 목록 전체를 죽인다'며 걷어낸 그 실패 모드를 되살렸다
+
+> ✅ **2026-09-05에 고쳤다.** 세 필드를 `str` 로 내렸고 `InvitePreview.email` 도 같이
+> 내렸다(같은 규칙의 네 번째 자리였다). 레거시 행을 심어 초대 목록이 200 을 내는지 보는
+> 시험을 붙였고, 되돌리면 ValidationError 로 실패하는 것까지 확인했다.
 
 `backend/app/schemas/invite.py:34` — 백엔드 보안 · quality
 
@@ -925,6 +968,12 @@ useDocumentTitle/useHead를 쓰는 화면이 NotFound·PostDetail·About·Author
 
 #### SEC-04 · 차단된 계정은 자기 블로그 주소를 못 내린다 — update_my_handle 주석이 '차단된 사람도 지울 수 있다'고 적은 것과 반대
 
+> ✅ **2026-09-05에 고쳤다(②안).** banned 를 통과시키는 ①안은 성립하지 않는다 —
+> ban 이 `token_version` 을 올려 토큰을 죽이므로 **부를 주체가 없다.** 그래서 주석을
+> 사실로 고치고(‘여기서 되살아난 건 승인취소뿐이다’) 관리자 쪽에 회수 경로를 만들었다:
+> `POST /api/admin/users/{id}/release-handle`. 화면에도 붙였다 — API 만 두면 이 저장소가
+> GAP-4 로 지적한 '만들어져 있는데 연결이 없는' 모양이 하나 더 는다.
+
 `backend/app/routers/auth.py:544` — 백엔드 보안 · correctness
 
 의존성이 get_current_user 라 banned 는 함수 본문에 들어오기 전에 403이다. 그래서 08-19에 되살렸다는 '나가는 문'이 revoke(pending)에만 열렸고 ban 에는 안 열렸다. handle 은 유니크라 그 주소는 영구히 점유된 채 아무도 못 쓴다.
@@ -936,6 +985,9 @@ useDocumentTitle/useHead를 쓰는 화면이 NotFound·PostDetail·About·Author
 **검증** (high) auth.py:521-523·544-548 주석이 '차단된 사람도 지울 수 있다'고 적었는데 deps.py 의 get_current_user 가 BANNED_ROLE 을 403으로 먼저 끊어 :549 분기에 못 닿는다 — 코드와 주석이 정면으로 다르다.
 
 #### SEC-05 · config.py 의 origin_secret 주석에 '403이 200+HTML로 보인다'가 남아 있다 — 08-10 보안검사가 '셋을 함께 고쳤다'고 적은 그 거짓
+
+> ✅ **2026-09-05에 고쳤다.** 그 문장을 사실로 바꾸고(밖에서도 403 이다) 왜 이 한 벌만
+> 남았는지를 그 자리에 적었다. RECOVERY.md·variables.tf 는 이미 과거형으로 고쳐져 있다.
 
 `backend/app/core/config.py:120` — 백엔드 보안 · ops
 
@@ -949,6 +1001,10 @@ useDocumentTitle/useHead를 쓰는 화면이 NotFound·PostDetail·About·Author
 
 #### SEC-06 · approve/revoke/toggle-pro 가 banned 계정에도 그대로 먹어 차단이 조용히 풀린다 — unban_user 만 상태 전이를 검사한다
 
+> ✅ **2026-09-05에 고쳤다.** `_reject_banned()` 를 셋에 걸어 해제를 unban 한 문으로 모았다.
+> 시험 넷 — approve·revoke·toggle-pro 가 각각 400 이고 역할·is_pro 가 그대로인지, 그리고
+> **unban 뒤에는 approve 가 다시 먹는지**(정책이 막힌 게 아니라 한 문으로 모인 것인지).
+
 `backend/app/routers/admin.py:198` — 백엔드 보안 · security
 
 unban_user 는 '차단된 계정이 아니야' 400 으로 전이를 지키는데, approve_user 는 banned → writer 를 한 번에 만든다. '차단 해제는 pending 으로 되돌려 재승인을 받는다'는 이 파일의 정책이 옆 라우트로 우회된다.
@@ -960,6 +1016,11 @@ unban_user 는 '차단된 계정이 아니야' 400 으로 전이를 지키는데
 **검증** (medium) admin.py:198-219 는 admin 여부만 보고 :247-256 unban_user 만 전이를 지키는 게 맞지만, 관리자 전용이고 프론트(AdminPage.tsx:612-635)가 banned 행에 승인 버튼을 안 그려서 목록이 낡았을 때만 눌리는 좁은 경로다.
 
 #### SEC-07 · POST /auth/verify 가 인증 토큰을 쿼리스트링으로 받는다 — 초대 토큰·푸시 endpoint 를 본문으로 옮긴 규칙의 마지막 미청소 입구
+
+> ✅ **2026-09-05에 고쳤다.** `VerifyEmailRequest`(SafeModel + max_length=200)를 만들어
+> 본문으로 받고 프론트 `verifyEmail` 도 같이 옮겼다. 구경로는 **안 남겼다** — push 쪽과
+> 달리 이 경로는 allow_signup=False 라 발급되는 토큰이 0 이고, 캐시된 옛 번들이 부를 일도
+> 없다. 시험 셋: 본문이면 200, 쿼리스트링이면 422, 위조 토큰이면 400.
 
 `backend/app/routers/auth.py:233` — 백엔드 보안 · security
 

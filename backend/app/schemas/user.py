@@ -74,6 +74,23 @@ class ResetPasswordRequest(SafeModel):
     new_password: str = Field(min_length=PW_MIN, max_length=PW_MAX)
 
 
+# 이메일 인증 토큰을 담는 요청 본문.
+#
+# **쿼리스트링이 아니라 본문인 이유** — 이 토큰은 그 자체가 자격증명이다(쥐고 있으면
+# email_verified 가 켜진다). uvicorn 액세스 로그는 요청 라인을 통째로 찍으므로
+# `POST /api/auth/verify?token=eyJ...` 로 두면 원문 토큰이 컨테이너 로그에 평문으로
+# 쌓인다. 이 저장소는 같은 판단으로 초대 토큰(schemas/invite.py InviteToken)과
+# 기기 endpoint(routers/push.py, 09-02)를 이미 본문으로 옮겼고, reset-password 도
+# 처음부터 본문이다. **verify 만 안 옮겨져 있었다**(09-04 검사 SEC-07).
+# 지금은 allow_signup=False 라 토큰이 발급되지 않아 도달 불가지만, 가입을 여는 날
+# 바로 열리는 구멍이라 문을 열기 전에 닫는다.
+#
+# max_length 는 InviteToken 과 같은 200. JWT 는 그보다 짧고, 없으면 긴 문자열이
+# 서명 검증까지 그대로 들어간다.
+class VerifyEmailRequest(SafeModel):
+    token: str = Field(max_length=200)
+
+
 # 표시명 변경 — 내 것만 바꾼다.
 #
 # 왜 이 스키마가 생겼나 (2026-08-14): 구독 화면에서 글쓴이가 전부 "회원"으로 보여

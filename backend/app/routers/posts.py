@@ -47,10 +47,6 @@ def _excerpt(md: str, max_len: int = 200) -> str:
     return (t[:max_len].strip() + "…") if len(t) > max_len else t
 
 
-def _reading_minutes(md: str) -> int:
-    return _reading_minutes_of(len(md))
-
-
 def _reading_minutes_of(n: int) -> int:
     return max(1, round(n / 500))  # 한글 기준 분당 약 500자
 
@@ -268,10 +264,16 @@ def list_posts(
         # 같이 끌어와서, 연재 뱃지를 누른 사람이 다른 연재의 글을 보게 된다.
         # 저장할 때 이미 공백을 정리하므로(schemas/post.py 의 _clean_series) 여기서도 맞춘다.
         filters.append(Post.series == series.strip())
-    if q:
+    # **공백을 먼저 턴다.** `min_length=2` 는 strip 전 길이를 세므로 `?q=%20%20`(두 칸)이
+    # 검증을 통과했고, 아래 `q.strip()` 이 빈 문자열이 되어 패턴이 `%%` 가 됐다 —
+    # `_like_escape` 주석이 막겠다고 적어둔 '와일드카드만 보내 인덱스를 못 타는 무거운
+    # 스캔'이 공백 두 칸으로 그대로 재현됐다(무인증 60/분). 결과 자체는 전체 목록이라
+    # 틀리지 않아서 더 조용하다. (09-04 검사 BE-5)
+    q = q.strip() if q else None
+    if q and len(q) >= 2:
         # 한국어는 to_tsvector가 형태소를 몰라 풀텍스트가 안 먹는다 → pg_trgm + ILIKE.
         # 값은 파라미터로 바인딩되고(SQLi 없음) 메타문자는 위에서 이스케이프한다.
-        pattern = f"%{_like_escape(q.strip())}%"
+        pattern = f"%{_like_escape(q)}%"
         filters.append(
             or_(
                 Post.title.ilike(pattern, escape="\\"),
@@ -457,8 +459,14 @@ def create_post(
         owner_id=user.id,  # 작성자 = 로그인 사용자
     )
     db.add(post)
-    db.commit()
-    db.refresh(post)
+    # **글과 알림을 한 트랜잭션에 넣는다** (2026-09-04 검사 BE-3).
+    # 2026-09-05까지는 글을 먼저 commit 하고 알림을 두 번째 commit 으로 넣었다. 그러면
+    # 두 번째가 실패했을 때(DB 순단 → OperationalError, 풀 고갈 → PoolTimeout, 둘 다
+    # main.py 가 503 으로 바꾼다) **글은 저장됐는데 클라이언트는 실패를 받는다.**
+    # 프론트의 안내는 '다시 시도'라, 그 재시도가 곧 같은 글 두 번째 작성이었다.
+    # flush 로 id 만 받아 알림을 같은 세션에 담고 commit 은 한 번만 한다 — 실패하면
+    # 글도 알림도 없다(사용자가 다시 눌러도 중복이 안 생긴다).
+    db.flush()
     # 이 글쓴이를 구독+알림 켠 사람에게 알림 (공개·구독자공개 글. 비공개는 알리지 않음).
     # 구독자공개도 포함하는 이유: 구독자는 그 글을 볼 수 있으니 알림도 의미가 있다.
     if post.owner_id and post.visibility in ("public", "subscribers"):
@@ -469,11 +477,12 @@ def create_post(
                 AuthorSubscription.notify.is_(True),
             )
         ).all()
-        # 인앱 알림(화면 종 배지용) — 요청 트랜잭션에서 확실히 저장
+        # 인앱 알림(화면 종 배지용) — 글과 같은 커밋에 실린다
         for uid in notify_uids:
             db.add(Notification(user_id=uid, post_id=post.id))
-        if notify_uids:
-            db.commit()
+    db.commit()
+    db.refresh(post)
+    if post.owner_id and post.visibility in ("public", "subscribers"):
         # 이메일 알림 — 실패해도 응답 막지 않게 백그라운드
         background.add_task(notify_new_post, post.id, post.title, post.owner_id)
         # 푸시 알림 — 같은 대상(위 notify_uids와 조건이 같다)에게 다른 채널로.

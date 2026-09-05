@@ -8,6 +8,7 @@ import {
   banUser,
   unbanUser,
   deleteUser,
+  releaseHandle,
   toggleProUser,
   fetchInfra,
   fetchAiUsage,
@@ -34,7 +35,7 @@ const ROLE_META: Record<Role, { label: string; badge: string }> = {
 }
 
 // 액션 → 호출할 API 함수
-const ACTIONS = { approve: approveUser, revoke: revokeUser, ban: banUser, unban: unbanUser, pro: toggleProUser }
+const ACTIONS = { approve: approveUser, revoke: revokeUser, ban: banUser, unban: unbanUser, pro: toggleProUser, releaseHandle }
 
 // 서버 부하 미터: 값에 따라 초록(<60)/노랑(<85)/빨강(>=85)
 //
@@ -660,6 +661,19 @@ function AdminPage() {
                 {u.role !== 'admin' && (
                   <button type="button" onClick={() => handle(u.id, 'pro')} className={ui.btnGhost}>
                     {u.is_pro ? '유료 회수' : '유료 부여'}
+                  </button>
+                )}
+                {/* 주소를 잡고 있는 계정에만. 차단된 사람은 스스로 못 내리고(로그인이 안 된다),
+                    주소는 유니크라 안 비우면 다음 사람이 409 를 받는다 — 그때 남은 해소
+                    경로가 '계정 삭제'뿐이었다(09-04 검사 SEC-04). */}
+                {u.role !== 'admin' && u.handle && (
+                  <button
+                    type="button"
+                    onClick={() => handle(u.id, 'releaseHandle')}
+                    title={`/@${u.handle} 를 비운다. 다른 사람이 이어 쓸 수 있게`}
+                    className={ui.btnGhost}
+                  >
+                    주소 회수(/@{u.handle})
                   </button>
                 )}
                 {/* admin 외 모든 계정에 영구 삭제 버튼 */}

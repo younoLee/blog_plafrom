@@ -22,6 +22,7 @@ from starlette.datastructures import Headers
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.display import site_owner
 from app.core.ratelimit import limiter
 from app.core.textguard import has_nul
 from app.models.post import Post
@@ -549,7 +550,7 @@ def blog_owner(request: Request, db: Session = Depends(get_db)):
     # 셈이었다. 게다가 그 값이 익명 댓글 사칭의 재료로도 쓰였다(같은 검사).
     # display_name이 없으면 None을 준다. 프론트(Sidebar)에 이미 폴백 문자열이 있어
     # 화면 손실이 없다 — 이메일로 되돌아가는 경로를 아예 두지 않는 게 요점이다.
-    owner = db.scalar(select(User).where(User.role == "admin").order_by(User.id))
+    owner = site_owner(db)
     if owner is None:
         return {"id": None, "name": None}
     return {"id": owner.id, "name": owner.display_name}

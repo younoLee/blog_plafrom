@@ -60,6 +60,20 @@ export async function toggleProUser(id: number): Promise<User> {
   return res.json()
 }
 
+// 이 계정이 잡고 있는 블로그 주소(/@handle)를 비운다.
+//
+// 왜 관리자 쪽에 있나: 차단된 계정은 로그인 자체가 안 되므로(차단이 토큰을 전부 죽인다)
+// 자기 주소를 스스로 못 내린다. 그런데 주소는 유니크라 그대로 두면 계정을 지우기 전까지
+// 아무도 그 주소를 못 쓴다 — 주소 하나 때문에 남의 글까지 지우게 된다. (09-04 검사 SEC-04)
+export async function releaseHandle(id: number): Promise<User> {
+  const res = await apiFetch(`${BASE}/admin/users/${id}/release-handle`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await failWith(res, '주소 회수에 실패했어')
+  return res.json()
+}
+
 // 영구 삭제: 계정 + 그 사람의 글·댓글까지 (되돌리기 불가)
 export async function deleteUser(id: number): Promise<void> {
   const res = await apiFetch(`${BASE}/admin/users/${id}`, {

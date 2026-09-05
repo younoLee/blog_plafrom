@@ -370,3 +370,46 @@ def test_set_key_without_server_encryption_key_returns_503(
     assert r.status_code == 503
     assert r.headers["content-type"].startswith("application/json")
     assert "LLM_ENCRYPTION_KEY" in r.json()["detail"]
+
+
+# ── BYOK 키 등록의 느린 외부 호출 (09-04 검사 SEC-02) ────────────────────────
+
+
+def test_키_등록에_레이트리밋이_걸려_있다():
+    """`PUT /api/ai/keys/{provider}` 는 base_url 검증에서 **DNS 를 친다.**
+
+    한도가 없으면 승인된 writer 한 명이 느린 호스트로 같은 요청을 수십 개 동시에
+    보내 워커(anyio 정원 40)와 커넥션(10+10)을 함께 묶을 수 있다. 이 저장소는
+    create_draft·uploads 에서 같은 이유로 이미 커밋과 한도를 붙여뒀고 여기만 없었다.
+
+    한도 자체는 conftest 가 limiter 를 꺼둬서 요청 수로는 못 잰다 — 등록된 한도를 본다
+    (구독 신청 쪽과 같은 방식).
+    """
+    from app.core.ratelimit import limiter
+
+    limits = limiter._route_limits["app.routers.ai.set_key"]
+    assert [str(lim.limit) for lim in limits] == ["20 per 1 hour"]
+
+
+def test_주소_확인이_느리면_기다리지_않고_거절한다(monkeypatch):
+    """DNS 조회에 상한이 있다 — getaddrinfo 자체에는 타임아웃 인자가 없다.
+
+    응답 없는 네임서버를 가리키는 호스트명이면 glibc resolver 기본값(5초×2회×서버수)
+    만큼 블록되는데, 그동안 요청 스레드와 DB 커넥션을 함께 쥐고 있었다.
+    """
+    import socket
+    import time
+
+    from app.services import llm_keys
+
+    def never_returns(*a, **kw):
+        time.sleep(30)
+        raise AssertionError("여기까지 오면 안 된다")
+
+    monkeypatch.setattr(socket, "getaddrinfo", never_returns)
+    monkeypatch.setattr(llm_keys, "_DNS_TIMEOUT_S", 0.2)
+
+    started = time.monotonic()
+    with pytest.raises(llm_keys.InvalidBaseURLError):
+        llm_keys.validate_base_url("https://slow.example.com/v1")
+    assert time.monotonic() - started < 5  # 상한이 죽으면 30초를 기다린다

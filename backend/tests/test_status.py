@@ -232,3 +232,55 @@ def test_infra_carries_the_same_judgment():
     from app.services.infra import gather_infra
 
     assert "ok" in gather_infra()["disk"]
+
+
+# ── 라우트 자체가 한 번도 안 불렸다 (09-04 검사 BQ-9) ────────────────────────
+#
+# get_history 는 위에서 직접 부르지만 `GET /api/status/history` 는 tests 전체에서
+# 문자열이 0건이었다. 그 라우트가 하는 일은 **days 를 1~90 으로 자르는 것** 하나뿐이라,
+# 클램프가 사라져도(예: days=100000) 아무 시험도 빨개지지 않았다 — 무인증 경로에서
+# 90일치 집계 쿼리가 그대로 도는 모양이다.
+
+
+def test_history_라우트가_days를_90으로_자른다(client):
+    r = client.get("/api/status/history?days=999")
+    assert r.status_code == 200
+    for s in r.json()["services"]:
+        assert len(s["days"]) == 90
+
+
+def test_history_라우트가_0이하를_1로_올린다(client):
+    r = client.get("/api/status/history?days=0")
+    assert r.status_code == 200
+    for s in r.json()["services"]:
+        assert len(s["days"]) == 1
+
+
+# ── '전체 N회 점검'이 표에 없는 하루치를 더했다 (09-04 검사 BE-6) ────────────
+
+
+def test_전체_점검수는_표에_그려지는_날짜만_센다(db):
+    """`since` 는 '지금-days일'이라 표 밖 날짜(today-days)의 일부가 조회에 들려온다.
+
+    그 행을 합계에 넣으면 머리글의 '전체 N회 점검'이 각 줄의 checks 합보다 커진다 —
+    사람이 세로로 더해 보면 안 맞는 숫자다.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.status_check import StatusCheck
+
+    days = 3
+    now = datetime.now(UTC)
+    # 표 안(오늘)에 한 줄, 표 밖(today-days = 4일 전)에 한 줄.
+    # 뒤엣것은 `since`(지금-3일)보다는 나중이라 예전 코드에서는 합계에 들어왔다.
+    for when in (now - timedelta(minutes=1), now - timedelta(days=days) + timedelta(minutes=1)):
+        db.add(
+            StatusCheck(
+                checked_at=when, backend_ok=True, database_ok=True, mail_ok=True, disk_ok=True
+            )
+        )
+    db.commit()
+
+    h = status.get_history(days=days)
+    rows = sum(d["checks"] for d in h["services"][0]["days"])
+    assert h["total_checks"] == rows

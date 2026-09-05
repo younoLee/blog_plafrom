@@ -289,3 +289,39 @@ def test_구독_신청에_레이트리밋이_걸려_있다():
 
     limits = limiter._route_limits["app.routers.subscriptions.subscribe"]
     assert [str(lim.limit) for lim in limits] == ["30 per 1 hour"]
+
+
+# ── 구독 가능한 글쓴이 목록이 한 번도 안 불렸다 (09-04 검사 BQ-9) ────────────
+#
+# `GET /api/subscriptions/authors` 는 tests 전체에서 문자열이 0건이었다. 이 목록의
+# 규칙은 POST /subscriptions 의 404 판정과 **짝이어야 한다** — 목록에 없는 사람을
+# 구독할 수 있거나, 목록에 있는 사람을 구독할 수 없으면 화면이 거짓말을 한다.
+
+
+def test_구독_목록은_글쓴이만_주고_자기_자신은_뺀다(client, make_user, auth_headers):
+    me = make_user(role="writer")
+    other_writer = make_user(role="writer")
+    admin = make_user(role="admin")
+    pending = make_user(role="pending")
+    banned = make_user(role="banned")
+
+    r = client.get("/api/subscriptions/authors", headers=auth_headers(me))
+    assert r.status_code == 200
+    ids = {a["id"] for a in r.json()}
+
+    assert other_writer.id in ids
+    assert admin.id in ids  # 관리자도 글을 쓴다
+    assert me.id not in ids  # 자기 자신은 구독할 수 없다(POST 가 400 을 준다)
+    assert pending.id not in ids
+    assert banned.id not in ids
+
+
+def test_구독_목록과_구독_가능_판정이_같은_규칙이다(client, make_user, auth_headers):
+    """목록에 없는 사람에게 신청하면 404 여야 한다 — 두 규칙이 갈라지면 화면이 거짓말한다."""
+    me = make_user(role="writer")
+    pending = make_user(role="pending")
+    ah = auth_headers(me)
+
+    ids = {a["id"] for a in client.get("/api/subscriptions/authors", headers=ah).json()}
+    assert pending.id not in ids
+    assert client.post("/api/subscriptions", json={"author_id": pending.id}, headers=ah).status_code == 404

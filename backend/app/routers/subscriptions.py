@@ -93,6 +93,12 @@ def set_notify(
     if not sub.approved:
         raise HTTPException(status_code=400, detail="아직 승인 대기중이라 알림을 켤 수 없어")
     sub.notify = data.notify
+    # **커밋 전에 값을 떠둔다** (2026-09-04 검사 BE-7). expire_on_commit 이 기본값이라
+    # 커밋 뒤 `sub.approved` 를 읽으면 SELECT 가 다시 나가는데, 그 사이 글쓴이가 지워지면
+    # (FK CASCADE 로 이 구독 행도 사라진다) ObjectDeletedError 로 500 이다.
+    # 아래 author=None 방어가 막으려던 것과 **같은 창, 같은 삭제**인데 그보다 먼저 터져서
+    # 그 방어가 무용지물이었다.
+    approved, notify = sub.approved, data.notify
     db.commit()
     author = db.get(User, author_id)
     return {
@@ -102,8 +108,8 @@ def set_notify(
         # **위에서 sub을 읽고 commit한 뒤**라 그 사이 삭제가 끼면 여기서 None이 되고
         # `.display_name`이 AttributeError → 500이다. 창은 좁아도 방어는 한 글자다.
         "name": display_name_of(author_id, author.display_name if author else None),
-        "approved": sub.approved,
-        "notify": sub.notify,
+        "approved": approved,
+        "notify": notify,
     }
 
 

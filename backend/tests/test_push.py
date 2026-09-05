@@ -786,3 +786,16 @@ def test_delivery_record_counts_failures_separately(
     assert rec["gone"] == 1
     # 셋을 합치면 시도 수가 된다 — 어느 갈래로도 안 세어지는 기기가 없어야 한다
     assert rec["ok"] + rec["failed"] + rec["gone"] == rec["tried"]
+
+
+def test_legacy_delete_route_rejects_nul(client, make_user, auth_headers, push_on):
+    """구경로의 NUL 가드 (09-04 검사 BQ-6).
+
+    `test_nul_guard.py` 는 **무인증** 입구만 훑으므로 인증이 필요한 이 라우트는 그
+    목록 밖이다. 그런데 여기도 문자열을 쿼리로 받고, psycopg2 는 `\\x00` 이 든 값을
+    DB 에 보내기 전에 ValueError 를 던진다 — 그 예외는 이 앱의 핸들러 넷 어디에도
+    안 걸려서 **text/plain 500** 이 나간다. 가드가 있는데 그걸 지키는 시험이 없었다.
+    """
+    user = make_user(role="pending")
+    r = client.delete("/api/push?endpoint=a%00b", headers=auth_headers(user))
+    assert r.status_code == 400

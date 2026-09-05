@@ -23,7 +23,14 @@ class InviteOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: EmailStr
+    # **입력은 EmailStr, 출력은 str.** schemas/user.py 의 UserRead.email 이 같은 이유로
+    # 이미 내려와 있는데(08-11 동적 분석에서 `a@test.local` 한 행이 목록을 500으로
+    # 만든 것을 재현했다), 08-07에 생긴 이 스키마가 그 실패 모드를 되살렸다
+    # (09-04 검사 SEC-03). 출구의 EmailStr 이 지키는 것은 없다 — 이미 저장된 값을 다시
+    # 검증할 뿐이고, 형식 강제는 입구(InviteCreate.email · create_user.py)의 일이다.
+    # 얻는 것 없이 **한 행이 목록 전체를 죽이는** 모양만 만든다. 여기가 터지면
+    # '누구를 언제 들였나'의 유일한 답인 초대 감사기록을 psql 로만 볼 수 있게 된다.
+    email: str
     role: str
     created_at: datetime
     expires_at: datetime
@@ -31,8 +38,8 @@ class InviteOut(BaseModel):
     # '누가 들였나'. id가 아니라 이메일로 내보낸다 — 숫자만 보여주면 관리자가
     # 답을 얻으려고 결국 DB를 열어야 하고, 그러면 이 컬럼들을 남기는 이유가 없어진다.
     # 둘 다 발급자·가입계정이 지워지면 FK가 SET NULL이라 None이 될 수 있다.
-    created_by_email: EmailStr | None = None
-    used_by_email: EmailStr | None = None
+    created_by_email: str | None = None
+    used_by_email: str | None = None
 
 
 # 발급 직후에만 돌려주는 응답. `url`이 원문 토큰이 실린 유일한 출력이고,
@@ -60,7 +67,10 @@ class InviteToken(SafeModel):
 # 초대 링크로 들어온 사람에게 보여줄 정보. 이메일을 화면에 '읽기 전용'으로
 # 띄우기 위한 것 — 토큰을 이미 쥔 사람에게만 나가므로 노출이 아니다.
 class InvitePreview(BaseModel):
-    email: EmailStr
+    # 위 InviteOut 과 같은 이유로 출구는 str 이다 — 여기 값은 invites.email 이라 입구에서
+    # 이미 검증됐고(InviteCreate), 다시 검증해서 얻는 것은 없다. 대신 실패하면 초대받은
+    # 사람이 가입 화면 자체를 못 연다.
+    email: str
     role: str
 
 

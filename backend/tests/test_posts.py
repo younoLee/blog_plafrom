@@ -364,3 +364,35 @@ def test_같은_시각_글도_순서가_흔들리지_않는다(client, make_user
     nav = client.get(f"/api/posts/{ids[0]}/series").json()
     assert [it["id"] for it in nav["items"]] == ids
     assert nav["index"] == 1
+
+
+# ── 공백만 든 검색어 (09-04 검사 BE-5) ───────────────────────────────────────
+#
+# `q` 의 min_length=2 는 **strip 전** 길이를 세는데 필터는 `q.strip()` 을 썼다.
+# 그래서 두 칸짜리 `?q=%20%20` 이 검증을 통과하고 패턴이 `%%` 가 되어 title·content
+# ILIKE 가 전 행에 걸렸다 — `_like_escape` 주석이 막겠다고 적어둔 '와일드카드만 보내
+# 인덱스를 못 타는 무거운 스캔'이 공백으로 그대로 재현된 것이다. 결과는 전체 목록이라
+# 화면상 아무 이상이 없어서 더 조용했다(무인증 60/분).
+
+
+def test_공백만_든_검색어는_검색으로_치지_않는다(client, make_user, auth_headers):
+    h = auth_headers(make_user(role="writer"))
+    _create_post(client, h, title="AWS 비용", content="본문")
+    _create_post(client, h, title="다른 글", content="본문")
+
+    plain = client.get("/api/posts").json()
+    spaces = client.get("/api/posts?q=%20%20")
+    assert spaces.status_code == 200
+    # 필터가 아예 안 걸린 것과 같아야 한다(= 전체 목록). '%%' 로 도는 것과 결과는 같지만
+    # 여기서 잠그는 건 결과가 아니라 **그 요청이 검색으로 취급되지 않는다**는 것이다.
+    assert spaces.json()["total"] == plain["total"] == 2
+
+
+def test_앞뒤_공백은_털고_검색한다(client, make_user, auth_headers):
+    h = auth_headers(make_user(role="writer"))
+    _create_post(client, h, title="AWS 비용", content="본문")
+    _create_post(client, h, title="다른 글", content="본문")
+
+    r = client.get("/api/posts?q=%20AWS%20")
+    assert r.status_code == 200
+    assert r.json()["total"] == 1

@@ -139,7 +139,13 @@ def list_keys(user: User = Depends(require_writer), db: Session = Depends(get_db
 
 
 @router.put("/keys/{provider}", response_model=KeyStatus)
+# 키 등록은 자주 하는 동작이 아니다(제공자 다섯 × 가끔 교체). 넉넉히 잡아도 남용만 막힌다.
+# **왜 거는가 (09-04 검사 SEC-02)** — 아래 base_url 검증이 DNS 를 친다. 상한을 3초로
+# 걸어뒀지만(services/llm_keys.py `_resolve`), 리밋이 없으면 승인된 writer 한 명이
+# 느린 호스트로 같은 요청을 수십 개 동시에 보내 워커·커넥션을 3초씩 점유할 수 있다.
+@limiter.limit("20/hour")
 def set_key(
+    request: Request,
     provider: str,
     body: SetKeyRequest,
     user: User = Depends(require_writer),
@@ -155,14 +161,24 @@ def set_key(
         clean_key = llm_keys.validate_api_key(provider, body.key)
     except InvalidAPIKeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # 아래 커밋으로 user 가 만료되므로 필요한 값을 먼저 떠둔다(create_draft 와 같은 규칙).
+    uid = user.id
     # base_url은 서버가 직접 호출하는 주소 → SSRF 방지로 검증(내부/사설 주소 차단)
     if base_url:
+        # **검증 전에 커넥션을 놓는다.** 아래는 DNS 조회라 최대 3초 블록되는데, 그동안
+        # 커넥션을 쥐고 있으면 풀(10+10)이 차서 무관한 요청이 5초 뒤 503으로 떨어진다.
+        # 이 파일 create_draft(벤더 호출 앞)와 uploads.py(S3 호출 앞)가 같은 이유로 이미
+        # 이렇게 한다 — 세 번째 자리였고 여기만 안 쓸렸다(09-04 검사 SEC-02).
+        # 이 지점에 밀린 쓰기는 없다(위는 전부 검증뿐이다).
+        db.commit()
         try:
             base_url = llm_keys.validate_base_url(base_url)
         except InvalidBaseURLError as e:
             raise HTTPException(status_code=400, detail=str(e))
     try:
-        llm_keys.set_key(db, user.id, provider, clean_key, base_url)
+        # user 를 다시 읽지 않는다 — 위 commit 으로 만료돼서 읽는 순간 커넥션을 다시
+        # 빌린다(create_draft 가 uid 를 미리 떠두는 것과 같은 이유).
+        llm_keys.set_key(db, uid, provider, clean_key, base_url)
     except BYOKNotConfiguredError:
         raise HTTPException(status_code=503, detail="서버에 BYOK 암호화 키가 설정 안 됐어 (LLM_ENCRYPTION_KEY 필요)")
     return KeyStatus(provider=provider, has_key=True, base_url=base_url)

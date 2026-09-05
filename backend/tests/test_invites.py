@@ -637,3 +637,32 @@ def test_list_shows_used_invites_newest_first(client, make_user, auth_headers):
     rows = client.get("/api/admin/invites", headers=h).json()
     assert [r["email"] for r in rows] == ["second@test.com", "first@test.com"]
     assert rows[1]["used_at"] is not None  # 소각된 것이 목록에서 사라지지 않는다
+
+
+def test_list_survives_a_malformed_issuer_email(client, make_user, auth_headers, db):
+    """발급자 이메일 형식이 어긋나도 **초대 목록 전체가 죽지 않는다** (09-04 검사 SEC-03).
+
+    `UserRead.email` 은 08-11에 EmailStr → str 로 내렸는데(그 이유가 '한 행이 목록
+    전체를 500 으로 만든다'였다), 08-07에 생긴 `InviteOut` 은 users.email 을 실어오는
+    두 필드에 EmailStr 을 그대로 썼다. 그래서 같은 레거시 행 하나로 이 화면만 터진다 —
+    `/admin/users` 는 멀쩡한데 `/admin/invites` 만 500 이 되는, 두 화면이 갈리는 모양이다.
+    하필 이 화면이 '누구를 언제 들였나'의 유일한 답이다.
+    """
+    from app.models.user import User
+
+    viewer = make_user(role="admin")
+    # 앱 경로로는 못 만드는 값을 DB에 직접 심는다(과거 데이터·psql 경로)
+    issuer = User(
+        email="legacy@test.local",  # 예약 TLD — EmailStr 이 거부한다
+        hashed_password="x",
+        role="admin",
+        email_verified=True,
+    )
+    db.add(issuer)
+    db.commit()
+    db.refresh(issuer)
+    _invite(client, auth_headers(issuer))
+
+    r = client.get("/api/admin/invites", headers=auth_headers(viewer))
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["created_by_email"] == "legacy@test.local"

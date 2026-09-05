@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_current_user_optional
-from app.core.display import display_name_of
+from app.core.display import display_name_of, site_owner
 from app.core.ratelimit import limiter
 from app.models.comment import Comment
 from app.models.notification import Notification
@@ -39,8 +39,12 @@ def _site_owner_id(db: Session) -> int | None:
 
     `/api/blog-owner`·`routers/skin.py`와 **같은 규칙**이다. 규칙이 갈라지면 어떤
     화면에서는 주인 배지가 붙고 어떤 화면에서는 안 붙는다.
+
+    그 '같은 규칙'을 주석이 아니라 코드로 강제한다 — 2026-09-05까지 세 곳에 같은
+    쿼리가 손으로 복사돼 있었다(09-04 검사 BQ-11).
     """
-    return db.scalar(select(User.id).where(User.role == "admin").order_by(User.id))
+    owner = site_owner(db)
+    return owner.id if owner else None
 
 
 def _read(c: Comment, owner_id: int | None, post_owner_id: int) -> CommentRead:
@@ -137,8 +141,10 @@ def create_comment(
         content=data.content,
     )
     db.add(comment)
-    db.commit()
-    db.refresh(comment)
+    # **댓글과 알림을 한 트랜잭션에 넣는다** (2026-09-04 검사 BE-4, 글 작성과 같은 고침).
+    # 갈라 두면 알림 커밋이 실패했을 때 댓글은 저장됐는데 5xx 가 나가고, 익명 사용자가
+    # 다시 누르면 같은 댓글이 둘이 된다 — 지울 수 있는 사람은 글쓴이·관리자뿐이다.
+    db.flush()
 
     # 글쓴이에게 알린다. **이게 없어서 익명 댓글이 열려 있는데도 글쓴이는 그 글에
     # 다시 들어가 눈으로 보기 전까지 몰랐다**(2026-08-14 격차검사 11번).
@@ -146,17 +152,24 @@ def create_comment(
     # 안 보내는 경우가 둘이다:
     #   - 주인 없는 글(owner_id NULL — 로그인 이전에 쓴 글) → 받을 사람이 없다
     #   - 글쓴이가 자기 글에 단 댓글 → 자기가 한 일을 자기에게 알리지 않는다
-    if post.owner_id is not None and (user is None or user.id != post.owner_id):
-        # 인앱 알림은 요청 트랜잭션에서 확실히 저장한다(새 글 알림과 같은 방침).
+    # '누구에게 알릴 것인가'를 값 하나로 들고 간다(None = 안 알린다). 커밋을 사이에 두고
+    # 같은 판정을 두 번 쓰는데, bool 로 들면 아래에서 owner_id 가 다시 Optional 이 된다.
+    notify_owner_id = (
+        post.owner_id if post.owner_id is not None and (user is None or user.id != post.owner_id) else None
+    )
+    if notify_owner_id is not None:
+        # 인앱 알림은 댓글과 **같은 커밋**에 실린다(새 글 알림과 같은 방침).
         db.add(
-            Notification(user_id=post.owner_id, post_id=post_id, comment_id=comment.id)
+            Notification(user_id=notify_owner_id, post_id=post_id, comment_id=comment.id)
         )
-        db.commit()
+    db.commit()
+    db.refresh(comment)
+    if notify_owner_id is not None:
         # 푸시는 백그라운드 — 발송이 느리거나 실패해도 댓글 작성 응답을 막지 않는다.
         # 이메일은 안 보낸다: 이 사이트의 발신 도메인이 없어 스팸함으로 가고(SES
         # 샌드박스), 익명 댓글마다 메일을 쏘면 도배 경로가 하나 더 생긴다.
         background.add_task(
-            notify_new_comment_push, post_id, post.title, author, post.owner_id
+            notify_new_comment_push, post_id, post.title, author, notify_owner_id
         )
     # post.owner_id는 NULL일 수 있다(로그인 이전에 쓴 글). 그땐 글쓴이 배지가 붙을
     # 사람이 없으므로 -1을 넘긴다 — 실제 id와 절대 안 맞는 값이다.

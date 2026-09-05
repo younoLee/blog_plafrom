@@ -63,10 +63,15 @@ export async function register(email: string, password: string): Promise<void> {
   if (!res.ok) throw new Error('회원가입 실패')
 }
 
-// 메일 링크의 토큰으로 이메일 인증 처리
+// 메일 링크의 토큰으로 이메일 인증 처리.
+// **토큰을 쿼리스트링이 아니라 본문으로 보낸다** — 서버 액세스 로그가 요청 라인을
+// 통째로 찍어서, 쿼리에 실으면 원문 토큰이 로그에 평문으로 쌓인다. 초대 토큰·기기
+// endpoint 를 같은 이유로 이미 본문으로 옮겼고 여기만 남아 있었다(09-04 검사 SEC-07).
 export async function verifyEmail(token: string): Promise<void> {
-  const res = await apiFetch(`${BASE}/auth/verify?token=${encodeURIComponent(token)}`, {
+  const res = await apiFetch(`${BASE}/auth/verify`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
   })
   if (!res.ok) throw new Error('유효하지 않거나 만료된 인증 링크야')
 }

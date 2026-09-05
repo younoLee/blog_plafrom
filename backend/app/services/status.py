@@ -354,5 +354,10 @@ def get_history(days: int = 30) -> dict:
             {"name": key, "label": label, "overall_uptime": overall, "days": day_rows}
         )
 
-    total_checks = sum(rec["total"] for rec in by_date.values())
+    # **표에 그려지는 날짜만 합산한다** (2026-09-04 검사 BE-6).
+    # `since` 는 '지금 - days일'이라 today-days 날짜의 **현재 시각 이후 부분**이 조회에
+    # 들려오는데, date_list 는 today-(days-1)부터 시작하므로 그 날은 어느 줄에도 안 그려진다.
+    # by_date 를 통째로 합치면 화면의 '전체 N회 점검'이 각 줄의 checks 합보다 최대
+    # 하루치(1,439회) 크다 — 사람이 세로로 더해 보면 안 맞는 숫자다.
+    total_checks = sum(by_date[d]["total"] for d in date_list if d in by_date)
     return {"services": services, "total_checks": total_checks}

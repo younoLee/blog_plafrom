@@ -195,12 +195,28 @@ def _get_user_or_404(user_id: int, db: Session) -> User:
     return user
 
 
+def _reject_banned(user: User) -> None:
+    """차단된 계정에는 역할·등급을 못 바꾼다 — 해제는 unban 한 곳으로만.
+
+    **왜 (2026-09-04 검사 SEC-06)** — unban_user 는 `role != BANNED_ROLE` 을 400 으로
+    막아 '차단 해제는 pending 으로 되돌려 재승인을 받는다'는 정책을 지키는데, 옆의
+    approve/revoke/toggle-pro 는 대상이 banned 인지 안 보고 role 을 덮었다. banned 에
+    approve 를 한 번 누르면 **재승인 단계를 건너뛰고 곧장 writer** 가 된다.
+    이 저장소는 회수 판정을 전부 '읽는 쪽이 role 을 본다'로 모아뒀기 때문에
+    (models/user.py · services/push.py · email.py) role 이 바뀌는 순간 블로그·알림·
+    글쓰기가 한꺼번에 되살아난다 — 차단이 조용히 풀리는 것이다.
+    """
+    if user.role == BANNED_ROLE:
+        raise HTTPException(status_code=400, detail="차단된 계정이야. 먼저 차단을 풀어줘")
+
+
 @router.post("/users/{user_id}/approve", response_model=UserRead)
 def approve_user(user_id: int, db: Session = Depends(get_db)):
     # 승인: pending → writer (글쓰기 허용)
     user = _get_user_or_404(user_id, db)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 변경할 수 없어")
+    _reject_banned(user)
     user.role = "writer"
     db.commit()
     db.refresh(user)
@@ -213,6 +229,7 @@ def revoke_user(user_id: int, db: Session = Depends(get_db)):
     user = _get_user_or_404(user_id, db)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 변경할 수 없어")
+    _reject_banned(user)
     user.role = "pending"
     db.commit()
     db.refresh(user)
@@ -261,11 +278,36 @@ def toggle_pro(user_id: int, db: Session = Depends(get_db)):
     # 유료(pro) 토글: AI 초안에서 Opus 등 상위 모델 해금/회수.
     # 지금은 admin이 수동으로. 나중에 Stripe 결제가 이 플래그를 대신 켜줌(C단계).
     user = _get_user_or_404(user_id, db)
+    _reject_banned(user)
     user.is_pro = not user.is_pro
     # 켤 땐 만료 없음(None). 안 그러면 과거 결제의 pro_until이 남아 있어 다음 요청에서
     # _expire_pro_if_due(deps.py)가 즉시 되돌린다 → 관리자 수동 부여가 조용히 무효화됐다.
     if user.is_pro:
         user.pro_until = None
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/users/{user_id}/release-handle", response_model=UserRead)
+def release_handle(user_id: int, db: Session = Depends(get_db)):
+    """이 계정이 잡고 있는 블로그 주소(`/@handle`)를 비운다.
+
+    **왜 관리자 쪽에 있나 (2026-09-04 검사 SEC-04)** — `PATCH /auth/me/handle` 의 주석은
+    '차단된 사람도 자기 주소를 지울 수 있다'고 적어뒀지만 사실이 아니었다. ban 이
+    token_version 을 올려 토큰을 죽이고 get_current_user 가 banned 를 403 으로 끊으므로,
+    차단된 계정에는 그 문을 열어줄 방법 자체가 없다(부를 주체가 없다).
+    그런데 handle 은 유니크라(uq_users_handle_lower) 그 주소는 **계정을 지우기 전까지
+    영구히 예약된 채** 남고, 다른 사람이 같은 주소를 쓰려 하면 409 를 받는다.
+    해소 경로가 '계정 삭제' 하나뿐이었다 — 주소 하나 때문에 글까지 지우게 되는 셈이다.
+
+    차단된 계정에만 열지 않는다. 오타·분쟁으로 주소를 회수해야 하는 경우는 상태와
+    무관하게 생기고, 이건 관리자 전용 라우터다(prefix 의존성이 require_admin).
+    """
+    user = _get_user_or_404(user_id, db)
+    if user.handle is None:
+        raise HTTPException(status_code=400, detail="이 계정은 블로그 주소가 없어")
+    user.handle = None
     db.commit()
     db.refresh(user)
     return user
