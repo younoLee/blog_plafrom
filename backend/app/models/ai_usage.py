@@ -55,7 +55,13 @@ class AiHourlyUsage(Base):
     )
     # UTC 기준 '정시로 내림한' 시각 (예: 14:37 → 14:00). 고정 창(fixed window).
     hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    count: Mapped[int] = mapped_column(Integer, default=0)
+    # server_default 를 여기 적는 이유: **표에는 이미 있는데 모델만 몰랐다.**
+    # 이 표를 만든 마이그레이션(b7f1c4e29a03)이 server_default='0' 으로 만들었는데
+    # 모델은 파이썬 쪽 default=0 만 들고 있었다. 그러면 마이그레이션으로 만드는 프로드와
+    # create_all 로 만드는 테스트 DB 의 스키마가 갈리고, 그 차이를 아무 검사도 못 봤다 —
+    # `alembic check` 이 compare_server_default=False 로 돌았기 때문이다(09-04 검사 BQ-10).
+    # env.py 에서 그 비교를 켜면서 드러난 실제 드리프트 둘 중 하나다.
+    count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class AiGuardViolation(Base):
@@ -82,4 +88,4 @@ class AiGuardViolation(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    count: Mapped[int] = mapped_column(Integer, default=0)
+    count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # 위와 같은 이유(d4e5f6a7b8c9가 이미 이렇게 만든다)

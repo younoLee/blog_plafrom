@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -197,6 +197,36 @@ def subscribe(
     return {"approved": exists.approved}
 
 
+def _drop_request_notification(db: Session, author_id: int, subscriber_id: int) -> None:
+    """구독 신청 알림(post_id NULL)을 지운다. **커밋은 호출부가 한다.**
+
+    왜 필요한가 (2026-09-04 검사 BE-2): 신청 알림은 author_subscriptions 를 가리키는
+    FK 가 없다 — 가리킬 글이 없어서 post_id 가 NULL 이고, actor_id 는 users 를 가리킨다.
+    그래서 구독 행을 지워도 알림은 안 읽음으로 남았다. 그 줄을 누르면 구독 화면으로
+    가는데 `my_requests` 는 approved=false 인 **행**만 주므로 목록이 비어 있다 —
+    "눌러서 승인하거나 거절할 수 있어"라고 적힌 줄이 아무 데도 안 간다.
+    배지 숫자(notifications.py 의 unread)는 post_id IS NULL 을 면제하므로 계속 센다.
+
+    이건 이 저장소가 댓글 알림에서 이미 한 번 해결한 결함이다 — 그쪽은 FK CASCADE 로
+    막고 모델 주석에 '종에는 남아 있는데 눌러도 아무 데도 안 가는 줄'이라고 적어뒀다.
+    구독 신청 알림만 그 장치 밖에 있었다.
+
+    **세 자리에서 부른다 — 취소·거절·승인.** 셋 다 '이 신청에 대해 할 일이 끝났다'는
+    뜻이라서다. 승인은 검사 보고서가 지목하지 않았지만 같은 줄이 남는다(승인된 뒤엔
+    my_requests 가 approved=false 만 주므로 화면이 똑같이 비어 있다).
+
+    **같은 트랜잭션에 넣는다.** subscribe 가 신청과 알림을 한 커밋에 묶은 것과 짝이다 —
+    한쪽만 반영되면 정확히 이 결함이 다시 생긴다.
+    """
+    db.execute(
+        delete(Notification).where(
+            Notification.user_id == author_id,
+            Notification.actor_id == subscriber_id,
+            Notification.post_id.is_(None),
+        )
+    )
+
+
 @router.delete("/{author_id}", status_code=204)
 def unsubscribe(author_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     # 구독(또는 신청) 취소 = 관계 삭제
@@ -208,6 +238,7 @@ def unsubscribe(author_id: int, db: Session = Depends(get_db), user: User = Depe
     )
     if sub is not None:
         db.delete(sub)
+        _drop_request_notification(db, author_id, user.id)
         db.commit()
 
 
@@ -257,6 +288,8 @@ def approve_request(
     if sub is None:
         raise HTTPException(status_code=404, detail="구독 신청을 찾을 수 없어")
     sub.approved = True
+    # 승인했으면 '승인하거나 거절해줘' 줄은 할 일을 다했다.
+    _drop_request_notification(db, user.id, subscriber_id)
     db.commit()
 
 
@@ -271,4 +304,5 @@ def reject_request(
     sub = _subscription(db, user.id, subscriber_id)
     if sub is not None:
         db.delete(sub)
+        _drop_request_notification(db, user.id, subscriber_id)
         db.commit()

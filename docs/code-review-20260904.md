@@ -84,6 +84,12 @@ send_push는 404/410만 PushGone으로 던지고 그 외 4xx/5xx는 로그만 �
 
 ### BE-2 · 구독 신청 취소·거절 후에도 '구독 신청' 알림이 남아 빈 화면으로 안내한다
 
+> ✅ **2026-09-05에 고쳤다.** `_drop_request_notification()`(user_id·actor_id·post_id IS NULL
+> 셋을 다 맞춘 delete)을 취소·거절·**승인** 세 자리에서 같은 트랜잭션에 부른다. 승인은
+> 이 보고서가 지목하지 않았지만 남는 줄은 같다 — 승인된 뒤에도 `my_requests`는
+> approved=false 만 주므로 그 알림을 누르면 화면이 똑같이 비어 있다. 시험 5개로 잠갔고,
+> 되돌리면 다섯이 전부 실패하는 것까지 확인했다.
+
 `backend/app/routers/subscriptions.py:209` — 백엔드 정확성 · correctness
 
 subscribe가 만든 Notification(post_id NULL, actor_id=신청자)은 author_subscriptions와 FK가 없어서, 신청자가 취소(DELETE /subscriptions/{author_id})하거나 글쓴이가 거절하면 구독 행만 지워지고 알림은 안 읽음 상태로 남는다. 취소→재신청을 반복하면 같은 사람의 알림이 계속 쌓인다.
@@ -536,6 +542,14 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 
 #### BQ-10 · alembic check는 server_default 드리프트를 못 본다 — conftest 주석은 본다고 적혀 있다
 
+> ✅ **2026-09-05에 고쳤다.** `alembic/env.py`의 온라인·오프라인 양쪽 `context.configure`에
+> `compare_server_default=True`를 줬다. 켜자마자 **실제 드리프트가 둘 나왔다** —
+> `ai_hourly_usage.count`·`ai_guard_violation.count`는 마이그레이션이 `server_default='0'`으로
+> 만드는데 모델은 파이썬 `default=0`만 들고 있었다(그래서 create_all로 만드는 테스트 DB에는
+> 그 기본값이 없었다). 모델을 표에 맞추는 쪽으로 정렬해 노이즈 0으로 만든 뒤 게이트로 세웠고,
+> 빈 DB에 `upgrade head` → `alembic check`까지 로컬에서 재현했다. conftest의 '기본값은 CI가
+> 본다'는 문장은 이제 사실이다(그 자리에 경위를 적어뒀다).
+
 `backend/alembic/env.py:85` — 백엔드 품질·테스트 · quality
 
 모델↔마이그레이션 게이트가 컬럼 기본값 차이를 검사하지 않는데, 그 사각을 메운다고 지목된 CI 잡이 실제로는 같은 것을 안 본다.
@@ -547,6 +561,11 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 **검증** (medium) alembic/env.py:84-87 의 context.configure 에 compare_server_default 가 없어(저장소 전체 grep 0건) alembic 기본값 False 로 돌고, 그런데 conftest.py:80-83 은 '기본값'을 CI 잡이 본다고 적어 뒀으며 ci.yml:76-81 의 두 잡(upgrade head / alembic check) 어느 쪽도 server_default 차이를 보지 않는다.
 
 #### BQ-2 · 레이트리밋 키를 만드는 X-Forwarded-For 분기가 테스트 0건
+
+> ✅ **2026-09-05에 고쳤다.** `tests/test_ratelimit_key.py` 7개로 XFF 분기를 덮었다 —
+> 1홉·2홉·위조된 맨 앞 값·항목이 홉보다 적을 때·공백 섞인 값·헤더 없음·빈 헤더.
+> 보고서가 예시로 든 한 글자 회귀(`parts[-idx]` → `parts[idx - 1]`)를 실제로 넣어
+> 셋이 빨개지는 것까지 확인했다. 코드는 안 고쳤다 — 분기는 옳았고 없던 것은 그것을 지키는 장치다.
 
 `backend/app/core/ratelimit.py:21` — 백엔드 품질·테스트 · test-gap
 

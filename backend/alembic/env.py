@@ -62,6 +62,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        compare_server_default=True,  # 온라인 쪽과 같은 기준 (위 주석 참고)
     )
 
     with context.begin_transaction():
@@ -83,7 +84,20 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            # **컬럼 기본값(server_default) 차이도 diff 로 본다** (2026-09-04 검사 BQ-10).
+            # alembic 의 기본값은 compare_type=True · compare_server_default=False 다.
+            # 즉 이 옵션이 없으면 CI 의 `alembic check` 잡이 타입·nullable·컬럼 유무는
+            # 잡아도 기본값 차이는 **안 본다.** 그런데 tests/conftest.py 는 자기가 안 보는
+            # 것을 나열하면서 '기본값'을 "CI 의 그 잡이 본다"고 적어뒀다 — 셋 중 하나가
+            # 아무도 안 보는 자리였다.
+            #
+            # 왜 실제로 갈리는가: 테스트 DB 는 create_all(모델 값)로 만들어지고 프로드 DB 는
+            # 마이그레이션으로 만들어진다. 모델의 server_default 만 바꾸고 마이그레이션을
+            # 안 만들면 테스트는 초록인데 프로드만 옛 기본값을 유지하고, 앱을 안 거치는
+            # 경로(psql·복원 훈련)로 들어온 행에서 두 환경이 갈린다.
+            compare_server_default=True,
         )
 
         with context.begin_transaction():

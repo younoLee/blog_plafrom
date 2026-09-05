@@ -80,7 +80,14 @@ def _assert_schema_fresh(eng) -> None:
     **여전히 안 보는 것**(알고 두는 것): 컬럼의 타입·nullable·기본값, 유니크/체크
     제약, 외래키. 이름이 같은데 정의만 바뀌는 변경은 여기서 안 걸린다. 그 경우까지
     보려면 사실상 마이그레이션을 돌려야 하고, 그건 이 파일의 몫이 아니다
-    (CI의 '빈 DB에 upgrade head' 잡이 그걸 본다).
+    (CI의 '빈 DB에 upgrade head' + `alembic check` 잡이 그걸 본다).
+
+    ⚠️ **이 문장이 2026-09-05까지 셋 중 하나를 거짓으로 말하고 있었다**(09-04 검사 BQ-10).
+    `alembic check` 은 alembic 기본값대로 compare_server_default=False 로 돌아서 **기본값
+    차이만은 그 잡도 안 봤다.** 세 항목 중 하나가 아무도 안 보는 자리였고, 실제로 모델과
+    표의 기본값이 갈린 컬럼이 둘 있었다(ai_hourly_usage.count · ai_guard_violation.count).
+    alembic/env.py 에 compare_server_default=True 를 켜서 이제는 정말로 본다 — 문장을
+    사실로 만드는 쪽으로 고쳤다.
     """
     from sqlalchemy import inspect
 

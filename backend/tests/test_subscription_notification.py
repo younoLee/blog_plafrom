@@ -108,3 +108,81 @@ def test_post_notifications_still_work(client, make_user, auth_headers):
     client.patch(f"/api/posts/{post['id']}/visibility", json={"visibility": "private"}, headers=ah)
     reader_body = client.get("/api/notifications", headers=auth_headers(reader)).json()
     assert all(i["post_id"] != post["id"] for i in reader_body["items"])
+
+
+# ── 신청이 끝난 뒤에 그 알림이 남는가 (2026-09-04 검사 BE-2) ─────────────────
+#
+# 신청 알림은 author_subscriptions 를 가리키는 FK 가 없다(가리킬 글이 없어 post_id 가
+# NULL 이고 actor_id 는 users 를 가리킨다). 그래서 구독 행만 지우면 알림이 안 읽음으로
+# 남는데, 그 줄을 누르면 가는 구독 화면의 목록은 **비어 있다** — `my_requests` 가
+# approved=false 인 '행'을 주기 때문이다. 배지 숫자도 계속 그 알림을 센다.
+# 댓글 알림은 같은 결함을 FK CASCADE 로 막아뒀고, 구독 신청만 그 장치 밖에 있었다.
+
+
+def test_취소하면_신청_알림도_사라진다(client, make_user, auth_headers, db):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    ah = auth_headers(reader)
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=ah)
+
+    r = client.delete(f"/api/subscriptions/{author.id}", headers=ah)
+    assert r.status_code == 204
+
+    left = db.scalars(select(Notification).where(Notification.user_id == author.id)).all()
+    assert left == []
+
+
+def test_거절하면_신청_알림도_사라진다(client, make_user, auth_headers, db):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+
+    r = client.delete(f"/api/subscriptions/requests/{reader.id}", headers=auth_headers(author))
+    assert r.status_code == 204
+
+    left = db.scalars(select(Notification).where(Notification.user_id == author.id)).all()
+    assert left == []
+
+
+def test_승인해도_신청_알림은_사라진다(client, make_user, auth_headers, db):
+    """승인은 검사 보고서가 지목하지 않았지만 남는 줄은 같다 — 승인된 뒤에도
+    `my_requests` 는 approved=false 만 주므로 화면이 똑같이 비어 있다."""
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+
+    r = client.post(f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author))
+    assert r.status_code == 204
+
+    left = db.scalars(select(Notification).where(Notification.user_id == author.id)).all()
+    assert left == []
+
+
+def test_취소_재신청을_되풀이해도_알림은_한_줄이다(client, make_user, auth_headers, db):
+    """취소 → 재신청은 사용자가 실제로 하는 조작이다(승인이 늦으면 눌러 본다).
+    지우지 않으면 왕복할 때마다 같은 사람의 알림이 한 줄씩 쌓였다."""
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    ah = auth_headers(reader)
+    for _ in range(3):
+        client.post("/api/subscriptions", json={"author_id": author.id}, headers=ah)
+        client.delete(f"/api/subscriptions/{author.id}", headers=ah)
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=ah)
+
+    left = db.scalars(select(Notification).where(Notification.user_id == author.id)).all()
+    assert len(left) == 1
+
+
+def test_남의_신청_알림은_안_지운다(client, make_user, auth_headers, db):
+    """지우는 조건이 (받는이·신청자·post_id NULL) 셋 다 맞을 때만인지 본다.
+    하나라도 빠지면 한 사람의 취소가 다른 사람의 신청 줄을 지운다."""
+    author = make_user(role="writer")
+    a = make_user(role="writer")
+    b = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(a))
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(b))
+
+    client.delete(f"/api/subscriptions/{author.id}", headers=auth_headers(a))
+
+    left = db.scalars(select(Notification).where(Notification.user_id == author.id)).all()
+    assert [n.actor_id for n in left] == [b.id]
