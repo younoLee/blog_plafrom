@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiFetch, fetchWithTimeout } from './http'
-import { clearToken, getToken, onSessionExpired, setToken } from './session'
+import { authHeaders, clearToken, getToken, onSessionExpired, setToken } from './session'
 
 beforeEach(() => {
   clearToken()
@@ -125,5 +125,41 @@ describe('apiFetch는 안 끊는다', () => {
     vi.advanceTimersByTime(60_000)
 
     expect(signal?.aborted).toBe(false)
+  })
+})
+
+// ⑤ **저장소 접근 자체가 던지는 브라우저**(사파리 프라이빗 모드·쿠키 차단)에서도
+// 익명 읽기는 살아 있어야 한다. 09-04 검사 FE-3 이 잡은 자리 — `authHeaders()` 는
+// 로그인과 무관한 목록 조회도 부르므로, 여기서 던지면 **글 목록이 통째로** 브라우저의
+// 영문 SecurityError 문구를 띄운 빨간 에러가 됐다.
+describe('localStorage가 막힌 브라우저', () => {
+  function blockStorage() {
+    const boom = () => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    }
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(boom)
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('getToken은 던지지 않고 null을 준다', () => {
+    blockStorage()
+    expect(() => getToken()).not.toThrow()
+    expect(getToken()).toBeNull()
+  })
+
+  it('authHeaders는 빈 객체다 — 익명 조회가 그대로 나간다', () => {
+    blockStorage()
+    expect(authHeaders()).toEqual({})
+  })
+
+  it('setToken·clearToken도 던지지 않는다 — 로그인만 안 될 뿐 화면은 산다', () => {
+    blockStorage()
+    expect(() => setToken('t')).not.toThrow()
+    expect(() => clearToken()).not.toThrow()
   })
 })

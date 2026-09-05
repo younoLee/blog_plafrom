@@ -40,8 +40,12 @@ function LoginPage() {
       <Reveal className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-8 dark:border-white/10 dark:bg-white/[0.06]">
         <h1 className={`mb-6 text-3xl font-semibold tracking-tight ${ui.pageTitle}`}>로그인</h1>
         <form onSubmit={handleSubmit} className="grid gap-3">
-          <input type="email" placeholder="이메일" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
-          <input type="password" placeholder="비밀번호" value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
+          {/* placeholder 는 라벨이 아니다 — 입력을 시작하면 사라지고, 화면낭독기는 칸
+              이름을 못 읽는다. 이 저장소가 PostDetailPage·WritePostPage 에 적어둔 규약인데
+              정작 로그인 화면이 빠져 있었다(09-04 검사 FQ-4). autoComplete 도 같이 붙인다 —
+              비밀번호 관리자가 이 칸을 못 알아보면 사람이 매번 손으로 친다. */}
+          <input type="email" placeholder="이메일" aria-label="이메일" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
+          <input type="password" placeholder="비밀번호" aria-label="비밀번호" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
           <button type="submit" className={btnPrimary} disabled={busy} aria-busy={busy}>
             {busy ? '로그인 중…' : '로그인'}
           </button>

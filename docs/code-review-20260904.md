@@ -134,6 +134,10 @@ CloudFront origin_read_timeout(60초)에 걸린 AI 초안 요청의 504를 reque
 
 ### FE-3 · session.ts가 localStorage를 무방비로 읽어 저장소 차단 브라우저에서 익명 읽기까지 실패한다
 
+> ✅ **2026-09-05에 고쳤다.** `getToken`·`setToken`·`clearToken` 셋을 try/catch로 감쌌다
+> (skin.ts `cached()`와 같은 방식). 실패는 '토큰 없음'으로 접으므로 저장소가 막힌
+> 브라우저에서도 익명 조회는 그대로 나간다. 저장소가 던지는 상황을 만든 테스트 3개로 잠갔다.
+
 `frontend/src/api/session.ts:18` — 프론트 정확성 · correctness
 
 이 저장소는 localStorage 접근 자체가 throw할 수 있다고 전제하고(http.ts:55, WritePostPage:59, skin.ts:55) 다른 곳은 전부 try/catch로 감쌌지만 getToken/authHeaders는 안 감쌌다. 토큰이 필요 없는 목록 조회도 authHeaders()를 부르므로 그 브라우저에서는 글 목록이 SecurityError 문구의 빨간 에러가 된다.
@@ -146,6 +150,11 @@ CloudFront origin_read_timeout(60초)에 걸린 AI 초안 요청의 504를 reque
 
 ### FE-5 · 구독 화면이 조회 실패·절전 때 '구독할 수 있는 다른 글쓴이가 아직 없어'라는 거짓 사실을 보여준다
 
+> ✅ **2026-09-05에 고쳤다.** `fetchAuthors`가 `!ok`에서 던지고(`failWith`), 화면은
+> `authors: SubscribedAuthor[] | null`로 '아직 모른다'를 따로 들고 절전·실패를 갈라
+> 안내한다. 첫 화면 테스트(`SubscriptionsPage.test.tsx`) 4개로 잠갔고, 되돌리면
+> 500 갈래가 실패하는 것까지 확인했다.
+
 `frontend/src/pages/SubscriptionsPage.tsx:154` — 프론트 정확성 · correctness
 
 fetchAuthors는 !res.ok면 []를 주고 페이지도 catch에서 []로 접는다. loaded/asleep 구분이 없어 서버가 꺼져 있거나 401·5xx면 빈 배열과 '아직 없어'가 사실처럼 뜬다. Layout에는 전역 절전 안내가 없어 이 문장만 남는다. HomePage·AdminPage는 같은 문제를 loaded 플래그로 막았다고 주석에 적어뒀는데 이 화면만 없다.
@@ -157,6 +166,10 @@ fetchAuthors는 !res.ok면 []를 주고 페이지도 catch에서 []로 접는다
 **검증** (high) subscriptions.ts fetchAuthors가 !ok에서 []를 주고 SubscriptionsPage:38이 catch로도 []를 넣어 :154의 '구독할 수 있는 다른 글쓴이가 아직 없어'가 실패 상태에서 사실처럼 뜨는 게 맞고, 같은 파일 주석이 '거짓 사실'이라 적고도 타임아웃만 줄여 문장 자체는 남아 있다.
 
 ### FE-6 · PostDetailPage 구독 여부·댓글 갱신 응답에 취소 플래그가 없어 다른 글의 상태가 덮인다
+
+> ✅ **2026-09-05에 고쳤다.** 구독 여부 effect에 `alive` 플래그와 cleanup을 넣고, 댓글
+> 작성·삭제 뒤의 재조회는 `shownPostId` ref와 요청 시점의 postId를 비교한 뒤에만
+> setState한다. 같은 파일이 본문·댓글 첫 조회에 이미 세워둔 규칙을 세 자리에 마저 적용한 것이다.
 
 `frontend/src/pages/PostDetailPage.tsx:191` — 프론트 정확성 · correctness
 
@@ -565,6 +578,10 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 
 #### FQ-2 · AI 초안 상자에 존재하지 않는 Tailwind 클래스 `p-5/[0.07]` — 안쪽 여백이 0이다
 
+> ✅ **2026-09-05에 고쳤다.** `p-5`로 바꿨다. 배경 농도는 같은 줄의 `bg-accent/[0.05]`가
+> 이미 정하고 있어 건드리지 않았다. 고친 뒤 빌드에서 CSS 산출물이 **바이트까지 그대로**인 것이
+> 진단(그 클래스는 CSS를 하나도 만들지 않았다)의 확인이다.
+
 `frontend/src/pages/WritePostPage.tsx:505` — 프론트 품질·접근성 · quality
 
 `p-5/[0.07]`은 Tailwind가 만들어내지 못하는 클래스라 CSS가 없고, 그 결과 글쓰기 화면의 'AI로 초안 잡기' 상자가 패딩 없이 테두리에 내용이 붙어 그려진다.
@@ -576,6 +593,10 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 **검증** (high) WritePostPage.tsx:505에 `p-5/[0.07]`이 실재하고 빌드 산출물 dist/index-O63ouJC4.css에는 `.p-5{padding:...}`만 있을 뿐 `p-5\/` 선택자가 0건이라 그 상자만 패딩이 없다.
 
 #### FQ-3 · 공개범위 라디오 3개에 name이 없어 키보드 화살표로 못 고르고 그룹으로 안 읽힌다
+
+> ✅ **2026-09-05에 고쳤다.** 셋에 `name="visibility"`를 주고 바깥 div를 `<fieldset>` +
+> `<legend className="sr-only">공개범위</legend>`로 바꿨다. 보이는 '공개범위:' 글자는
+> `aria-hidden`으로 남겨 화면은 그대로다.
 
 `frontend/src/pages/WritePostPage.tsx:785` — 프론트 품질·접근성 · quality
 
@@ -589,6 +610,10 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 
 #### FQ-4 · placeholder만 있고 라벨이 없는 입력칸 12개 — '09-02 정리'가 이 화면들에 안 닿았다
 
+> ✅ **2026-09-05에 고쳤다.** 열거된 칸 전부에 `aria-label`을 달았다. 제공자마다 반복되는
+> base URL·API 키 칸은 `` `${p.name} API 키` `` 처럼 이름을 넣어 다섯을 구분한다.
+> 로그인·재설정·초대가입 칸에는 `autoComplete`(email·current-password·new-password)도 붙였다.
+
 `frontend/src/pages/SettingsPage.tsx:146` — 프론트 품질·접근성 · quality
 
 저장소가 두 곳에 'placeholder는 라벨이 아니다'라고 규약을 적어두고 aria-label을 달았는데, 설정·로그인·비밀번호·초대 화면의 입력칸은 여전히 placeholder뿐이라 화면낭독기가 칸 이름을 못 읽는다.
@@ -601,6 +626,9 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 
 #### FQ-5 · 오류 문구 절반이 role="alert" 없이 조용히 나타난다
 
+> ✅ **2026-09-05에 고쳤다.** 열거된 오류 `<p>` 10곳에 `role="alert"`를, 성공 문구 5곳에
+> `role="status"`를 달았다. 이제 이 저장소의 오류 줄 중 낭독기에 안 읽히는 것은 없다.
+
 `frontend/src/pages/ForgotPasswordPage.tsx:48` — 프론트 품질·접근성 · quality
 
 LoginPage가 주석까지 달아 세운 '오류는 낭독기에도 읽혀야 한다'는 규칙이 같은 종류의 오류 줄 10곳에 안 적용돼, 화면낭독기 사용자에게는 실패가 아무 일도 안 일어난 것으로 보인다.
@@ -612,6 +640,10 @@ LoginPage가 주석까지 달아 세운 '오류는 낭독기에도 읽혀야 한
 **검증** (high) role="alert"는 HomePage:209·AuthorPage:223·LoginPage:49·WritePostPage:821·827·PostDetailPage 5곳뿐이고 ForgotPasswordPage:48·ResetPasswordPage:50·RegisterPage:124·SettingsPage:214·SkinEditor:270·SlotEditor:275 등은 맨 <p>라 낭독기에 안 읽힌다.
 
 #### FQ-6 · AdminPage 초대 링크 복사만 CopyButton을 안 쓰고 navigator.clipboard를 맨손으로 부른다
+
+> ✅ **2026-09-05에 고쳤다.** `<CopyButton value={issued.url} label="복사" />`로 바꾸고
+> 지역 `copied` 상태를 지웠다. 비보안 컨텍스트에서는 execCommand 폴백이 돌고, 실패하면
+> '복사됨'을 띄우지 않는다(CopyButton이 이미 잠가둔 동작).
 
 `frontend/src/pages/AdminPage.tsx:380` — 프론트 품질·접근성 · quality
 

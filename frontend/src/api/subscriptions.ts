@@ -67,9 +67,14 @@ export async function fetchMySubscriptionsDetail(): Promise<SubscribedAuthor[]> 
 // 서버가 꺼져 있으면 CloudFront 오리진 상한 60초까지 매달렸다. 호출부가 실패를 []로
 // 삼키므로(SubscriptionsPage) 화면엔 "구독할 수 있는 다른 글쓴이가 아직 없어"가 뜬다 —
 // 1분을 기다린 끝에 **거짓 사실**을 보는 셈이었다. (2026-08-11 공백검사)
+//
+// 그때 줄인 건 기다리는 시간뿐이고 **거짓 문장은 그대로 남아 있었다**(09-04 검사 FE-5).
+// `[]`는 '없다'는 사실 주장인데 실패는 '모른다'다. 둘을 같은 값으로 돌려주면 호출부가
+// 아무리 잘 짜도 가를 수 없으므로, 여기서 던진다 — 이 저장소가 목록 화면에서 이미
+// 세워둔 규칙이다(HomePage의 loaded 주석: "0개는 사실 주장이다").
 export async function fetchAuthors(): Promise<SubscribedAuthor[]> {
   const res = await fetchWithTimeout(`${BASE}/subscriptions/authors`, { headers: authHeaders() })
-  if (!res.ok) return []
+  if (!res.ok) await failWith(res, '글쓴이 목록을 불러오지 못했어')
   return res.json()
 }
 

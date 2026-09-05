@@ -141,9 +141,9 @@ function PaymentPage() {
           ))}
         </ul>
 
-        {error && <p className="mt-5 text-sm text-red-500">{error}</p>}
+        {error && <p role="alert" className="mt-5 text-sm text-red-500">{error}</p>}
         {done && !error && (
-          <p className="mt-5 text-sm text-emerald-600 dark:text-emerald-400">
+          <p role="status" className="mt-5 text-sm text-emerald-600 dark:text-emerald-400">
             결제 완료! 이제 글쓰기에서 Opus·Fable 5를 선택할 수 있어.
           </p>
         )}

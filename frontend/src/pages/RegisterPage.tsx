@@ -113,6 +113,8 @@ function InviteForm({ token, invite }: { token: string; invite: InvitePreview })
         <input
           type="password"
           placeholder="비밀번호 (8자 이상)"
+          aria-label="비밀번호"
+          autoComplete="new-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoFocus
@@ -121,7 +123,7 @@ function InviteForm({ token, invite }: { token: string; invite: InvitePreview })
         <button type="submit" disabled={busy} className={btnPrimary}>
           {busy ? '가입하는 중…' : '가입하고 시작하기'}
         </button>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       </form>
       {invite.role === 'pending' && (
         <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">

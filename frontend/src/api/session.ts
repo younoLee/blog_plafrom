@@ -14,16 +14,43 @@
 
 const TOKEN_KEY = 'token'
 
+/**
+ * localStorage 접근 자체가 던진다 — 그게 이 세 함수가 전부 try/catch인 이유다.
+ *
+ * 사파리 프라이빗 모드·쿠키(저장소) 차단 브라우저에서는 `localStorage`를 **읽기만
+ * 해도** SecurityError가 난다. 이 저장소는 그걸 전제로 skin.ts cached()·
+ * WritePostPage readDraft·http.ts 주석까지 전부 감싸 뒀는데 여기만 맨살이었다.
+ * 하필 여기가 제일 넓게 불린다 — `authHeaders()`는 로그인과 무관한 목록 조회도
+ * 부르므로(posts.ts fetchPosts), 그 브라우저에서는 **익명 방문자의 글 목록**이
+ * 브라우저의 영문 SecurityError 문구를 그대로 띄운 빨간 에러가 됐다.
+ * 부팅 시 fetchMe도 같은 자리에서 던져 unhandled rejection이 된다. (09-04 검사 FE-3)
+ *
+ * 실패하면 '토큰이 없다'로 본다. 저장소가 막힌 브라우저에서 로그인 유지는 어차피
+ * 안 되지만, 익명으로 읽는 것까지 못 하게 만들 이유는 없다.
+ */
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
 }
 
 export function setToken(t: string) {
-  localStorage.setItem(TOKEN_KEY, t)
+  try {
+    localStorage.setItem(TOKEN_KEY, t)
+  } catch {
+    /* 저장이 막힌 브라우저에서는 로그인 유지가 애초에 불가능하다. 여기서 던져 봐야
+       읽기 화면까지 같이 죽을 뿐이라, 로그인만 안 되는 쪽으로 남긴다 */
+  }
 }
 
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    /* 애초에 저장이 안 됐다면 지울 것도 없다 */
+  }
 }
 
 /** 로그인했으면 Authorization 헤더, 아니면 빈 객체 */

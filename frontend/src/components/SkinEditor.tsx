@@ -238,6 +238,7 @@ function SkinEditor() {
       <textarea
         value={custom}
         onChange={(e) => setCustom(e.target.value)}
+        aria-label="직접 쓰는 CSS"
         spellCheck={false}
         rows={10}
         placeholder={':root {\n  --color-accent: #20c997;\n}'}
@@ -262,12 +263,12 @@ function SkinEditor() {
       )}
 
       {msg && (
-        <p className="mt-3 inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
+        <p role="status" className="mt-3 inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
           <IconCheck className="h-4 w-4" />
           {msg}
         </p>
       )}
-      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-red-500">{error}</p>}
     </section>
   )
 }

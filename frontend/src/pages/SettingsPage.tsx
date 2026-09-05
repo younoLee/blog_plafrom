@@ -143,8 +143,11 @@ function SettingsPage() {
           <span className="text-xs">비워서 저장하면 '안 정함'으로 돌아가고, 화면엔 `회원 #{user.id}`로 보여.</span>
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          {/* placeholder 는 라벨이 아니다 — 여기 placeholder 는 '예: 유노'라서,
+              낭독기가 칸 이름 대신 예시를 읽어 준다(09-04 검사 FQ-4). */}
           <input
             className={`${ui.input} max-w-xs`}
+            aria-label="표시명"
             value={name}
             maxLength={50}
             placeholder="예: 유노"
@@ -173,6 +176,7 @@ function SettingsPage() {
             <span className="text-sm text-gray-400">/@</span>
             <input
               className={`${ui.input} max-w-xs`}
+              aria-label="블로그 주소 (/@ 뒤에 올 이름)"
               value={handle}
               maxLength={20}
               placeholder="yuno"
@@ -207,11 +211,11 @@ function SettingsPage() {
       </p>
 
       {msg && (
-        <p className="mt-4 inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
+        <p role="status" className="mt-4 inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
           <IconCheck className="h-4 w-4" />{msg}
         </p>
       )}
-      {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-red-500">{error}</p>}
 
       <div className="mt-6 space-y-4">
         {PROVIDERS.map((p) => (
@@ -238,6 +242,7 @@ function SettingsPage() {
             {p.needsBaseUrl && (
               <input
                 type="text"
+                aria-label={`${p.name} 주소(base URL)`}
                 placeholder={keyOf(p.id)?.base_url ? `현재: ${keyOf(p.id)?.base_url} (바꾸려면 입력)` : '주소(base URL) 예: https://api.x.ai/v1'}
                 value={baseUrls[p.id] || ''}
                 onChange={(e) => setBaseUrls((prev) => ({ ...prev, [p.id]: e.target.value }))}
@@ -248,6 +253,7 @@ function SettingsPage() {
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <input
                 type="password"
+                aria-label={`${p.name} API 키`}
                 placeholder={hasKey(p.id) ? '새 키로 교체하려면 입력' : '여기에 API 키 붙여넣기'}
                 value={inputs[p.id] || ''}
                 onChange={(e) => setInputs((prev) => ({ ...prev, [p.id]: e.target.value }))}

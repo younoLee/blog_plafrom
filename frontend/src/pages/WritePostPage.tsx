@@ -524,7 +524,7 @@ function WritePostPage() {
       )}
 
       {/* AI 초안 잡기: 거친 메모 → 정돈된 글 구조를 제목·본문에 채움 */}
-      <div className="mb-6 rounded-2xl border border-accent/15 bg-accent/[0.05] p-5/[0.07]">
+      <div className="mb-6 rounded-2xl border border-accent/15 bg-accent/[0.05] p-5">
         <div className="flex items-center gap-2">
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent/10 text-accent">
             <IconSparkles className="h-4 w-4" />
@@ -801,19 +801,25 @@ function WritePostPage() {
             {uploading ? '이미지 올리는 중…' : ''}
           </span>
         </label>
-        <div className="flex flex-wrap gap-4 text-sm text-gray-700 dark:text-gray-300">
-          <span>공개범위:</span>
+        {/* **셋이 한 그룹이라는 걸 브라우저가 알아야 한다.** name 이 없으면 각각 독립
+            라디오라 화살표로 못 옮기고(탭 정류장이 3개가 된다) 화면낭독기가 '1 중 1'로
+            따로 읽는다. 바깥 <span>공개범위:</span>는 그룹 이름으로 전달되지 않아서
+            fieldset/legend 로 바꿨다 — legend 는 sr-only 로 두고 보이는 글자는 그대로다.
+            (09-04 검사 FQ-3) */}
+        <fieldset className="flex flex-wrap gap-4 text-sm text-gray-700 dark:text-gray-300">
+          <legend className="sr-only">공개범위</legend>
+          <span aria-hidden="true">공개범위:</span>
           <label className="flex items-center gap-1">
-            <input type="radio" checked={visibility === 'public'} onChange={() => setVisibility('public')} /> 전체공개
+            <input type="radio" name="visibility" checked={visibility === 'public'} onChange={() => setVisibility('public')} /> 전체공개
           </label>
           <label className="flex items-center gap-1">
-            <input type="radio" checked={visibility === 'subscribers'} onChange={() => setVisibility('subscribers')} /> 구독자공개
+            <input type="radio" name="visibility" checked={visibility === 'subscribers'} onChange={() => setVisibility('subscribers')} /> 구독자공개
           </label>
           <label className="flex items-center gap-1">
-            <input type="radio" checked={visibility === 'private'} onChange={() => setVisibility('private')} />
+            <input type="radio" name="visibility" checked={visibility === 'private'} onChange={() => setVisibility('private')} />
             <IconLock className="h-3.5 w-3.5" /> 비공개(나만)
           </label>
-        </div>
+        </fieldset>
         <div className="flex gap-2">
           <button type="submit" className={btnPrimary} disabled={saving} aria-busy={saving}>
             {saving ? '저장 중…' : editingId === null ? '글 작성' : '수정 저장'}

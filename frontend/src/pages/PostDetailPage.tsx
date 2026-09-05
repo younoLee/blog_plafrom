@@ -185,13 +185,30 @@ function PostDetailPage() {
     }
   }, [postId, id]) // id도 deps에 — 둘 다 NaN인 경로에서 effect가 안 도는 걸 막는다
 
-  // 이 글의 작성자를 내가 구독 중인지 확인
+  // 이 글의 작성자를 내가 구독 중인지 확인.
+  // 위 본문·댓글 effect 와 **같은 취소 플래그가 필요하다**(09-04 검사 FE-6). 없으면
+  // A→B 로 넘긴 뒤 A 의 응답이 도착해, 렌더 중 리셋이 방금 false 로 되돌린 값을
+  // 다시 true 로 만든다 — 위 리셋 주석이 막으려던 "남의 글에 구독중 ✓"가 그대로 돌아온다.
   useEffect(() => {
     if (!user || !post?.owner_id) return
+    let alive = true
     fetchMySubscriptions()
-      .then((ids) => setSubscribed(ids.includes(post.owner_id!)))
+      .then((ids) => alive && setSubscribed(ids.includes(post.owner_id!)))
       .catch(() => {})
+    return () => {
+      alive = false
+    }
   }, [user, post?.owner_id])
+
+  // **지금 화면에 떠 있는 글의 id.** 댓글 작성·삭제 뒤의 재조회는 effect 가 아니라
+  // 핸들러에서 도는데, 그 클로저의 postId 는 누른 시점의 글로 고정돼 있다. 쓰기 요청은
+  // 타임아웃이 없어서(http.ts 규약) 겹칠 시간이 넉넉하고, 응답이 늦으면 B 화면에 A 의
+  // 댓글 목록이 그려진다. effect 로 갱신하는 이유는 렌더 중 ref 쓰기를 피하려는 것뿐이고,
+  // 갱신 시점(네비게이션 직후)이 응답보다 늘 앞선다.
+  const shownPostId = useRef(postId)
+  useEffect(() => {
+    shownPostId.current = postId
+  }, [postId])
 
   async function toggleSubscribe() {
     if (!post?.owner_id) return
@@ -218,9 +235,12 @@ function PostDetailPage() {
     try {
       await addComment(postId, name, text)
       setText('')
-      setComments(await fetchComments(postId))
+      const fresh = await fetchComments(postId)
+      if (shownPostId.current !== postId) return // 그 사이 다른 글로 넘어갔다
+      setComments(fresh)
       setCommentError('')
     } catch (e) {
+      if (shownPostId.current !== postId) return
       setCommentError((e as Error).message)
     } finally {
       setPosting(false)
@@ -245,9 +265,12 @@ function PostDetailPage() {
   async function handleDeleteComment(commentId: number) {
     try {
       await deleteComment(postId, commentId)
-      setComments(await fetchComments(postId))
+      const fresh = await fetchComments(postId)
+      if (shownPostId.current !== postId) return
+      setComments(fresh)
       setCommentError('')
     } catch (e) {
+      if (shownPostId.current !== postId) return
       setCommentError((e as Error).message)
     }
   }

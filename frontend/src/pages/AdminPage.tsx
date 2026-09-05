@@ -23,6 +23,7 @@ import {
 } from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
+import { CopyButton } from '../components/CopyButton'
 
 // role별 한글 라벨 + 뱃지 색
 const ROLE_META: Record<Role, { label: string; badge: string }> = {
@@ -277,7 +278,6 @@ function InviteSection() {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'pending' | 'writer'>('pending')
   const [issued, setIssued] = useState<InviteCreated | null>(null)
-  const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   // 불러오기가 '끝났는지'를 따로 안다. 실패해도 invites는 []라서, 이걸 구분하지
@@ -300,7 +300,6 @@ function InviteSection() {
       const created = await createInvite(email.trim(), role)
       const { url, ...row } = created
       setIssued(created)
-      setCopied(false)
       // 목록엔 url을 **뺀** 것만 넣는다. 원문 토큰이 두 군데 살아 있으면 아래
       // setIssued(null)이 '토큰을 화면에서 지웠다'는 뜻이 아니게 된다.
       void url
@@ -336,12 +335,18 @@ function InviteSection() {
         <input
           type="email"
           required
+          aria-label="초대할 이메일"
           placeholder="초대할 이메일"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className={`${ui.input} flex-1 basis-56`}
         />
-        <select value={role} onChange={(e) => setRole(e.target.value as 'pending' | 'writer')} className={`${ui.select} basis-40`}>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as 'pending' | 'writer')}
+          aria-label="초대받을 사람의 권한"
+          className={`${ui.select} basis-40`}
+        >
           <option value="pending">승인 대기로</option>
           <option value="writer">글쓰기 가능으로</option>
         </select>
@@ -375,18 +380,18 @@ function InviteSection() {
             <code className="flex-1 basis-64 overflow-x-auto rounded-lg bg-white/70 px-3 py-2 text-xs dark:bg-black/30">
               {issued.url}
             </code>
-            <button
-              type="button"
-              onClick={() => navigator.clipboard.writeText(issued.url).then(() => setCopied(true))}
-              className={ui.btnGhost}
-            >
-              {copied ? '복사됨' : '복사'}
-            </button>
+            {/* **맨 navigator.clipboard 를 부르지 않는다.** 그건 보안 컨텍스트(https·
+                localhost)에서만 있어서, http 로 연 로컬·사내 주소나 권한 거부에서는
+                TypeError·미처리 rejection 으로 끝나고 버튼이 아무 반응도 안 한다.
+                바로 위가 "지금 복사해둬, 다시 볼 수 없어"라고 적은 1회용 토큰이라
+                그 침묵이 제일 비싼 자리인데, 정작 폴백을 가진 CopyButton 을 이 화면만
+                안 쓰고 있었다(09-04 검사 FQ-6). */}
+            <CopyButton value={issued.url} label="복사" className={ui.btnGhost} />
           </div>
         </div>
       )}
 
-      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-red-500">{error}</p>}
 
       <ul className="mt-4 space-y-2">
         {invites.map((inv) => {
@@ -597,7 +602,7 @@ function AdminPage() {
         </section>
       )}
 
-      {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-red-500">{error}</p>}
 
       <AiUsageSection />
 

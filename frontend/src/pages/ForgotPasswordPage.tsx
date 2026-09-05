@@ -43,9 +43,9 @@ function ForgotPasswordPage() {
             <h1 className={`mb-2 text-3xl font-semibold tracking-tight ${ui.pageTitle}`}>비밀번호 찾기</h1>
             <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">가입한 이메일을 입력하면 재설정 링크를 보내줄게.</p>
             <form onSubmit={handleSubmit} className="grid gap-3">
-              <input type="email" placeholder="이메일" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
+              <input type="email" placeholder="이메일" aria-label="이메일" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
               <button type="submit" className={btnPrimary}>재설정 링크 받기</button>
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
             </form>
           </>
         )}

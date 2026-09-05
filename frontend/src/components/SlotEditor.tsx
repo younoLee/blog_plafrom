@@ -267,12 +267,12 @@ function SlotEditor() {
       )}
 
       {msg && (
-        <p className="mt-3 inline-flex items-start gap-1 text-sm text-emerald-600 dark:text-emerald-400">
+        <p role="status" className="mt-3 inline-flex items-start gap-1 text-sm text-emerald-600 dark:text-emerald-400">
           <IconCheck className="mt-0.5 h-4 w-4 shrink-0" />
           {msg}
         </p>
       )}
-      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-red-500">{error}</p>}
     </section>
   )
 }

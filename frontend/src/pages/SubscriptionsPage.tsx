@@ -12,6 +12,8 @@ import {
   type SubscribedAuthor,
   type PendingRequest,
 } from '../api/subscriptions'
+import { ServerAsleepError } from '../api/http'
+import { AsleepNotice } from '../components/AsleepNotice'
 import { ui } from '../ui'
 import { IconCheck } from '../components/icons'
 import PushToggle from '../components/PushToggle'
@@ -19,25 +21,57 @@ import PushToggle from '../components/PushToggle'
 function SubscriptionsPage() {
   const { user } = useAuth()
   // 내가 구독 가능한 글쓴이 전체 / 내가 신청·구독한 것(승인·알림 포함) / 나에게 온 신청
-  const [authors, setAuthors] = useState<SubscribedAuthor[]>([])
+  //
+  // authors 만 `null` 을 갖는다 = **아직 모른다.** 빈 배열은 "구독할 수 있는 다른
+  // 글쓴이가 아직 없어"라는 사실 주장을 화면에 띄우는데, 조회가 실패했을 때도 같은
+  // 문장이 떴다(09-04 검사 FE-5). 이 사이트는 서버가 평소 꺼져 있어서 그 실패가
+  // 예외가 아니라 **기본 경로**다 — 그 상태에서 이 화면은 '기능이 없는 블로그'로 보였다.
+  const [authors, setAuthors] = useState<SubscribedAuthor[] | null>(null)
   const [subs, setSubs] = useState<SubscribedAuthor[]>([])
   const [requests, setRequests] = useState<PendingRequest[]>([])
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
+  // 목록 조회가 실패했다 — 절전(노란 안내)과 진짜 실패(빨간 줄)를 갈라 담는다.
+  const [asleep, setAsleep] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     if (!user) {
       // effect 안 '동기' setState 금지 룰 → 마이크로태스크로 미룸
       Promise.resolve().then(() => {
-        setAuthors([])
+        setAuthors(null)
         setSubs([])
         setRequests([])
+        setAsleep(false)
+        setLoadError('')
       })
       return
     }
-    fetchAuthors().then(setAuthors).catch(() => setAuthors([]))
-    fetchMySubscriptionsDetail().then(setSubs).catch(() => setSubs([]))
-    fetchRequests().then(setRequests).catch(() => setRequests([]))
+    // 늦게 온 응답이 로그아웃·계정 전환 뒤의 화면을 덮지 않게 한다(HomePage 와 같은 규칙).
+    let alive = true
+    fetchAuthors()
+      .then((list) => {
+        if (!alive) return
+        setAuthors(list)
+        setAsleep(false)
+        setLoadError('')
+      })
+      .catch((e) => {
+        if (!alive) return
+        // 실패는 실패로 남긴다 — authors 를 []로 접으면 다시 '없어'가 된다.
+        setAuthors(null)
+        setAsleep(e instanceof ServerAsleepError)
+        setLoadError((e as Error).message)
+      })
+    fetchMySubscriptionsDetail()
+      .then((s) => alive && setSubs(s))
+      .catch(() => alive && setSubs([]))
+    fetchRequests()
+      .then((r) => alive && setRequests(r))
+      .catch(() => alive && setRequests([]))
+    return () => {
+      alive = false
+    }
   }, [user])
 
   // 구독 신청/취소 (글쓴이마다 독립)
@@ -100,12 +134,12 @@ function SubscriptionsPage() {
       </p>
 
       {msg && (
-        <p className="mt-4 inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
+        <p role="status" className="mt-4 inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
           <IconCheck className="h-4 w-4" />
           {msg}
         </p>
       )}
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
 
       {/* 알림 '경로'. 위 🔔이 '누구의 알림을 받을지'라면 이건 '어디로 받을지'다.
           SettingsPage가 아니라 여기 두는 이유: 저쪽은 BYOK·스킨처럼 글쓰기 권한이
@@ -151,6 +185,14 @@ function SubscriptionsPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400">
             로그인하면 글쓴이를 구독 신청하고 새 글 알림을 받을 수 있어.
           </p>
+        ) : asleep ? (
+          <AsleepNotice>구독 신청과 승인은 깨어난 뒤에 돼.</AsleepNotice>
+        ) : loadError ? (
+          <p role="alert" className="text-sm text-red-600">
+            {loadError}
+          </p>
+        ) : authors === null ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">글쓴이 목록을 불러오는 중이야…</p>
         ) : authors.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">
             구독할 수 있는 다른 글쓴이가 아직 없어.
