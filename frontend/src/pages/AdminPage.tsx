@@ -25,6 +25,8 @@ import {
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 import { CopyButton } from '../components/CopyButton'
+import { useDocumentTitle } from '../useDocumentTitle'
+import { inviteState } from '../inviteState'
 
 // role별 한글 라벨 + 뱃지 색
 const ROLE_META: Record<Role, { label: string; badge: string }> = {
@@ -87,15 +89,6 @@ function formatUptime(s: number): string {
   return d > 0 ? `${d}일 ${h}시간` : h > 0 ? `${h}시간 ${m}분` : `${m}분`
 }
 
-// 초대 상태를 한 단어로. 순서가 중요하다 — 사용됨이 만료보다 먼저다(쓰고 나서
-// 만료 시각이 지난 초대는 '만료'가 아니라 '사용됨'으로 읽혀야 한다).
-function inviteState(inv: Invite): { label: string; badge: string } {
-  if (inv.used_at) return { label: '사용됨', badge: 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300' }
-  if (new Date(inv.expires_at) <= new Date())
-    return { label: '만료', badge: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300' }
-  return { label: '대기 중', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' }
-}
-
 const nf = new Intl.NumberFormat('ko-KR')
 
 /** AI 초안 사용량. **숫자를 돈으로 바꾸지 않는다** — 모델 단가를 프론트에 박으면
@@ -127,7 +120,21 @@ function AiGuardSection() {
       .catch(() => setFailed(true))
   }, [])
 
-  if (failed || !data) return null
+  // 조회 실패는 섹션째 사라지는 게 아니라 문장으로 말한다. 사라지면 '위반이 없다'와
+  // '못 불러왔다'가 화면에서 같아지는데, 이 섹션은 **비어 있음 자체가 정보**라고 바로
+  // 위에 적어둔 자리다 — 그 정보가 못 불러온 것과 구분이 안 되면 뜻이 없다.
+  // 옆의 AiUsageSection 은 09-02부터 이렇게 하고 있었다(09-04 검사 FE-12).
+  if (failed) {
+    return (
+      <section className="mt-8">
+        <h2 className="mb-1 text-xl font-semibold tracking-tight">AI 가드</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          지금은 못 불러왔어 (서버 정지 또는 장애).
+        </p>
+      </section>
+    )
+  }
+  if (!data) return null
 
   return (
     <section className="mt-8">
@@ -435,6 +442,7 @@ function InviteSection() {
 }
 
 function AdminPage() {
+  useDocumentTitle('관리자')
   const { user, loading } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [infra, setInfra] = useState<InfraStatus | null>(null)
@@ -442,6 +450,9 @@ function AdminPage() {
   const [infraStale, setInfraStale] = useState(false)
   const [infraAt, setInfraAt] = useState<Date | null>(null)
   const [error, setError] = useState('')
+  // 지금 처리 중인 사용자 행. 토글 계열(유료 부여/회수)이 두 번 나가면 원상복귀되므로
+  // **행 단위로** 막는다 — 화면 전체를 잠그면 다른 사람 승인까지 같이 멈춘다.
+  const [pending, setPending] = useState<Set<number>>(new Set())
 
   // 가입자 목록 불러오기 (관리자일 때만)
   useEffect(() => {
@@ -479,13 +490,26 @@ function AdminPage() {
   // 관리자가 아니면 접근 불가 → 블로그로 보냄
   if (user?.role !== 'admin') return <Navigate to="/blog" replace />
 
-  // 승인/해제/차단 후 그 사용자만 목록에서 갱신
+  // 승인/해제/차단 후 그 사용자만 목록에서 갱신.
+  //
+  // **행별 진행중 가드가 필요하다** (09-04 검사 FE-8): '유료 부여/회수'는 서버에서
+  // 토글이라 두 번 나가면 원래대로 돌아온다. 느릴 때 두 번 누르면 눌렀는데 아무 일도
+  // 안 일어난 것처럼 보이고, 관리자는 다시 누른다. 같은 파일의 초대 발급은 진작
+  // busy 로 막고 있었다 — 여기만 없었다.
   async function handle(id: number, action: keyof typeof ACTIONS) {
+    if (pending.has(id)) return
+    setPending((prev) => new Set(prev).add(id))
     try {
       const updated = await ACTIONS[action](id)
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
     } catch (e) {
       setError(e instanceof Error ? e.message : '처리 실패')
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -634,12 +658,12 @@ function AdminPage() {
               {/* admin은 변경 불가. pending=승인+차단, writer=해제+차단, banned=해제 */}
               <div className="flex shrink-0 flex-wrap gap-2">
                 {u.role === 'pending' && (
-                  <button type="button" onClick={() => handle(u.id, 'approve')} className={ui.btnPrimary}>
+                  <button type="button" onClick={() => handle(u.id, 'approve')} disabled={pending.has(u.id)} className={ui.btnPrimary}>
                     승인
                   </button>
                 )}
                 {u.role === 'writer' && (
-                  <button type="button" onClick={() => handle(u.id, 'revoke')} className={ui.btnGhost}>
+                  <button type="button" onClick={() => handle(u.id, 'revoke')} disabled={pending.has(u.id)} className={ui.btnGhost}>
                     승인 취소
                   </button>
                 )}
@@ -647,19 +671,20 @@ function AdminPage() {
                   <button
                     type="button"
                     onClick={() => handle(u.id, 'ban')}
+                    disabled={pending.has(u.id)}
                     className="rounded-full px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
                   >
                     차단
                   </button>
                 )}
                 {u.role === 'banned' && (
-                  <button type="button" onClick={() => handle(u.id, 'unban')} className={ui.btnPrimary}>
+                  <button type="button" onClick={() => handle(u.id, 'unban')} disabled={pending.has(u.id)} className={ui.btnPrimary}>
                     차단 해제
                   </button>
                 )}
                 {/* admin은 이미 전 모델 사용 가능 → 그 외 계정에만 유료 토글 */}
                 {u.role !== 'admin' && (
-                  <button type="button" onClick={() => handle(u.id, 'pro')} className={ui.btnGhost}>
+                  <button type="button" onClick={() => handle(u.id, 'pro')} disabled={pending.has(u.id)} className={ui.btnGhost}>
                     {u.is_pro ? '유료 회수' : '유료 부여'}
                   </button>
                 )}
@@ -670,6 +695,7 @@ function AdminPage() {
                   <button
                     type="button"
                     onClick={() => handle(u.id, 'releaseHandle')}
+                    disabled={pending.has(u.id)}
                     title={`/@${u.handle} 를 비운다. 다른 사람이 이어 쓸 수 있게`}
                     className={ui.btnGhost}
                   >

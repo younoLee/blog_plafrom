@@ -21,6 +21,7 @@ import { useAuth } from '../auth/auth-context'
 import { canWrite } from '../api/auth'
 import { ui } from '../ui'
 import { IconArrowLeft, IconSparkles, IconImage, IconLock, IconChevronDown, IconSpinner, IconCheck } from '../components/icons'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 const MEMO_MAX = 5000
 
@@ -97,6 +98,9 @@ const { input, btnPrimary, btnGhost } = ui
 function WritePostPage() {
   const { id } = useParams<{ id: string }>()
   const editingId = id ? Number(id) : null // id 있으면 수정 모드
+  // 탭 제목은 작성/수정을 구분한다 — 두 화면이 같은 컴포넌트라 제목까지 같으면
+  // 탭을 여러 개 열어둔 사람이 어느 쪽이 수정 중인지 알 수 없다.
+  useDocumentTitle(editingId === null ? '새 글 쓰기' : '글 수정')
   const { user, loading } = useAuth()
   const navigate = useNavigate()
 
@@ -436,7 +440,13 @@ function WritePostPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!title.trim() || !content.trim()) return
+    // **말없이 삼키지 않는다** (09-04 검사 FE-11). 예전엔 그냥 return 이라, 제목이나 본문이
+    // 비면 버튼을 눌러도 아무 일도 안 일어났다 — 사용자는 저장이 안 된 이유를 알 수 없고
+    // 서버가 준비해둔 문구('빈칸은 안 돼')는 여기까지 오지도 못한다. 버튼도 같이 잠근다.
+    if (!title.trim() || !content.trim()) {
+      setError('제목과 본문을 둘 다 적어야 저장할 수 있어')
+      return
+    }
     // **중복 제출 방어.** 예전엔 busy 상태도 disabled도 없었고 createPost에 타임아웃도
     // 없어서(CloudFront 오리진 상한 60초), 느릴 때 두세 번 누르면 **같은 글이 여러 개
     // 생성됐다.** 글 생성은 30/h 리밋 안이라 서버도 안 막는다. (2026-08-11 공백검사)
@@ -821,7 +831,12 @@ function WritePostPage() {
           </label>
         </fieldset>
         <div className="flex gap-2">
-          <button type="submit" className={btnPrimary} disabled={saving} aria-busy={saving}>
+          <button
+            type="submit"
+            className={btnPrimary}
+            disabled={saving || !title.trim() || !content.trim()}
+            aria-busy={saving}
+          >
             {saving ? '저장 중…' : editingId === null ? '글 작성' : '수정 저장'}
           </button>
           <button

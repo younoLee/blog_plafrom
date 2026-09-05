@@ -8,6 +8,7 @@ import { ui } from '../ui'
 import { IconCheck } from '../components/icons'
 import SkinEditor from '../components/SkinEditor'
 import SlotEditor from '../components/SlotEditor'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 // provider별 색 점 (시각적 구분용)
 const DOT: Record<string, string> = {
@@ -37,6 +38,7 @@ const PROVIDERS: { id: string; name: string; hint: string; needsBaseUrl?: boolea
 ]
 
 function SettingsPage() {
+  useDocumentTitle('설정')
   const { user, loading, refreshUser } = useAuth()
   const [keys, setKeys] = useState<KeyStatus[]>([])
   const [inputs, setInputs] = useState<Record<string, string>>({})
@@ -173,7 +175,7 @@ function SettingsPage() {
             </span>
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-400">/@</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">/@</span>
             <input
               className={`${ui.input} max-w-xs`}
               aria-label="블로그 주소 (/@ 뒤에 올 이름)"

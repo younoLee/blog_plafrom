@@ -336,6 +336,33 @@ describe('회수 스위치', () => {
     expect(w.killFetches()).toBe(1) // 10분에 한 번(KILL_CHECK_MS)
   })
 
+  it('SPA 만 쓰는 기기에서도 확인한다 — network-only 경로', async () => {
+    // ⚠️ 2026-09-05까지 이 확인이 network-first 분기 **안**에 있었다(09-04 검사 FE-10).
+    // `/`·`/index.html` 은 network-only 라 그 앞에서 return 하고 정적 문서는 cache-first
+    // 라 역시 앞에서 return 하므로, **개발일지를 안 열고 SPA 만 쓰는 기기는 회수 스위치를
+    // 영영 확인하지 않았다.** 위 테스트들이 전부 `/devlog.html`(network-first)로만
+    // 확인한 탓에 그 사각이 안 보였다 — 시험이 한 갈래만 밟고 있었던 것이다.
+    const w = loadWorker({ kill: true })
+    await w.handle(`${ORIGIN}/`)
+    await flush()
+    expect(w.killFetches()).toBe(1)
+    expect(w.unregisters()).toBe(1)
+  })
+
+  it('cache-first 경로(해시 자산 재방문)에서도 확인한다', async () => {
+    const asset = `${ORIGIN}/index-A1b2C3d4.js`
+    const store: Store = new Map([[asset, { body: 'cached', ok: true }]])
+    const w = loadWorker({ kill: true, store })
+    const res = await w.handle(asset)
+    await flush()
+    // 캐시에서 바로 답한 것이어야 이 경로를 실제로 밟은 것이다 — 네트워크로 샜으면
+    // network-first 갈래를 재는 위 테스트와 같은 것을 두 번 재게 된다.
+    expect(res?.body).toBe('cached')
+    expect(w.networkCalls()).toBe(0)
+    expect(w.killFetches()).toBe(1)
+    expect(w.unregisters()).toBe(1)
+  })
+
   it('회수 파일 요청이 문서 네트워크 집계에 안 섞인다', async () => {
     // 섞이면 다른 테스트가 '네트워크를 몇 번 갔나'로 재는 것이 조용히 틀어진다.
     const w = loadWorker()

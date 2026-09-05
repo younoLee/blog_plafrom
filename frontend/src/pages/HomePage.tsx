@@ -10,10 +10,13 @@ import { Reveal } from '../components/Reveal'
 import { Sidebar } from '../components/Sidebar'
 import { HtmlSlot } from '../components/HtmlSlot'
 import { PostRow } from '../components/PostRow'
+import { Pager } from '../components/Pager'
 import { ServerAsleepError } from '../api/http'
 import { fetchDevlogIndex, type DevlogIndexPost } from '../api/devlogIndex'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 function HomePage() {
+  useDocumentTitle('글')
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const tag = searchParams.get('tag') || undefined // URL ?tag= 로 태그 필터
@@ -139,7 +142,6 @@ function HomePage() {
 
   function goToPage(p: number) {
     updateParams({ page: p > 1 ? String(p) : undefined })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function handleDelete(id: number) {
@@ -369,30 +371,8 @@ function HomePage() {
         ))}
       </div>
 
-      {/* 쪽 이동 — 글이 한 쪽을 넘을 때만 */}
-      {lastPage > 1 && (
-        <nav className="mt-8 flex items-center justify-center gap-3" aria-label="페이지 이동">
-          <button
-            type="button"
-            onClick={() => goToPage(page - 1)}
-            disabled={page <= 1}
-            className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
-          >
-            ← 이전
-          </button>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            {page} / {lastPage}
-          </span>
-          <button
-            type="button"
-            onClick={() => goToPage(page + 1)}
-            disabled={page >= lastPage}
-            className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
-          >
-            다음 →
-          </button>
-        </nav>
-      )}
+      {/* 쪽 이동 — 마크업은 components/Pager.tsx 한 곳에 있다(09-04 검사 FQ-9) */}
+      <Pager page={page} lastPage={lastPage} onGo={goToPage} />
       </div>
       <Sidebar meta={meta} />
       </div>

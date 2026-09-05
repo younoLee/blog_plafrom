@@ -10,8 +10,13 @@ export const ui = {
   // 보조 버튼: 연한 회색 알약
   btnGhost:
     'inline-flex items-center justify-center gap-1.5 rounded-btn bg-black/[0.06] px-3.5 py-2 text-sm font-medium text-gray-800 transition hover:bg-black/[0.1] active:scale-[0.98] sm:px-5 sm:py-2.5 dark:bg-white/10 dark:text-gray-100 dark:hover:bg-white/20',
+  // placeholder 대비: `text-gray-400` 은 흰 배경에서 3:1 아래라 WCAG AA(4.5:1)에 못 미친다.
+  // 09-02에 HomePage 검색창 한 곳만 gray-500 으로 올렸는데, **정작 공용 토큰은 그대로라**
+  // 이 클래스를 쓰는 입력칸 전부(설정·초대·스킨·결제…)가 여전히 낮은 대비였다 —
+  // 사본을 고치고 원본을 안 고친 모양이다(09-04 검사 FQ-1). 어두운 배경에서는 gray-400 이
+  // 충분히 밝으므로 밝은 쪽만 올린다.
   input:
-    'w-full rounded-field border border-black/10 bg-white px-4 py-3 text-sm transition placeholder:text-gray-400 focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 dark:border-white/15 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500',
+    'w-full rounded-field border border-black/10 bg-white px-4 py-3 text-sm transition placeholder:text-gray-500 focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 dark:border-white/15 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-400',
   // 드롭다운: input과 같은 톤. 기본 화살표를 숨기고(appearance-none) 오른쪽에 직접 그린 꺾쇠를 얹음.
   // 감싸는 요소를 relative로 두고 그 안에 select(이 클래스)+IconChevronDown(우측 absolute)을 배치.
   // 옵션 팝업/스크롤바 등 네이티브 UI 색은 index.css의 color-scheme가 테마에 맞춰 처리한다.

@@ -144,7 +144,7 @@ export function Toc({
   if (variant === 'aside') {
     return (
       <nav aria-label="목차" className="sticky top-20 max-h-[calc(100vh-7rem)] overflow-y-auto pr-2">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">목차</h2>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">목차</h2>
         {/* 왼쪽 세로선을 기준으로 항목을 건다. 지금 읽는 절만 그 선이 강조색이 된다 —
             테두리 상자를 두는 것보다 조용하고, 본문 옆에서 시선을 덜 뺏는다. */}
         <ol className="space-y-1 border-l border-black/[0.08] dark:border-white/10">

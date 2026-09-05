@@ -12,6 +12,7 @@ import { PostRow } from '../components/PostRow'
 import { useHead } from '../useDocumentTitle'
 import NotFoundPage from './NotFoundPage'
 import { ui } from '../ui'
+import { Pager } from '../components/Pager'
 
 /**
  * 한 사람의 블로그 — `/@handle`.
@@ -232,7 +233,7 @@ function AuthorPage() {
             onChange={(e) => setQueryInput(e.target.value)}
             placeholder="이 블로그에서 검색 (2글자 이상)"
             aria-label="이 글쓴이의 글 검색"
-            className="min-w-0 flex-1 rounded-btn border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-400 focus:border-accent dark:border-white/15 dark:bg-white/5"
+            className="min-w-0 flex-1 rounded-btn border border-black/10 bg-white/70 px-4 py-2 text-sm outline-none transition placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-accent dark:border-white/15 dark:bg-white/5"
           />
           <button
             type="submit"
@@ -253,7 +254,7 @@ function AuthorPage() {
           <span className="font-medium text-accent">{tag ? `#${tag}` : (series ?? q)}</span>
           <Link
             to={`/${raw}`}
-            className="text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
+            className="text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
           >
             ✕ 전체보기
           </Link>
@@ -298,29 +299,9 @@ function AuthorPage() {
         ))}
       </div>
 
-      {lastPage > 1 && (
-        <nav className="mt-8 flex items-center justify-center gap-3" aria-label="페이지 이동">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => updateParams({ page: String(page - 1) })}
-            className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
-          >
-            ← 이전
-          </button>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            {page} / {lastPage}
-          </span>
-          <button
-            type="button"
-            disabled={page >= lastPage}
-            onClick={() => updateParams({ page: String(page + 1) })}
-            className="rounded-btn border border-black/10 px-4 py-1.5 text-sm transition enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40 dark:border-white/15"
-          >
-            다음 →
-          </button>
-        </nav>
-      )}
+      {/* 쪽 이동 — HomePage 와 **같은 컴포넌트**를 쓴다. 복제해 두던 동안 이쪽만
+          맨 위로 스크롤하지 않아서, '다음'을 눌러도 화면이 안 바뀐 것처럼 보였다. */}
+      <Pager page={page} lastPage={lastPage} onGo={(p) => updateParams({ page: p > 1 ? String(p) : undefined })} />
     </div>
   )
 }

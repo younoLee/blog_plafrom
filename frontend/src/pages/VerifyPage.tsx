@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { verifyEmail } from '../api/auth'
 import { ui } from '../ui'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 type Status = 'loading' | 'ok' | 'fail'
 
 function VerifyPage() {
+  useDocumentTitle('이메일 인증')
   const [params] = useSearchParams()
   const [status, setStatus] = useState<Status>('loading')
 

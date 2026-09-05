@@ -3,10 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { confirmPayment } from '../api/payments'
 import { ui } from '../ui'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 // 토스 결제창 성공 후 리다이렉트되는 곳.
 // 쿼리(paymentKey·orderId·amount)를 서버로 넘겨 승인을 '검증'한 뒤에야 구독이 켜진다.
 function PaymentSuccessPage() {
+  useDocumentTitle('결제 완료')
   const [params] = useSearchParams()
   const { refreshUser } = useAuth()
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading')

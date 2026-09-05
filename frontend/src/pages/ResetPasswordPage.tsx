@@ -3,24 +3,33 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { resetPassword } from '../api/auth'
 import { ui } from '../ui'
 import { Reveal } from '../components/Reveal'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 const { input, btnPrimary } = ui
 
 function ResetPasswordPage() {
+  useDocumentTitle('새 비밀번호')
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  // 연타 방어. 서버 한도는 20/hour 이고, 여기서 그걸 태우면 재설정 링크를 쥔 채로
+  // 한 시간을 기다리게 된다(09-04 검사 FE-14 — ForgotPasswordPage 와 같은 이유).
+  const [busy, setBusy] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (busy) return
     setError('')
+    setBusy(true)
     try {
       await resetPassword(token, password)
       setDone(true)
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -46,7 +55,9 @@ function ResetPasswordPage() {
               {/* 길이를 브라우저가 먼저 막는다 — 서버까지 갔다가 422를 받는 것보다 낫고,
                   그 422가 "링크 만료"로 잘못 번역되던 자리이기도 하다(api/auth.ts 주석). */}
               <input type="password" placeholder="새 비밀번호 (8자 이상)" aria-label="새 비밀번호" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} maxLength={72} required className={input} />
-              <button type="submit" className={btnPrimary}>비밀번호 변경</button>
+              <button type="submit" className={btnPrimary} disabled={busy} aria-busy={busy}>
+                {busy ? '바꾸는 중…' : '비밀번호 변경'}
+              </button>
               {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
             </form>
           </>

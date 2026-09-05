@@ -4,10 +4,12 @@ import { useAuth } from '../auth/auth-context'
 import { ui } from '../ui'
 import { IconArrowLeft } from '../components/icons'
 import { Reveal } from '../components/Reveal'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 const { input, btnPrimary } = ui
 
 function LoginPage() {
+  useDocumentTitle('로그인')
   const { login } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')

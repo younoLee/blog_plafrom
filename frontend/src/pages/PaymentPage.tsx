@@ -4,6 +4,7 @@ import { loadTossPayments } from '@tosspayments/tosspayments-sdk'
 import { useAuth } from '../auth/auth-context'
 import { createCheckout, unsubscribe } from '../api/payments'
 import { ui } from '../ui'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 // 토스 클라이언트키(프론트 공개용 — 비밀 아님).
 // 라이브 전환: 빌드 시 VITE_TOSS_CLIENT_KEY에 라이브 클라이언트키(live_ck_...)를 주입하면 됨.
@@ -20,10 +21,10 @@ const PERKS = [
 ]
 
 function PaymentPage() {
+  useDocumentTitle('유료 구독')
   const { user, loading, refreshUser } = useAuth()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [done, setDone] = useState(false)
   // '며칠 남음' 계산용 '지금' 시각을 마운트 시 한 번만 스냅샷 (렌더 중 Date.now() 직접 호출 = 비순수).
   const [now] = useState(() => Date.now())
 
@@ -81,7 +82,6 @@ function PaymentPage() {
     try {
       await unsubscribe()
       await refreshUser()
-      setDone(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : '해지에 실패했어')
     } finally {
@@ -104,7 +104,7 @@ function PaymentPage() {
           <div>
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Pro 플랜</p>
             <p className="mt-1 text-3xl font-bold tracking-tight">
-              ₩9,900<span className="text-base font-normal text-gray-400"> / 월</span>
+              ₩9,900<span className="text-base font-normal text-gray-500 dark:text-gray-400"> / 월</span>
             </p>
           </div>
           {isPro && (
@@ -142,11 +142,10 @@ function PaymentPage() {
         </ul>
 
         {error && <p role="alert" className="mt-5 text-sm text-red-500">{error}</p>}
-        {done && !error && (
-          <p role="status" className="mt-5 text-sm text-emerald-600 dark:text-emerald-400">
-            결제 완료! 이제 글쓰기에서 Opus·Fable 5를 선택할 수 있어.
-          </p>
-        )}
+        {/* '결제 완료!' 문구가 여기 있었는데 **켜질 경로가 없었다** — setDone(true)가
+            저장소 어디에도 없고, 유일한 호출이 해지 경로의 setDone(false)였다
+            (09-04 검사 FE-9). 성공 안내는 결제 뒤 돌아오는 PaymentSuccessPage 가 한다.
+            도달 불가능한 UI 는 '있다'고 착각하게 만들어서, 없느니만 못하다. */}
 
         <div className="mt-6">
           {isPro ? (

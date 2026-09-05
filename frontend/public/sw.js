@@ -134,6 +134,19 @@ self.addEventListener('fetch', (event) => {
   const req = event.request
   // GET이 아니면 손대지 않는다. POST/PUT을 캐시에 넣으면 Cache API가 던진다.
   if (req.method !== 'GET') return
+
+  // **회수 스위치 확인을 맨 앞에 둔다** (09-04 검사 FE-10).
+  // 2026-09-05까지 이 호출이 network-first 분기 안에 있었다. 그런데 `/`·`/index.html` 은
+  // network-only 라 위에서 return 하고, 정적 문서(.html·.json)는 cache-first 라 그 앞에서
+  // return 한다 — 즉 **SPA 만 쓰는 기기(가장 흔한 방문자)는 스위치를 영영 확인하지 않았다.**
+  // 이 파일 상단이 '모든 기기가 10분 안에 등록해제한다'고 약속한 바로 그 장치가,
+  // 정작 개발일지 페이지를 도는 기기에서만 돌고 있었다. 회수는 워커가 망가졌을 때
+  // 쓰는 마지막 수단이라 '대부분의 기기에서 안 돈다'는 그 자체로 못 쓰는 장치다.
+  //
+  // 응답은 기다리지 않는다(아래 함수가 fire-and-forget). 그래서 앞으로 옮겨도
+  // 요청 처리 경로에 지연이 붙지 않는다.
+  maybeCheckKillSwitch()
+
   const route = routeFor(req.url)
   if (route === 'network-only') return // 워커가 없는 것과 동일하게 돈다
 
@@ -150,9 +163,6 @@ self.addEventListener('fetch', (event) => {
     )
     return
   }
-
-  // 회수 스위치를 10분에 한 번 확인한다(응답은 안 기다린다 — 위 주석 참고).
-  maybeCheckKillSwitch()
 
   // network-first: 네트워크가 이긴다. 실패했을 때만 캐시를 쓴다.
   event.respondWith(

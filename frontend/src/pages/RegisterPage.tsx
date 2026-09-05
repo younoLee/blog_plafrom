@@ -6,6 +6,7 @@ import { ServerAsleepError } from '../api/http'
 import { ui } from '../ui'
 import { IconArrowLeft } from '../components/icons'
 import { Reveal } from '../components/Reveal'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 const { input, btnPrimary } = ui
 
@@ -164,6 +165,7 @@ type State =
   | { k: 'failed' }
 
 function RegisterPage() {
+  useDocumentTitle('초대 가입')
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
   const [state, setState] = useState<State>({ k: 'loading' })

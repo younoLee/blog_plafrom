@@ -10,6 +10,7 @@ import {
 import { ServerAsleepError, forgetAsleep } from '../api/http'
 import { ui } from '../ui'
 import { IconActivity, IconRefresh } from '../components/icons'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 // 서비스 한 줄 표시 (이름 + 초록/빨강 점 + 정상/중단)
 function ServiceRow({ name, ok }: { name: string; ok: boolean }) {
@@ -94,6 +95,7 @@ function UptimeRow({ service }: { service: ServiceUptime }) {
 }
 
 function StatusPage() {
+  useDocumentTitle('상태')
   const [status, setStatus] = useState<StatusInfo | null>(null)
   const [history, setHistory] = useState<UptimeHistory | null>(null)
   const [loading, setLoading] = useState(true)

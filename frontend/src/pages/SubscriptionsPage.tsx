@@ -17,8 +17,10 @@ import { AsleepNotice } from '../components/AsleepNotice'
 import { ui } from '../ui'
 import { IconCheck } from '../components/icons'
 import PushToggle from '../components/PushToggle'
+import { useDocumentTitle } from '../useDocumentTitle'
 
 function SubscriptionsPage() {
+  useDocumentTitle('구독')
   const { user } = useAuth()
   // 내가 구독 가능한 글쓴이 전체 / 내가 신청·구독한 것(승인·알림 포함) / 나에게 온 신청
   //

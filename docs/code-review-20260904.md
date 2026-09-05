@@ -304,6 +304,11 @@ db.commit()으로 sub가 expire되고, 응답에서 sub.approved·sub.notify를 
 
 ### FE-10 · 서비스워커 회수 스위치가 SPA만 쓰는 기기에서는 영영 확인되지 않는다
 
+> ✅ **2026-09-05에 고쳤다.** `maybeCheckKillSwitch()` 를 fetch 핸들러 맨 앞(GET 판정
+> 직후)으로 올렸다. 시험 둘을 붙였고 — network-only(`/`)와 cache-first(해시 자산) —
+> 되돌리면 **둘 다** 빨개지는 것을 확인했다. 기존 회수 시험이 전부 network-first 경로
+> (`/devlog.html`)로만 확인한 탓에 사각이 안 보였다는 것도 그 자리에 적었다.
+
 `frontend/public/sw.js:155` — 프론트 정확성 · ops
 
 maybeCheckKillSwitch()는 network-first 분기에서만 불린다. `/`, `/blog/...`(network-only)와 해시 자산(cache-first)은 그 전에 return하므로 정적 .html을 한 번도 안 여는 기기는 activate 이후 /sw-kill.json을 다시 읽지 않는다. 주석의 '모든 기기가 10분 안에'와 어긋나고, 테스트도 .html 이동만 잰다.
@@ -315,6 +320,10 @@ maybeCheckKillSwitch()는 network-first 분기에서만 불린다. `/`, `/blog/.
 **검증** (high) sw.js:138의 network-only return과 :140-152 cache-first return이 :155 maybeCheckKillSwitch()보다 앞에 있어 `/`·SPA 경로(그 밖=network-only)만 도는 기기는 .html을 열기 전까지 회수 스위치를 안 읽는 게 맞고, :30 주석의 '모든 기기가 10분 안에'와 어긋난다.
 
 ### FE-11 · 글 작성 버튼이 제목·본문이 비면 아무 말 없이 무시된다
+
+> ✅ **2026-09-05에 고쳤다.** 버튼을 `disabled={saving || !title.trim() || !content.trim()}`
+> 로 잠그고, 그래도 제출이 들어오면(엔터 등) `setError('제목과 본문을 둘 다 적어야
+> 저장할 수 있어')` 로 말한다. 말없이 삼키던 return 이 사라졌다.
 
 `frontend/src/pages/WritePostPage.tsx:419` — 프론트 정확성 · quality
 
@@ -328,6 +337,10 @@ handleSubmit이 빈 제목/본문에서 조용히 return한다. 버튼은 활성
 
 ### FE-12 · AI 가드 섹션은 조회 실패 시 섹션째 사라져 '없음'과 '못 불러옴'이 구분되지 않는다
 
+> ✅ **2026-09-05에 고쳤다.** 옆의 AiUsageSection 과 같은 실패 문단을 그린다.
+> 이 섹션은 '비어 있음 자체가 정보'라고 바로 위에 적어둔 자리라, 실패와 구분이 안 되면
+> 그 정보가 뜻을 잃는다.
+
 `frontend/src/pages/AdminPage.tsx:128` — 프론트 정확성 · quality
 
 바로 아래 AiUsageSection은 실패를 '지금은 못 불러왔어'로 말하는데 AiGuardSection은 failed면 null을 그린다. 주석이 '비어 있음 자체가 정보다'라고 하지만, 관리자는 섹션이 없는 것을 정상으로 읽는다.
@@ -339,6 +352,9 @@ handleSubmit이 빈 제목/본문에서 조용히 return한다. 버튼은 활성
 **검증** (medium) AdminPage:128 `if (failed || !data) return null`과 :178-186 AiUsageSection의 실패 문단 차이를 확인했고 :116 주석은 '항목이 비어 있음'에 대한 말이라 실패 경로를 정당화하지 않지만, 서버 정지 때는 사용자 목록 error와 AI 사용량 문구가 이미 신호를 주므로 이 엔드포인트만 실패할 때에 한정된 작은 결함이다.
 
 ### FE-14 · 비밀번호 찾기·재설정 폼에 진행 중 가드가 없어 연타가 시간당 리밋을 소모한다
+
+> ✅ **2026-09-05에 고쳤다.** 두 폼에 `busy` + `if (busy) return` + 버튼 disabled·aria-busy
+> 를 넣고 라벨을 '보내는 중…'·'바꾸는 중…'으로 바꿨다(LoginPage 와 같은 모양).
 
 `frontend/src/pages/ForgotPasswordPage.tsx:15` — 프론트 정확성 · quality
 
@@ -352,6 +368,9 @@ LoginPage는 busy로 '자기가 만든 429'를 막았다고 적어뒀는데 같�
 
 ### FE-8 · 관리자 유료 토글이 더블클릭에 두 번 나가 원상복귀된다
 
+> ✅ **2026-09-05에 고쳤다.** 행별 `pending: Set<number>` 를 두고 처리 중이면 그 행의
+> 버튼을 전부 잠근다. 화면 전체를 잠그지 않는 이유는 다른 사람 승인까지 같이 멈추기 때문이다.
+
 `frontend/src/pages/AdminPage.tsx:477` — 프론트 정확성 · correctness
 
 handle()에 진행 중 가드가 없고 버튼도 disabled되지 않는다. toggle-pro는 멱등이 아니라서 빠르게 두 번 누르면 부여→회수가 되어 화면은 잠깐 '유료(Opus)'였다가 원래대로 돌아간다. 관리자는 눌렀는데 안 된 것으로 본다.
@@ -363,6 +382,10 @@ handle()에 진행 중 가드가 없고 버튼도 disabled되지 않는다. togg
 **검증** (medium) AdminPage:477의 handle()에 busy 가드가 없고 :636 유료 버튼도 disabled가 없으며 backend admin.py:259-264 toggle_pro가 `user.is_pro = not user.is_pro`인 진짜 토글이라 두 번 나가면 원상복귀되는 건 맞지만, 마지막 응답으로 화면이 실제 상태를 그리므로 잘못된 값이 남지는 않는다(evidence의 admin.ts:715는 201줄짜리 파일이라 오기, 실제는 :54).
 
 ### FE-9 · PaymentPage의 '결제 완료!' 문구는 켜질 경로가 없다
+
+> ✅ **2026-09-05에 지웠다.** `done` 상태와 문구를 걷어내고 왜 지웠는지를 그 자리에
+> 주석으로 남겼다(성공 안내는 PaymentSuccessPage 가 한다). 도달 불가능한 UI 는
+> '있다'고 착각하게 만들어서 없느니만 못하다.
 
 `frontend/src/pages/PaymentPage.tsx:84` — 프론트 정확성 · quality
 
@@ -862,6 +885,10 @@ GET /api/subscriptions/authors · GET /api/skin/me · GET /api/status/history �
 
 #### FQ-1 · 공용 입력칸 토큰의 placeholder 대비가 AA 미만 — 09-02에 검색창 한 곳만 고쳤다
 
+> ✅ **2026-09-05에 고쳤다.** `ui.input` 토큰을 `placeholder:text-gray-500
+> dark:placeholder:text-gray-400` 으로 바꿨다 — 09-02에 사본 한 곳만 고치고 원본을 안
+> 고쳤던 자리다. 이 토큰을 쓰는 입력칸 전부가 한 번에 따라온다.
+
 `frontend/src/ui.ts:14` — 프론트 품질·접근성 · quality
 
 ui.input의 placeholder가 밝은 모드 gray-400(약 2.5:1), 어두운 모드 gray-500(약 3.8:1)이라 앱의 거의 모든 폼이 WCAG AA(4.5:1)에 미달한다.
@@ -873,6 +900,11 @@ ui.input의 placeholder가 밝은 모드 gray-400(약 2.5:1), 어두운 모드 g
 **검증** (high) ui.ts:14가 실제로 `placeholder:text-gray-400 ... dark:placeholder:text-gray-500`이고, HomePage.tsx:231-233 주석과 :222만 gray-500/dark:gray-400으로 고쳐져 있어 공용 토큰은 그대로라는 지적이 사실이다.
 
 #### FQ-10 · 관리·설정·구독 화면에 테스트가 0건이다
+
+> ✅ **2026-09-05에 고쳤다.** 보고서가 짚은 셋을 그대로 잠갔다 — ① `inviteState` 의
+> 사용됨/만료 우선순위(모듈로 빼서 순수 함수로 시험한다), ② 삭제 확인창에서 취소하면
+> DELETE 가 안 나가고 행도 그대로인지, ③ 조회 실패 때 '없어'가 안 뜨는지
+> (SubscriptionsPage.test.tsx, FE-5 고침과 함께 들어갔다).
 
 `frontend/src/pages/AdminPage.tsx:487` — 프론트 품질·접근성 · test-gap
 
@@ -886,6 +918,10 @@ ui.input의 placeholder가 밝은 모드 gray-400(약 2.5:1), 어두운 모드 g
 
 #### FQ-11 · 공용 컴포넌트 중 두 곳의 회귀 방지 장치가 테스트로 안 잠겨 있다
 
+> ✅ **2026-09-05에 고쳤다.** PostRow 는 확인창 취소/확인·확인 문구에 제목이 들어가는지·
+> 권한 없으면 버튼이 아예 없는지 넷, NotificationBell 은 Escape 로 닫히며 포커스가 종으로
+> 돌아오는지·바깥 클릭·안 읽음 배지 셋.
+
 `frontend/src/components/PostRow.tsx:137` — 프론트 품질·접근성 · test-gap
 
 PostRow의 삭제 확인창과 NotificationBell의 Esc·포커스 복귀는 둘 다 '빠져 있어서 사고가 났다'고 주석에 적힌 장치인데, 테스트가 없어 다음에 빠져도 CI가 못 잡는다.
@@ -897,6 +933,10 @@ PostRow의 삭제 확인창과 NotificationBell의 Esc·포커스 복귀는 둘 
 **검증** (high) components 테스트는 CopyButton·SkinEditor·SlotEditor·Toc 4개뿐이고, PostRow.tsx:137의 confirm과 NotificationBell.tsx:44-51의 Escape·포커스 복귀·readAtRef는 주석이 '빠져서 사고가 났다'고 적은 장치인데 검증이 없다.
 
 #### FQ-7 · 밝은 모드 대비가 낮은 text-gray-400이 5곳 남았다
+
+> ✅ **2026-09-05에 고쳤다.** 다섯 곳(AuthorPage 검색창·전체보기 링크, SettingsPage `/@`,
+> PaymentPage '/ 월', Toc 제목, SlotEditor 도움말)을 밝은 쪽 gray-500 + 어두운 쪽
+> gray-400 으로 통일했다. 이제 저장소에 단독 `text-gray-400` 은 없다(주석 제외).
 
 `frontend/src/pages/AuthorPage.tsx:235` — 프론트 품질·접근성 · quality
 
@@ -910,6 +950,10 @@ HomePage가 대비 문제로 고친 것과 같은 마크업이 AuthorPage 등에
 
 #### FQ-8 · 탭 제목·설명을 20개 라우트 중 4개만 설정한다
 
+> ✅ **2026-09-05에 고쳤다.** 14개 화면에 `useDocumentTitle` 을 한 줄씩 넣었다.
+> 글쓰기는 작성/수정을 구분한다 — 같은 컴포넌트라 제목까지 같으면 탭을 여러 개 열어둔
+> 사람이 어느 쪽이 수정 중인지 알 수 없다. 랜딩(PortalPage)만 사이트 기본 제목으로 뒀다.
+
 `frontend/src/useDocumentTitle.ts:5` — 프론트 품질·접근성 · quality
 
 useDocumentTitle/useHead를 쓰는 화면이 NotFound·PostDetail·About·Author 넷뿐이라, /blog·/settings·/admin·/subscriptions·/login 등은 탭 제목·북마크가 전부 '블로그 만들기'로 같다.
@@ -921,6 +965,11 @@ useDocumentTitle/useHead를 쓰는 화면이 NotFound·PostDetail·About·Author
 **검증** (high) useDocumentTitle/useHead 호출은 NotFoundPage:17·PostDetailPage:319·AboutPage:29·AuthorPage:175 넷뿐인데 App.tsx의 라우트는 20개라, /blog·/settings·/admin 등은 탭 제목이 구분되지 않는다.
 
 #### FQ-9 · HomePage와 AuthorPage가 목록 화면을 통째로 복제해 두고 계속 갈라진다
+
+> ✅ **2026-09-05에 고쳤다.** `components/Pager.tsx` 로 뽑아 두 화면이 같은 것을 쓴다.
+> 뽑으면서 **이미 갈라져 있던 것**이 드러났다 — HomePage 는 쪽을 옮기면 맨 위로
+> 스크롤하는데 AuthorPage 는 안 했다(그래서 '다음'을 눌러도 화면이 안 바뀐 것처럼 보였다).
+> 이제 스크롤도 컴포넌트 안에 있어 갈라질 자리가 없다.
 
 `frontend/src/pages/AuthorPage.tsx:301` — 프론트 품질·접근성 · quality
 
