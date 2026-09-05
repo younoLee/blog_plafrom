@@ -87,8 +87,30 @@ _IP_OK = re.compile(
     r")"
 )
 
-# 버전 문자열(1.2.3.4)이 IP로 잡히는 걸 줄인다 — 앞뒤에 글자가 붙어 있으면 넘긴다.
-_VERSIONISH = re.compile(r"[A-Za-z=/@:._-]$")
+# 버전 문자열(1.2.3.4)이 IP로 잡히는 걸 줄인다. 앞 글자가 더 긴 토큰의 일부일 때만 넘긴다.
+#
+# ⚠️ **2026-09-04까지 이 문자 집합에 `= / @ :` 가 들어 있었다.** 그래서 `ssh user@1.2.3.4`,
+# `http://1.2.3.4`, `PUBLIC_IP=1.2.3.4`, `host=1.2.3.4` 네 형태가 전부 검사를 통과했다.
+# 개발일지는 터미널 출력을 그대로 싣는 형식이라 **주소가 새는 모양이 정확히 그 넷**이고,
+# 즉 이 검사는 가장 흔한 누출만 골라서 놓치고 있었다. 실측(09-04): 같은 주소를 여섯 가지
+# 형태로 넣었더니 공백 앞 두 개만 잡혔다.
+#
+# 자가검증도 그 구멍을 못 봤다. IP 픽스처가 `"접속 주소는 … 이었다"` 공백 앞 하나뿐이라
+# 반쪽만 살아 있는 탐지기를 초록으로 통과시켰다. 그래서 아래 SELFTEST_HITS 에 네 형태를
+# 전부 넣었다 — 다시 좁혀지면 거기서 먼저 빨개진다.
+#
+# 지금 규칙: 앞 글자가 영숫자나 `.` 이면(= 더 긴 토큰의 일부) 넘기고, `==` 로 끝나면
+# 버전 핀으로 보고 넘긴다. `= / @ :` 뒤는 **오히려 IP 라는 신호**라 넘기지 않는다.
+_VERSIONISH = re.compile(r"[A-Za-z0-9.]$")
+_VERSION_PIN = "=="  # pip 스타일 버전 핀(`pretendard==1.2.3.4`)
+
+
+def _looks_like_version(line: str, start: int) -> bool:
+    """IP 로 잡힌 자리가 실은 버전 문자열의 일부인가."""
+    before = line[:start]
+    if _VERSIONISH.search(before):
+        return True
+    return before.endswith(_VERSION_PIN)
 
 BLOCK = [
     ("이메일 주소", _EMAIL, _EMAIL_OK),
@@ -125,8 +147,9 @@ def scan(path: str) -> tuple[list[str], list[str]]:
             v = m.group(0)
             if v in ALLOW or _IP_OK.match(v):
                 continue
-            # `python3.12.4.1` 같은 것과 `Pretendard 1.2.3.4` 같은 것을 거른다
-            if m.start() and _VERSIONISH.search(line[m.start() - 1]):
+            # `python3.12.4.1` 이나 `pretendard==1.2.3.4` 같은 버전 문자열을 거른다.
+            # 앞 글자 한 개가 아니라 **앞부분 전체**를 넘긴다 — `==` 를 보려면 두 글자가 필요하다.
+            if m.start() and _looks_like_version(line, m.start()):
                 continue
             blocked.append(f"{path}:{n}  공인 IP  {_hide(v)}")
         for label, pat in WARN:
@@ -152,6 +175,14 @@ SELFTEST_HITS: list[tuple[str, str]] = [
     # 198.18.0.0/15 는 RFC 2544 벤치마크 전용이라 실제 호스트가 아니지만,
     # 사설·문서용 예외 목록에는 없으므로 이 검사는 '공인 IP'로 잡아야 한다.
     ("공인 IP", "접속 주소는 198.18.0.1 이었다"),
+    # ⚠️ 아래 넷은 **2026-09-04까지 전부 통과하던 형태**다(_VERSIONISH 주석 참고).
+    # 공백 앞 형태 하나만 시험하고 있어서 반쪽짜리 탐지기가 초록으로 지나갔다.
+    # 개발일지가 터미널 출력을 그대로 싣는 형식이라 실제로 새는 모양이 이 넷이므로,
+    # 잡아야 할 것의 대표는 위 한 줄이 아니라 여기까지다.
+    ("공인 IP", "ssh -i key.pem ec2-user@198.18.0.1"),
+    ("공인 IP", "curl http://198.18.0.1:8000/api/status"),
+    ("공인 IP", "PUBLIC_IP=198.18.0.1"),
+    ("공인 IP", "오리진 host=198.18.0.1 로 바꿨다"),
     ("AWS 액세스 키", f"export AWS_ACCESS_KEY_ID={_FAKE_AKIA}"),
     # 호스트명의 숫자는 RFC 5737 문서용 대역이다(203.0.113.0/24).
     ("EC2 퍼블릭 DNS", "ssh ec2-user@ec2-203-0-113-9.ap-northeast-2.compute.amazonaws.com"),
@@ -171,7 +202,9 @@ SELFTEST_MISSES: list[str] = [
     "사설망 192.168.0.1 과 루프백 127.0.0.1",
     "문서용 예약 대역 203.0.113.9 · 198.51.100.7 · 192.0.2.4",
     "공개 리졸버 1.1.1.1",
-    "pip 목록: pretendard==1.2.3.4",  # 버전 문자열이 IP로 잡히면 안 된다
+    "pip 목록: pretendard==1.2.3.4",  # 버전 핀이 IP로 잡히면 안 된다
+    "빌드 v1.2.3.4 로 올렸다",  # 앞 글자가 영숫자면 더 긴 토큰의 일부다
+    "경로 python3.12.4.1 확인",  # 위와 같은 이유
     f"AWS 문서의 예시 키 {_FAKE_AKIA_OK}",
 ]
 
