@@ -75,7 +75,17 @@ jobs:
           # og-image.png가 여기 없으면: 파일이 사라져도 초록불이 뜨고, `s3 sync --delete`가
           # S3에서 지운다. 그런데 index.html과 gen-static.mjs의 og:image는 계속 그 URL을
           # 가리키므로 **모든 공유 카드가 조용히 깨진다**(2026-08-12 검사).
-          for f in rss.xml sitemap.xml robots.txt devlog.html devlog-index.json og-image.png lessons.html lessons-filter.js devlog-search.json favicon.ico log.html keywords.html map.html; do
+          # about.html·about.md·infra.html·devlog-filter.js 가 2026-09-05 까지 빠져 있었다
+          # (09-04 검사 OPS-2). gen-static.mjs 는 content/about.md 가 비면 about 두 장을,
+          # content/infra.json 이 없으면 infra.html 을 **조용히 건너뛴다**. 그 상태로 나가면
+          # 아래 `s3 sync --delete` 가 라이브에서 그 파일들을 지우고, /about 화면은
+          # /about.md 를 fetch 하므로 화면이 깨진 채 배포는 초록이었다.
+          #
+          # ⚠️ 이 목록을 '생성기가 내놓는 manifest' 로 바꾸고 싶어지는데, **그건 이 검사를
+          # 약하게 만든다.** manifest 는 생성기가 쓴 것을 적으므로 조용히 건너뛴 파일은
+          # manifest 에도 없다 — 검사가 자기 대상을 대상에게 물어보는 꼴이다. 목록은
+          # 생성기 밖에서 손으로 유지하는 값이어야 한다.
+          for f in rss.xml sitemap.xml robots.txt devlog.html devlog-index.json og-image.png lessons.html lessons-filter.js devlog-filter.js devlog-search.json favicon.ico log.html keywords.html map.html about.html about.md infra.html; do
             [ -s "dist/$f" ] || missing="$missing $f"
           done
           count=$(ls dist/devlog/*.html 2>/dev/null | wc -l)
@@ -283,8 +293,31 @@ jobs:
               --only-show-errors
           done
           # 실제로 붙었는지 여기서 잰다 — 조용히 안 도는 것을 한 번 겪었다.
-          key=$(aws s3api list-objects-v2 --bucket blogplafromops \
-            --query "Contents[?ends_with(Key, '.js')] | [?contains(Key, '-')] | [0].Key" --output text)
-          cc=$(aws s3api head-object --bucket blogplafromops --key "$key" --query CacheControl --output text)
-          echo "$key → $cc"
-          case "$cc" in *immutable*) echo "캐시 계층 적용 확인" ;; *) echo "::error::캐시 계층이 안 붙었습니다 ($cc)"; exit 1 ;; esac
+          #
+          # ⚠️ 2026-09-05까지 **키 하나만** 봤다: `[?contains(Key,'-')] | [0].Key`.
+          # 그 하나가 `PaymentPage-BkTzxQ0F.js` 였던 건 대문자 P 가 소문자보다 앞선다는
+          # 우연이고, 위 cp 가 쓰는 패턴(`*-????????.js`)과 검사 기준이 아예 달랐다.
+          # 그래서 두 방향으로 틀렸다 — 그 청크 이름이 바뀌면 `-` 만 든 `devlog-filter.js`
+          # 가 뽑혀 **정상인데 매 배포 빨간불**이 되고(영구 오탐은 곧 무시된다), 반대로
+          # 해시 자산 여럿 중 일부만 안 붙어도 **하나만 보므로 통과**했다. (09-04 검사 OPS-4)
+          #
+          # 이제 cp 와 같은 규칙으로 해시 자산을 **전부** 뽑아 각각 확인한다.
+          # 0개면 실패다 — 대상이 없는데 초록인 모양은 이 저장소가 이미 여러 번 밟았다.
+          keys=$(aws s3api list-objects-v2 --bucket blogplafromops \
+            --query "Contents[?ends_with(Key,'.js') || ends_with(Key,'.css')].Key" --output text \
+            | tr '\t' '\n' | grep -E -- '-[A-Za-z0-9_-]{8}\.(js|css)$' || true)
+          if [ -z "$keys" ]; then
+            echo "::error::해시 자산을 하나도 못 찾았습니다 — 검사 대상이 0개면 통과가 아니라 실패입니다"
+            exit 1
+          fi
+          bad=""
+          for key in $keys; do
+            cc=$(aws s3api head-object --bucket blogplafromops --key "$key" --query CacheControl --output text)
+            echo "$key → $cc"
+            case "$cc" in *immutable*) ;; *) bad="$bad $key($cc)" ;; esac
+          done
+          if [ -n "$bad" ]; then
+            echo "::error::캐시 계층이 안 붙은 자산:$bad"
+            exit 1
+          fi
+          echo "캐시 계층 적용 확인 — $(echo "$keys" | wc -l)개"

@@ -203,7 +203,13 @@ fi
 # 낡는 게 정상이고, 절차로 읽히지 않는다.
 # 앞에 글자가 붙은 것은 인스턴스 ID가 아니다 — `ami-0436b3a61a7a7e22a` 안의
 # `i-0436b3a61a7a7e22a` 가 그대로 매치돼서 ec2.tf 의 AMI 를 오탐했다(만들자마자 걸렸다).
-stale=$(grep -rnE '(^|[^[:alnum:]-])i-0[0-9a-f]{16}' "$ROOT"/terraform/ "$ROOT"/RECOVERY.md 2>/dev/null || true)
+# 대상을 .tf/.md 로 좁힌다. 안 좁히면 로컬에서 `terraform/.terraform/`(프로바이더
+# 바이너리 868MB)까지 훑어 실행마다 7초를 쓰고, 바이너리 안에서 우연히 `i-0`+16hex 가
+# 맞으면 오탐이 난다. gitignore 된 terraform.tfvars 도 읽는다. CI 는 init 전이라
+# 안 밟았고, **로컬에서만 느린 검사는 안 돌리게 된다.** (09-04 검사 OPS-7)
+stale=$(grep -rnE --include='*.tf' --include='*.tfvars.example' --include='*.md' \
+  --exclude-dir=.terraform '(^|[^[:alnum:]-])i-0[0-9a-f]{16}' \
+  "$ROOT"/terraform/ "$ROOT"/RECOVERY.md 2>/dev/null || true)
 if [ -n "$stale" ]; then
   bad "terraform/ 또는 런북에 인스턴스 ID가 박혀 있습니다 — 재건하면 거짓이 됩니다:"
   printf '%s\n' "$stale" | sed 's/^/       /'
@@ -273,8 +279,13 @@ say "G. 런북이 재조립 필수 키를 나열하는가"
 # SMTP 자격증명과 DATABASE_URL 이 표에서 통째로 빠져 있던 게 그렇게 4주를 갔다.
 need_keys="SECRET_KEY ORIGIN_SECRET S3_BUCKET PAYMENTS_REQUIRE_LIVE DB_PASSWORD LLM_ENCRYPTION_KEY VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT ANTHROPIC_API_KEY DATABASE_URL SMTP_USER SMTP_PASSWORD"
 miss_keys=""
+# **낱말 경계로 본다.** 2026-09-05까지 `grep -q "$k"` 부분 매치라, RECOVERY.md 에서
+# SECRET_KEY 줄을 통째로 지워도 **TOSS_SECRET_KEY** 한 줄이 남아 있으면 통과했다
+# (같은 식으로 SMTP_USER 는 SMTP_USERNAME 이, S3_BUCKET 은 S3_BUCKET_NAME 이 대신
+# 충족시켰다). '없는 것은 어긋날 수 없다'고 적어둔 검사가 정작 **다른 키를 보고
+# 있다고 착각**한 셈이다. (09-04 검사 OPS-5)
 for k in $need_keys; do
-  grep -q "$k" "$ROOT/RECOVERY.md" || miss_keys="$miss_keys $k"
+  grep -qE "(^|[^A-Za-z0-9_])${k}([^A-Za-z0-9_]|$)" "$ROOT/RECOVERY.md" || miss_keys="$miss_keys $k"
 done
 if [ -n "$miss_keys" ]; then
   bad "RECOVERY.md가 언급하지 않는 필수 키:$miss_keys"
@@ -366,7 +377,10 @@ else
   #      3-5 의 정리 명령이 `-d blog` 라 'database "blog" does not exist' 로 죽었다.
   #      운영 .env 는 못 읽으므로 기준값을 박아둔다 — 바뀌면 이 줄도 같이 고쳐야 한다.
   PROD_DB=postgres
-  wrongdb=$(grep -nE 'psql .* -d [A-Za-z0-9_]+' "$IR" | grep -v -- "-d $PROD_DB" || true)
+  #      `grep -v -- "-d $PROD_DB"` 는 **부분 매치라 `-d postgres_test` 도 걸러냈다** —
+  #      운영 DB 가 아닌 이름인데 운영 DB 로 읽혔다는 뜻이다(09-04 검사 OPS-5).
+  #      여기도 낱말 경계로 본다.
+  wrongdb=$(grep -nE 'psql .* -d [A-Za-z0-9_]+' "$IR" | grep -vE -- "-d ${PROD_DB}([^A-Za-z0-9_]|$)" || true)
   if [ -n "$wrongdb" ]; then
     bad "운영 DB 이름($PROD_DB)이 아닌 psql 명령 $(printf '%s\n' "$wrongdb" | wc -l)줄"
     printf '%s\n' "$wrongdb" | sed 's/^/       /'

@@ -453,6 +453,11 @@ payments 표에 기록은 쌓이지만 읽는 라우트가 없다. 결제 뒤 �
 
 ### OPS-2 · 배포의 '정적 산출물 확인'이 about.html·about.md·infra.html을 안 세어, 원본이 빠져도 초록이고 `--delete`가 라이브에서 지운다
 
+> ✅ **2026-09-05에 고쳤다.** 목록에 `about.html about.md infra.html devlog-filter.js` 넷을
+> 더했다. 보고서가 제안한 'manifest' 쪽은 **일부러 안 갔다** — manifest 는 생성기가 쓴 것을
+> 적으므로 조용히 건너뛴 파일은 manifest 에도 없다. 검사가 자기 대상에게 대상을 물어보는
+> 모양이 되어 지금보다 약해진다. 그 이유를 워크플로 주석에 남겼다.
+
 `.github/workflows/deploy.yml:78` — 운영(스크립트·terraform·CI) · ops
 
 gen-static.mjs는 content/about.md가 비면 about.html·about.md 생성을 건너뛰고(frontend/scripts/gen-static.mjs:1470 `if (aboutRaw)`), content/infra.json이 없으면 infra.html을 건너뛴다(:1052 `if (existsSync(infraPath))`). 이 스텝은 그 '조용한 건너뛰기'를 막으려고 만든 자리인데(:67-70 주석) 대상 목록에 이 셋이 없다. 빠진 채 배포되면 `aws s3 sync --delete`(:208)가 S3의 about.md·about.html·infra.html을 지우고, 앱의 /about 화면은 /about.md를 fetch하므로(gen-static.mjs:1428-1445 주석) 그 화면이 깨진 채 배포는 초록이다.
@@ -464,6 +469,11 @@ gen-static.mjs는 content/about.md가 비면 about.html·about.md 생성을 건�
 **검증** (high) deploy.yml:78 목록에 about.html·about.md·infra.html이 없는 것이 맞고 gen-static.mjs:1439 `if (aboutRaw)`(빈 파일이면 falsy)·:1051 `existsSync(infraPath)`가 조용히 건너뛰므로 `s3 sync --delete`가 지우고 AboutPage.tsx:35의 `fetch('/about.md')`가 깨지지만, 트리거가 '원본 파일을 지우거나 비우는' 경우뿐이고 손실이 정적 페이지 한 장이라 medium은 과하다.
 
 ### OPS-4 · 캐시 계층 확인이 '`-`가 든 첫 .js 키' 하나만 보고, 그 선택이 해시 패턴과 무관하다
+
+> ✅ **2026-09-05에 고쳤다.** 위 `s3 cp` 와 같은 규칙(`-` + 8자 + .js/.css)으로 해시 자산을
+> 전부 뽑아 각각 `head-object` 로 확인하고, 안 붙은 것을 모아 한 번에 보고한다.
+> **0개면 실패다** — 대상 없는 통과는 이 저장소가 이미 세 번 당한 모양이다.
+> 지금 dist 로 정규식을 실측하니 해시 자산 셋만 뽑히고 `devlog-filter.js`·`sw.js` 는 빠진다.
 
 `.github/workflows/deploy.yml:286` — 운영(스크립트·terraform·CI) · ops
 
@@ -477,6 +487,10 @@ immutable이 실제로 붙었는지를 `Contents[?ends_with(Key,'.js')] | [?cont
 
 ### OPS-5 · 런북 드리프트 G·H-3가 부분 문자열로 매치해, 다른 키 이름이 검사를 대신 통과시킨다
 
+> ✅ **2026-09-05에 고쳤다.** 둘 다 낱말 경계로 바꿨다. 실측으로 확인했다 —
+> `TOSS_SECRET_KEY` 만 있는 파일에서 옛 규칙은 `SECRET_KEY` 를 '있다'고 했고 새 규칙은
+> 없다고 한다. H-3 은 `-d postgres_test` 한 줄을 옛 규칙이 0건, 새 규칙이 1건으로 잡는다.
+
 `scripts/check_runbook_drift.sh:277` — 운영(스크립트·terraform·CI) · quality
 
 G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크립트가 :304에서 '아직 실재하지 않는 키'로 분류한 것)로, `SMTP_USER`는 `SMTP_USERNAME`으로, `S3_BUCKET`은 `S3_BUCKET_NAME`으로 충족된다. 런북에서 SECRET_KEY 줄만 지워도 TOSS_SECRET_KEY가 남아 있으면 초록이다. H-3(:369)도 `grep -v -- "-d $PROD_DB"`라 `-d postgres_test`를 운영 DB로 읽는다.
@@ -488,6 +502,9 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 **검증** (high) check_runbook_drift.sh:277이 `grep -q "$k"` 부분 매치라 RECOVERY.md에서 SECRET_KEY 행을 지워도 377행의 TOSS_SECRET_KEY가 남아 통과함을 `grep -c`=3 / `grep -cw`=2로 확인했고 :369의 `grep -v -- "-d postgres"`도 `-d postgres_test`를 걸러버리지만, 지금 당장 오작동 중인 건 아니고 검사 견고성 문제다.
 
 ### OPS-7 · 런북 드리프트 D의 `grep -r terraform/`이 로컬에서 .terraform/(868MB 프로바이더)까지 훑는다
+
+> ✅ **2026-09-05에 고쳤다.** `--include='*.tf' --include='*.tfvars.example' --include='*.md'
+> --exclude-dir=.terraform` 로 좁혔다. 전체 검사 시간이 로컬에서 **1.1초**가 됐다.
 
 `scripts/check_runbook_drift.sh:206` — 운영(스크립트·terraform·CI) · quality
 
@@ -501,15 +518,20 @@ G는 `grep -q "$k" RECOVERY.md`라 `SECRET_KEY`는 `TOSS_SECRET_KEY`(이 스크�
 
 ### OPS-8 · 이메일 허용 규칙의 `noreply` 부분 매치가 주소 전체(실도메인 포함)를 통과시킨다
 
+> ✅ **2026-09-05에 고쳤다.** `@users\.noreply\.github\.com$` 로 도메인까지 고정했다.
+> SELFTEST_HITS 에 두 형태(도메인이 실값인 것 · 로컬파트에만 noreply 가 섞인 것)를,
+> MISSES 에 깃허브 커밋 주소를 넣었다. 좁히자마자 **이 보고서 자신이 걸렸다** —
+> OPS-8 절이 예시로 적어둔 주소 셋이 그대로 검사에 잡혀서 예약값 표기로 바꿨다.
+
 `scripts/check_publish_secrets.py:74` — 운영(스크립트·terraform·CI) · security
 
-`_EMAIL_OK`에 `|noreply|users\.noreply`가 있어 `noreply@<실제 회사 도메인>`이나 `x-noreply-y@realdomain.kr`처럼 문자열 어디에든 noreply가 들어가면 통째로 허용된다. 의도는 GitHub의 `users.noreply.github.com`인데 규칙은 도메인을 보지 않는다. 발신 전용 주소라도 도메인은 실운영 값이다.
+`_EMAIL_OK`에 `|noreply|users\.noreply`가 있어 `noreply@<실제 회사 도메인>`이나 `x-noreply-y@<실도메인>`처럼 문자열 어디에든 noreply가 들어가면 통째로 허용된다. 의도는 GitHub의 `users.noreply.github.com`인데 규칙은 도메인을 보지 않는다. 발신 전용 주소라도 도메인은 실운영 값이다.
 
 **근거** :67-77 `_EMAIL_OK = re.compile(r"@(example\.(com|org|net)|x\.com|b\.com)" r"|\.(test|example|invalid|local|localhost)$" r"|@test\.com" r"|noreply|users\.noreply" r"|^[.…*]+@", re.I)`; :121 `if v in ALLOW or ok.search(v): continue`.
 
-**고침** `noreply`는 `@users\.noreply\.github\.com$`처럼 도메인까지 고정하고, 다른 발신 전용 주소는 ALLOW에 이유와 함께 한 줄씩 적게 한다. SELFTEST_HITS에 `noreply@not-a-real-domain.kr`를 넣는다.
+**고침** `noreply`는 `@users\.noreply\.github\.com$`처럼 도메인까지 고정하고, 다른 발신 전용 주소는 ALLOW에 이유와 함께 한 줄씩 적게 한다. SELFTEST_HITS에 `noreply@<가짜도메인>` 형태를 넣는다.
 
-**검증** (high) check_publish_secrets.py:74의 `|noreply|users\.noreply`가 도메인을 보지 않는 부분 매치라 실측에서 `noreply@not-a-real-domain.kr`와 `x-noreply-y@realdomain.kr` 두 줄이 모두 통과했고, 의도(GitHub users.noreply)와 규칙의 범위가 어긋나는 것이 맞다.
+**검증** (high) check_publish_secrets.py:74의 `|noreply|users\.noreply`가 도메인을 보지 않는 부분 매치라 실측에서 `noreply@<실도메인>`과 `x-noreply-y@<실도메인>` 두 줄이 모두 통과했고, 의도(GitHub users.noreply)와 규칙의 범위가 어긋나는 것이 맞다.
 
 
 ## 기각된 것 — 7건

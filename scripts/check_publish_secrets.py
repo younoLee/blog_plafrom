@@ -71,7 +71,13 @@ _EMAIL_OK = re.compile(
     r"@(example\.(com|org|net)|x\.com|b\.com)"
     r"|\.(test|example|invalid|local|localhost)$"
     r"|@test\.com"
-    r"|noreply|users\.noreply"
+    # ⚠️ **2026-09-05까지 이 자리가 `|noreply|users\.noreply` 였다**(09-04 검사 OPS-8).
+    # 도메인을 안 보는 부분 매치라 `noreply@<실제 회사 도메인>` 도, 로컬파트에 noreply 가
+    # 섞인 `x-noreply-y@<실도메인>` 도 통째로 통과했다. 의도는 깃허브가 커밋에 박는
+    # `users.noreply.github.com` 하나였는데 규칙이 그보다 훨씬 넓었다 — **발신 전용
+    # 주소라도 도메인은 실운영 값이다.** 이제 도메인까지 고정한다. 다른 발신 전용
+    # 주소가 필요하면 위 ALLOW 에 이유를 한 줄 적어 넣는다.
+    r"|@users\.noreply\.github\.com$"
     r"|^[.\u2026*]+@",
     re.I,
 )
@@ -183,6 +189,10 @@ SELFTEST_HITS: list[tuple[str, str]] = [
     ("공인 IP", "curl http://198.18.0.1:8000/api/status"),
     ("공인 IP", "PUBLIC_IP=198.18.0.1"),
     ("공인 IP", "오리진 host=198.18.0.1 로 바꿨다"),
+    # noreply 는 2026-09-05까지 도메인을 안 보고 통과시켰다(OPS-8). 두 형태를 다 건다 —
+    # 도메인이 실운영 값인 것과, 로컬파트에 noreply 가 섞이기만 한 것.
+    ("이메일 주소", "발신 전용: noreply@not-a-real-domain.kr"),
+    ("이메일 주소", "회신: x-noreply-y@not-a-real-domain.kr"),
     ("AWS 액세스 키", f"export AWS_ACCESS_KEY_ID={_FAKE_AKIA}"),
     # 호스트명의 숫자는 RFC 5737 문서용 대역이다(203.0.113.0/24).
     ("EC2 퍼블릭 DNS", "ssh ec2-user@ec2-203-0-113-9.ap-northeast-2.compute.amazonaws.com"),
@@ -199,6 +209,8 @@ SELFTEST_WARNS: list[tuple[str, str]] = [
 SELFTEST_MISSES: list[str] = [
     "문의는 hong@example.com 으로 주세요",  # RFC 2606 예약 도메인
     "이미 가린 자리: ...@gmail.com",  # 사람이 손으로 마스킹한 것
+    # 깃허브가 커밋에 박는 주소. 이것 하나 때문에 예전 규칙이 noreply 전체를 열어뒀다.
+    "Co-authored-by: 12345+someone@users.noreply.github.com",
     "사설망 192.168.0.1 과 루프백 127.0.0.1",
     "문서용 예약 대역 203.0.113.9 · 198.51.100.7 · 192.0.2.4",
     "공개 리졸버 1.1.1.1",
