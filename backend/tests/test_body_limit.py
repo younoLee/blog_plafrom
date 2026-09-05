@@ -113,20 +113,50 @@ def test_upload_route_still_accepts_1mb_body(client):
     401(= 인증에서 걸림)은 **본문이 미들웨어를 통과해 앱까지 갔다**는 뜻이다.
     413이 나오면 상한을 경로와 무관하게 좁힌 것이고, 그 순간 5MB 이미지 업로드가 죽는다.
     (test_uploads.py의 test_upload_requires_auth와 같은 모양에 크기만 키웠다)
+
+    2026-09-05: 인증 헤더를 붙인다. 큰 상한은 이제 '인증 헤더가 붙은 요청'에만
+    주어진다(SEC-01). 토큰은 가짜라 결말은 여전히 401이고, 그게 곧 본문이 앱까지
+    갔다는 증거다. 헤더 없이 보내는 경우는 바로 아래 시험이 따로 잠근다.
+    """
+    r = client.post(
+        "/api/upload",
+        files={"file": ("big.png", PNG + b"0" * ONE_MB, "image/png")},
+        headers={"Authorization": "Bearer not-a-real-token"},
+    )
+    assert r.status_code == 401
+
+
+def test_upload_route_denies_big_body_without_auth_header(client):
+    """인증 헤더가 없으면 업로드 경로도 큰 본문을 안 받는다.
+
+    ⚠️ **2026-09-05까지 받았다.** 상한 판정이 경로 하나뿐이라, 로그인하지 않은 요청도
+    6MB를 얻었다. 업로드는 require_writer로 잠겨 있어 결말은 401인데, FastAPI는 본문을
+    **다 읽은 뒤에** 의존성을 풀고(routing.py의 `await request.form()`이 먼저다)
+    엔드포인트 안의 레이트리밋도 그 경로에서는 안 돈다. 즉 거절될 요청 하나가 6MB를
+    먼저 먹었다(2026-09-04 검사 SEC-01).
+
+    413이 맞는 답이다 — 읽지 않고 끊는다.
     """
     r = client.post(
         "/api/upload",
         files={"file": ("big.png", PNG + b"0" * ONE_MB, "image/png")},
     )
-    assert r.status_code == 401
+    assert r.status_code == 413
 
 
 def test_upload_route_blocks_over_its_own_limit(client):
-    """업로드 경로에도 상한은 있다 — 6MB를 넘으면 여전히 413."""
+    """업로드 경로에도 상한은 있다 — 6MB를 넘으면 여전히 413.
+
+    인증 헤더를 붙여야 **업로드 상한**을 시험하는 게 된다. 안 붙이면 작은 상한에
+    걸려서 413이 나오고, 그러면 이 시험은 6MB 상한이 사라져도 통과한다(2026-09-05).
+    """
     r = client.post(
         "/api/upload",
         content=b"a" * (MAX_UPLOAD_BODY_BYTES + 1),
-        headers={"Content-Type": "application/octet-stream"},
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Authorization": "Bearer not-a-real-token",
+        },
     )
     assert r.status_code == 413
 
@@ -164,12 +194,17 @@ def _run(
     path: str = "/x",
     upload_max_bytes: int | None = None,
     query_string: bytes = b"",
+    authorized: bool = True,
 ):
     """Content-Length 없는 http scope로 미들웨어를 돌리고
     (하위앱, 나간 응답들, receive 호출 횟수)를 돌려준다.
 
     path·upload_max_bytes·query_string은 2026-09-02에 붙였다. 경로별 상한이
-    **chunked 경로에서도** 도는지 보려면 scope의 path를 갈아끼울 수 있어야 한다."""
+    **chunked 경로에서도** 도는지 보려면 scope의 path를 갈아끼울 수 있어야 한다.
+
+    authorized는 2026-09-05에 붙였다. 업로드 상한은 이제 인증 헤더가 붙은 요청에만
+    주어지므로(SEC-01), 그 갈래를 시험하려면 헤더를 넣고 뺄 수 있어야 한다.
+    기본값을 True로 둔 이유는 기존 시험들이 전부 '정상적인 업로드'를 뜻하기 때문이다."""
     downstream = _Downstream()
     mw = BodySizeLimitMiddleware(
         downstream, max_bytes=max_bytes, upload_max_bytes=upload_max_bytes
@@ -180,7 +215,9 @@ def _run(
         "method": "POST",
         "path": path,
         "query_string": query_string,
-        "headers": [],  # Content-Length 없음 → 스트림 검사 경로
+        # Content-Length 없음 → 스트림 검사 경로.
+        # authorization 은 값을 검증하지 않는다(미들웨어도 존재 여부만 본다).
+        "headers": [(b"authorization", b"Bearer t")] if authorized else [],
     }
     queue = list(messages)
     calls = {"n": 0}
@@ -265,6 +302,26 @@ def test_chunked_stream_uses_the_upload_limit_on_the_upload_path():
     )
     assert not on_json.called
     assert _status(sent_json) == 413
+
+
+def test_chunked_upload_without_auth_header_gets_the_small_limit():
+    """chunked 갈래에서도 인증 헤더가 없으면 작은 상한이다.
+
+    Content-Length 쪽만 고치고 여기를 안 고치면 넓은 쪽이 그대로 우회로가 된다.
+    이 파일이 09-02에 같은 이유로 배운 것이라(위 test_chunked_stream_... 참고)
+    같은 모양으로 한 번 더 잠근다.
+
+    무인증 요청이 **버퍼링되기 전에** 끊기는지가 요점이다 — 앱까지 안 가야 한다.
+    """
+    on_upload, sent, _ = _run(
+        _chunks(200),
+        max_bytes=64,
+        path=UPLOAD_PATH,
+        upload_max_bytes=256,
+        authorized=False,
+    )
+    assert not on_upload.called
+    assert _status(sent) == 413
 
 
 def test_upload_limit_is_matched_exactly_not_by_prefix():

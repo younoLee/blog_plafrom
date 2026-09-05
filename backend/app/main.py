@@ -350,6 +350,18 @@ class BodySizeLimitMiddleware:
         # 그 모양(상한 하나)으로 스트림 동작을 검증하므로 기본값을 남겨둔다.
         self.upload_max_bytes = max_bytes if upload_max_bytes is None else upload_max_bytes
 
+    @staticmethod
+    def _has_authorization(scope) -> bool:
+        """Authorization 헤더가 붙어 있는가. **값을 검증하지는 않는다.**
+
+        여기는 라우팅 전이라 토큰을 풀 수단이 없다(DB 세션도 의존성도 아직 없다).
+        검증은 `require_writer` 가 하고, 여기서는 '큰 본문을 받아줄 후보인가'만 본다.
+        """
+        for name, value in scope.get("headers", []):
+            if name == b"authorization" and value.strip():
+                return True
+        return False
+
     def _limit_for(self, scope) -> int:
         """이 요청에 걸 상한. **판정은 ASGI scope의 path로 한다**(2026-09-02).
 
@@ -357,9 +369,22 @@ class BodySizeLimitMiddleware:
         그래서 여기서 접을 것은 후행 슬래시뿐이고, 비교는 **정확히 같은가**로 한다 —
         접두사 매칭(`startswith`)이면 `/api/uploadsomething` 같은 경로가 6MB를 얻는다.
         무인증 경로 하나만 잘못 넓혀도 위 OOM 계산이 그대로 되살아난다.
+
+        2026-09-05: **인증 헤더가 없으면 업로드 경로도 6MB를 안 준다.** 09-02에 상한을
+        경로별로 쪼갤 때 조건이 경로 하나뿐이라, 로그인하지 않은 요청도 6MB를 받았다.
+        업로드는 `require_writer` 로 잠겨 있어 그런 요청의 결말은 401·403인데, FastAPI는
+        **본문을 다 읽은 뒤에** 의존성을 푼다(`routing.py` 의 `await request.form()` 이
+        `solve_dependencies` 보다 먼저다). 게다가 엔드포인트 함수 안에 있는
+        `@limiter.limit("30/hour")` 도 그 경로에서는 실행되지 않아 아무 한도가 없다.
+        즉 거절될 요청 하나가 6MB를 먼저 먹었다(2026-09-04 검사 SEC-01).
+
+        ⚠️ **이건 헤더 위조까지 막지는 못한다.** `Authorization: Bearer x` 한 줄이면
+        다시 6MB 후보가 된다. 여기서 없어지는 것은 '아무것도 안 붙이고 던지는' 경로이고,
+        진짜 상한은 아래 chunked 갈래가 본문을 메모리 리스트가 아니라 디스크로 흘려보낼
+        때 생긴다. 그건 업로드 경로를 다시 쓰는 일이라 이번에 하지 않았다.
         """
         path = scope.get("path", "")
-        if path.rstrip("/") == UPLOAD_PATH:
+        if path.rstrip("/") == UPLOAD_PATH and self._has_authorization(scope):
             return self.upload_max_bytes
         return self.max_bytes
 
