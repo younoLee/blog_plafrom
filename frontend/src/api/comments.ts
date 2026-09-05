@@ -33,6 +33,22 @@ export async function addComment(
 }
 
 // 댓글 삭제 (글 작성자 본인 또는 관리자만 — 모더레이션)
+// 내 댓글 내용 고치기. **본인만** 되고 내용만 바뀐다(작성자명·시각은 서버가 고정).
+export async function updateComment(
+  postId: number,
+  commentId: number,
+  content: string,
+): Promise<Comment> {
+  const res = await apiFetch(`${BASE}/posts/${postId}/comments/${commentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ content }),
+  })
+  if (res.status === 422) throw new Error('내용은 1~2000자여야 해')
+  if (!res.ok) await failWith(res, '댓글 수정 실패')
+  return res.json()
+}
+
 export async function deleteComment(postId: number, commentId: number): Promise<void> {
   const res = await apiFetch(`${BASE}/posts/${postId}/comments/${commentId}`, {
     method: 'DELETE',

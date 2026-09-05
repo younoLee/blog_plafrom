@@ -32,6 +32,17 @@ export async function fetchRequests(): Promise<PendingRequest[]> {
   if (!res.ok) return []
   return res.json()
 }
+// 나를 구독 중인(승인된) 사람들. 위 fetchRequests(대기)와 짝이다.
+//
+// 왜 필요한가: 강제 해지 API 는 진작 있었는데 그걸 부를 화면이 없어서, 글쓴이는 자기
+// 구독자가 누구인지 볼 수도 내보낼 수도 없었다(09-04 검사 GAP-4). 구독자공개 글을
+// 쓰는 사람에게 '지금 이 글이 누구에게 보이는가'는 발행 전에 알아야 하는 사실이다.
+export async function fetchSubscribers(): Promise<PendingRequest[]> {
+  const res = await fetchWithTimeout(`${BASE}/subscriptions/subscribers`, { headers: authHeaders() })
+  if (!res.ok) return []
+  return res.json()
+}
+
 export async function approveRequest(subscriberId: number): Promise<void> {
   const res = await apiFetch(`${BASE}/subscriptions/requests/${subscriberId}/approve`, {
     method: 'POST',

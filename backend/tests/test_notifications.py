@@ -9,6 +9,21 @@ def _subscribe_approve_notify(client, auth_headers, reader, author):
         headers=auth_headers(reader),
         json={"notify": True},
     )
+    # **승인 자체가 이제 신청자에게 알림을 남긴다**(2026-09-05, 09-04 검사 GAP-3).
+    # 이 파일의 시험들은 '새 글 알림이 몇 개인가'를 세므로, 준비 단계가 남긴 줄을
+    # 여기서 읽음 처리해 지운다 — 안 그러면 모든 개수가 하나씩 밀린다.
+    # 그 알림 자체는 test_subscription_notification.py 가 따로 잠근다.
+    client.post("/api/notifications/read", headers=auth_headers(reader))
+
+
+def _post_items(body):
+    """이 파일이 세는 것은 **글에 매인 알림**이다.
+
+    2026-09-05부터 구독 승인 알림이 같은 알림함에 들어온다(09-04 검사 GAP-3) — 그건
+    글에 안 매여 있어서 post_id 가 None 이다. 전체 개수로 세면 준비 단계(구독→승인)가
+    남긴 줄까지 섞여서, 이 파일의 시험들이 재는 것이 흐려진다.
+    """
+    return [i for i in body["items"] if i["post_id"] is not None]
 
 
 def _create_post(client, headers, visibility="public"):
@@ -30,16 +45,17 @@ def test_new_post_notifies_notify_subscriber(client, make_user, auth_headers):
 
     body = client.get("/api/notifications", headers=auth_headers(reader)).json()
     assert body["unread"] == 1
-    assert body["items"][0]["title"] == "새 글"
+    item = _post_items(body)[0]
+    assert item["title"] == "새 글"
     # 표시명은 display_name에서만 온다 — **이메일 유도가 아니다**(2026-08-10 보안검사).
     # display_name을 안 정한 계정은 "회원 #<id>"로 뭉갠다. 이메일 로컬파트가 새지 않는 게 요점이다.
     #
     # ⚠️ **글쓴이의 user id여야 한다.** 이 쿼리는 Notification.id와 User.id를 한 행에
     # 담는데, 폴백에 `r.id`를 넘기면 조용히 '회원 #<알림번호>'가 된다 — 고치는 중에
     # 실제로 그렇게 썼다가 이 테스트가 잡았다.
-    assert body["items"][0]["author"] == f"회원 #{author.id}"
-    assert author.email.split("@")[0] not in body["items"][0]["author"]
-    assert body["items"][0]["read"] is False
+    assert item["author"] == f"회원 #{author.id}"
+    assert author.email.split("@")[0] not in item["author"]
+    assert item["read"] is False
 
 
 def test_no_notification_when_notify_off(client, make_user, auth_headers):
@@ -52,8 +68,7 @@ def test_no_notification_when_notify_off(client, make_user, auth_headers):
     _create_post(client, auth_headers(author))
 
     body = client.get("/api/notifications", headers=auth_headers(reader)).json()
-    assert body["unread"] == 0
-    assert body["items"] == []
+    assert _post_items(body) == []  # 새 글 알림은 없다(승인 알림 한 줄은 남아 있다)
 
 
 def test_no_notification_when_pending(client, make_user, auth_headers):
@@ -104,7 +119,7 @@ def test_unread_badge_drops_when_post_becomes_invisible(client, make_user, auth_
     post = _create_post(client, auth_headers(author))
 
     body = client.get("/api/notifications", headers=auth_headers(reader)).json()
-    assert body["unread"] == 1 and len(body["items"]) == 1
+    assert body["unread"] == 1 and len(_post_items(body)) == 1
 
     # 글쓴이가 공개범위를 '나만 보기'로 내린다 → 구독자는 더 이상 볼 수 없다
     r = client.patch(
@@ -115,7 +130,7 @@ def test_unread_badge_drops_when_post_becomes_invisible(client, make_user, auth_
     assert r.status_code == 200
 
     body = client.get("/api/notifications", headers=auth_headers(reader)).json()
-    assert body["items"] == []
+    assert _post_items(body) == []
     assert body["unread"] == 0  # 수정 전: 목록은 비었는데 여기만 1이었다
 
 

@@ -7,6 +7,7 @@ import {
   unsubscribeAuthor,
   setNotify,
   fetchRequests,
+  fetchSubscribers,
   approveRequest,
   rejectRequest,
   type SubscribedAuthor,
@@ -31,6 +32,8 @@ function SubscriptionsPage() {
   const [authors, setAuthors] = useState<SubscribedAuthor[] | null>(null)
   const [subs, setSubs] = useState<SubscribedAuthor[]>([])
   const [requests, setRequests] = useState<PendingRequest[]>([])
+  // 나를 구독 중인(승인된) 사람들. 목록이 없으면 강제 해지 API 를 부를 화면이 없다.
+  const [subscribers, setSubscribers] = useState<PendingRequest[]>([])
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   // 목록 조회가 실패했다 — 절전(노란 안내)과 진짜 실패(빨간 줄)를 갈라 담는다.
@@ -44,6 +47,7 @@ function SubscriptionsPage() {
         setAuthors(null)
         setSubs([])
         setRequests([])
+        setSubscribers([])
         setAsleep(false)
         setLoadError('')
       })
@@ -71,6 +75,9 @@ function SubscriptionsPage() {
     fetchRequests()
       .then((r) => alive && setRequests(r))
       .catch(() => alive && setRequests([]))
+    fetchSubscribers()
+      .then((r) => alive && setSubscribers(r))
+      .catch(() => alive && setSubscribers([]))
     return () => {
       alive = false
     }
@@ -121,7 +128,25 @@ function SubscriptionsPage() {
       if (approve) await approveRequest(subscriberId)
       else await rejectRequest(subscriberId)
       setRequests(await fetchRequests())
+      // 승인하면 그 사람이 아래 '내 구독자'로 옮겨간다 — 둘을 같이 갱신해야 화면이
+      // 한 번에 맞는다(한쪽만 고치면 같은 사람이 두 목록에 잠깐 같이 뜬다).
+      setSubscribers(await fetchSubscribers())
       setMsg(approve ? '구독을 승인했어' : '구독 신청을 거절했어')
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  // 승인된 구독자 강제 해지. **되돌릴 수 없다** — 그 사람이 다시 신청하고 내가 다시
+  // 승인해야 한다. 그래서 확인창을 둔다(이 화면의 '구독 취소'와 같은 이유).
+  async function handleRemoveSubscriber(subscriberId: number, name: string) {
+    if (!window.confirm(`${name} 님의 구독을 해지할까?\n구독자공개 글을 더 이상 못 보고, 다시 신청해서 승인을 받아야 해.`)) return
+    setError('')
+    setMsg('')
+    try {
+      await rejectRequest(subscriberId)
+      setSubscribers(await fetchSubscribers())
+      setMsg('구독자를 해지했어')
     } catch (e) {
       setError((e as Error).message)
     }
@@ -175,6 +200,36 @@ function SubscriptionsPage() {
                     거절
                   </button>
                 </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 내 구독자 (글쓴이용) — 구독자가 있을 때만 뜬다.
+          **왜 이 절이 필요한가 (09-04 검사 GAP-4)**: 강제 해지 API 는 08-11부터 있었는데
+          부를 화면이 없어서, 글쓴이는 자기 구독자가 누구인지 볼 수도 내보낼 수도 없었다.
+          구독자공개 글을 쓸 때 '이 글이 지금 누구에게 보이는가'가 발행 전에 알아야 하는
+          사실이라 신청 목록 바로 아래 둔다. */}
+      {user && subscribers.length > 0 && (
+        <section className={`${ui.card} mt-6`}>
+          <h2 className="text-lg font-semibold tracking-tight">내 구독자 ({subscribers.length})</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            이 사람들이 내 ‘구독자공개’ 글을 볼 수 있어.
+          </p>
+          <ul className="mt-3 divide-y divide-black/[0.06] dark:divide-white/10">
+            {subscribers.map((s) => (
+              <li key={s.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="font-medium text-gray-800 dark:text-gray-100">{s.name}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveSubscriber(s.id, s.name)}
+                  title={`${s.name} 님의 구독을 해지한다. 다시 신청·승인이 필요해`}
+                  className={`${ui.btnGhost} text-sm`}
+                  aria-label={`${s.name} 구독 해지`}
+                >
+                  해지
+                </button>
               </li>
             ))}
           </ul>

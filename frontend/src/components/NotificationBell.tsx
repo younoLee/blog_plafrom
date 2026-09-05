@@ -131,7 +131,9 @@ export function NotificationBell() {
                       <span className="font-medium text-gray-800 dark:text-gray-100">{n.author}</span>
                       <span className="text-gray-500 dark:text-gray-400">
                         {n.post_id === null
-                          ? '님이 구독을 신청했어'
+                          ? n.kind === 'subscribe_approved'
+                            ? '님이 구독을 승인했어'
+                            : '님이 구독을 신청했어'
                           : n.comment_id
                             ? '님의 새 댓글'
                             : '님의 새 글'}
@@ -140,7 +142,11 @@ export function NotificationBell() {
                     {/* 글이 없으면 제목도 없다. 빈 줄을 그리지 않고 무엇을 하면 되는지
                         한 줄로 말한다 — 알림을 눌러야 하는 이유가 그거다. */}
                     <div className="truncate text-gray-600 dark:text-gray-300">
-                      {n.post_id === null ? '눌러서 승인하거나 거절할 수 있어' : n.title}
+                      {n.post_id === null
+                        ? n.kind === 'subscribe_approved'
+                          ? '이제 구독자공개 글을 볼 수 있어'
+                          : '눌러서 승인하거나 거절할 수 있어'
+                        : n.title}
                     </div>
                   </Link>
                 </li>

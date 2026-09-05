@@ -6,7 +6,7 @@ import rehypeSlug from 'rehype-slug'
 import type { Post, SeriesNav, Visibility } from '../types/post'
 import type { Comment } from '../types/comment'
 import { getPost, changeVisibility, fetchSeries } from '../api/posts'
-import { fetchComments, addComment, deleteComment } from '../api/comments'
+import { fetchComments, addComment, deleteComment, updateComment } from '../api/comments'
 import { ServerAsleepError } from '../api/http'
 import { fetchMySubscriptions, subscribeAuthor, unsubscribeAuthor } from '../api/subscriptions'
 import { useAuth } from '../auth/auth-context'
@@ -102,6 +102,11 @@ function PostDetailPage() {
   // 오리진 상한인 60초를 기다린다. 그 60초 동안 버튼이 아무 반응도 안 하는 게 문제였다.
   // 고칠 것은 상한이 아니라 **말이 없는 것**이다. (2026-08-27)
   const [posting, setPosting] = useState(false)
+  // 지금 고치고 있는 댓글 id(없으면 null)와 그 입력값. 한 번에 하나만 연다 —
+  // 여러 개를 동시에 열어두면 어느 것을 저장하는지가 화면에서 흐려진다.
+  const [editingComment, setEditingComment] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const [savingComment, setSavingComment] = useState(false)
 
   // **글이 바뀌면 렌더 중에 비운다.** 이게 없으면 연재 '다음 편'을 눌렀을 때 새 글이
   // 도착할 때까지(서버가 차가우면 최대 8초) **이전 글의 본문·댓글·목차가 그대로** 보인다.
@@ -259,6 +264,28 @@ function PostDetailPage() {
       setActionError('')
     } catch (e) {
       setActionError((e as Error).message)
+    }
+  }
+
+  async function handleEditComment(commentId: number) {
+    if (savingComment) return
+    const text = editText.trim()
+    if (!text) {
+      setCommentError('내용을 적어줘')
+      return
+    }
+    setSavingComment(true)
+    try {
+      const updated = await updateComment(postId, commentId, text)
+      if (shownPostId.current !== postId) return
+      setComments((prev) => prev.map((c) => (c.id === commentId ? updated : c)))
+      setEditingComment(null)
+      setCommentError('')
+    } catch (e) {
+      if (shownPostId.current !== postId) return
+      setCommentError((e as Error).message)
+    } finally {
+      setSavingComment(false)
     }
   }
 
@@ -598,18 +625,66 @@ function PostDetailPage() {
                   <span className="text-[10px] text-gray-500 dark:text-gray-400">익명</span>
                 )}
                 <time className="text-xs text-gray-500 dark:text-gray-400">{new Date(c.created_at).toLocaleString()}</time>
-                {canModerate && (
+                {/* 내 댓글이면 고치기가 먼저, 그다음 지우기. 글쓴이·관리자는 지우기만
+                    보인다 — 남의 말을 지우는 것(모더레이션)과 남의 말을 고치는 것은
+                    다른 권한이다(09-04 검사 GAP-5). */}
+                {c.is_mine && editingComment !== c.id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingComment(c.id)
+                      setEditText(c.content)
+                      setCommentError('')
+                    }}
+                    className="ml-auto text-xs text-gray-500 hover:text-accent dark:text-gray-400"
+                    aria-label="내 댓글 고치기"
+                  >
+                    고치기
+                  </button>
+                )}
+                {(canModerate || c.is_mine) && (
                   <button
                     type="button"
                     onClick={() => handleDeleteComment(c.id)}
-                    className="ml-auto text-xs text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
+                    className={`text-xs text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 ${c.is_mine && editingComment !== c.id ? '' : 'ml-auto'}`}
                     aria-label="댓글 삭제"
                   >
                     삭제
                   </button>
                 )}
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-gray-700 dark:text-gray-300">{c.content}</p>
+              {editingComment === c.id ? (
+                <form
+                  className="mt-1 grid gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void handleEditComment(c.id)
+                  }}
+                >
+                  <textarea
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    rows={3}
+                    maxLength={2000}
+                    aria-label="댓글 내용 고치기"
+                    className={ui.input}
+                  />
+                  <div className="flex gap-2">
+                    <button type="submit" className={`${ui.btnPrimary} text-sm`} disabled={savingComment}>
+                      {savingComment ? '저장 중…' : '저장'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${ui.btnGhost} text-sm`}
+                      onClick={() => setEditingComment(null)}
+                    >
+                      취소
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <p className="mt-1 whitespace-pre-wrap text-gray-700 dark:text-gray-300">{c.content}</p>
+              )}
             </div>
           ))}
         </div>

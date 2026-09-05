@@ -186,3 +186,77 @@ def test_남의_신청_알림은_안_지운다(client, make_user, auth_headers, 
 
     left = db.scalars(select(Notification).where(Notification.user_id == author.id)).all()
     assert [n.actor_id for n in left] == [b.id]
+
+
+# ── 승인이 나면 신청자에게 알린다 (2026-09-04 검사 GAP-3) ────────────────────
+#
+# 08-27에 반대 방향(신청이 글쓴이에게 아무 신호도 못 냈다)을 고치면서 이쪽이 남았다.
+# 신청자는 '승인 대기중' 배지가 언제 풀렸는지 알 방법이 없어서 구독 화면을 주기적으로
+# 다시 열어봐야 했고, 그동안 구독자공개 글은 안 열린 채로 있다.
+
+
+def test_승인하면_신청자에게_알림이_간다(client, make_user, auth_headers, db):
+    author = make_user(role="writer", display_name="글쓴이")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+    client.post(f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author))
+
+    n = db.scalars(select(Notification).where(Notification.user_id == reader.id)).all()
+    assert len(n) == 1
+    assert n[0].actor_id == author.id
+    assert n[0].post_id is None
+    assert n[0].kind == "subscribe_approved"
+
+
+def test_승인_알림은_목록과_배지에_나온다(client, make_user, auth_headers):
+    """글에 안 매인 알림이라 가시성 조건 면제가 여기에도 걸린다 — 신청 알림과 같은 함정.
+    면제가 빠지면 만들어지자마자 사라지고, 그건 조용한 실패다."""
+    author = make_user(role="writer", display_name="글쓴이")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+    client.post(f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author))
+
+    body = client.get("/api/notifications", headers=auth_headers(reader)).json()
+    assert body["unread"] == 1
+    item = body["items"][0]
+    assert item["kind"] == "subscribe_approved"
+    assert item["post_id"] is None
+    assert item["author"] == "글쓴이"  # 승인한 사람이 나온다
+
+
+def test_두_번_승인해도_알림은_한_줄이다(client, make_user, auth_headers, db):
+    """관리 화면에서 두 번 눌리는 건 흔하다. 멱등이 아니면 누를 때마다 종이 울린다."""
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+    for _ in range(3):
+        client.post(f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author))
+
+    n = db.scalars(select(Notification).where(Notification.user_id == reader.id)).all()
+    assert len(n) == 1
+
+
+def test_거절에는_알림이_없다(client, make_user, auth_headers, db):
+    """거절을 알리지 않는 것은 의도다 — 신청자에게 '거절당했다'를 통지하면 그 자체가
+    부담이고, 화면에서는 신청이 사라진 것으로 충분하다. 다시 신청할 수도 있다."""
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+    client.delete(f"/api/subscriptions/requests/{reader.id}", headers=auth_headers(author))
+
+    assert db.scalars(select(Notification).where(Notification.user_id == reader.id)).all() == []
+
+
+def test_신청_알림과_승인_알림은_종류로_갈린다(client, make_user, auth_headers, db):
+    """둘 다 post_id NULL + actor_id 라 **모양이 같다.** kind 가 없으면 화면이 둘을
+    구분할 방법이 없어서, 신청자에게 '눌러서 승인하거나 거절해줘'가 뜬다."""
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+
+    req = db.scalars(select(Notification).where(Notification.user_id == author.id)).all()
+    assert [n.kind for n in req] == ["subscribe_request"]
+
+    client.post(f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author))
+    appr = db.scalars(select(Notification).where(Notification.user_id == reader.id)).all()
+    assert [n.kind for n in appr] == ["subscribe_approved"]

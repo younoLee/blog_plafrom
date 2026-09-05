@@ -442,6 +442,53 @@ def notify_new_comment_push(
     )
 
 
+def notify_subscription_approved_push(subscriber_id: int, author_name: str) -> None:
+    """구독 승인을 **신청자 본인의 기기**로 알린다 (2026-09-04 검사 GAP-3).
+
+    왜 필요한가: 구독은 '신청 → 승인' 구조인데 승인이 나도 신청자에게 아무 신호가
+    없었다. 신청자는 '승인 대기중' 배지가 언제 풀렸는지 알 방법이 없어서 구독 화면을
+    주기적으로 다시 열어봐야 했다 — 08-27에 반대 방향(신청이 글쓴이에게 안 갔다)을
+    고치면서 이쪽이 남았다.
+
+    대상 조건은 새 댓글 알림과 같다 — 알릴 사람이 하나이므로 기기 등록 자체를
+    의사표시로 본다. 기기가 없으면 인앱 종에만 남는다.
+    """
+    if not settings.push_enabled:
+        return
+
+    db = SessionLocal()
+    try:
+        subs = db.execute(
+            select(
+                PushSubscription.id,
+                PushSubscription.endpoint,
+                PushSubscription.p256dh,
+                PushSubscription.auth,
+            )
+            .join(User, User.id == PushSubscription.user_id)
+            .where(
+                PushSubscription.user_id == subscriber_id,
+                # 차단된 계정의 기기로는 안 보낸다(위 둘과 같은 규칙).
+                User.role != BANNED_ROLE,
+            )
+        ).all()
+    finally:
+        db.close()
+
+    _deliver(
+        subs,
+        {
+            "title": f"{author_name}님이 구독을 승인했어",
+            "body": "이제 구독자공개 글을 볼 수 있어",
+            "url": "/blog/subscriptions",
+            # 글쓴이마다 다른 tag — 여러 사람에게 신청해 두고 차례로 승인받으면
+            # 하나로 묶여 앞의 알림이 지워진다.
+            "tag": f"sub-approved-{subscriber_id}",
+        },
+        rotate_key=subscriber_id,
+    )
+
+
 def _selftest_roundtrip() -> bool:
     """암호화 배선이 맞는지 자체 확인 — 가짜 구독자로 봉인했다가 열어본다.
 

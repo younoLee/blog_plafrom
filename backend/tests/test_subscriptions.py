@@ -325,3 +325,63 @@ def test_구독_목록과_구독_가능_판정이_같은_규칙이다(client, ma
     ids = {a["id"] for a in client.get("/api/subscriptions/authors", headers=ah).json()}
     assert pending.id not in ids
     assert client.post("/api/subscriptions", json={"author_id": pending.id}, headers=ah).status_code == 404
+
+
+# ── 내 구독자 목록 (09-04 검사 GAP-4) ────────────────────────────────────────
+#
+# 강제 해지 API 는 08-11부터 있었는데 그걸 부를 화면이 없었다 — 글쓴이는 자기 구독자가
+# 누구인지 볼 수도, 내보낼 수도 없었다. 구독자공개 글을 쓰는 사람에게 '지금 이 글이
+# 누구에게 보이는가'는 발행 전에 알아야 하는 사실이다.
+
+
+def test_구독자_목록은_승인된_사람만_준다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    approved = make_user(role="writer", display_name="승인된이")
+    waiting = make_user(role="writer", display_name="대기중이")
+    for u in (approved, waiting):
+        client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(u))
+    client.post(f"/api/subscriptions/requests/{approved.id}/approve", headers=auth_headers(author))
+
+    rows = client.get("/api/subscriptions/subscribers", headers=auth_headers(author)).json()
+    assert [r["name"] for r in rows] == ["승인된이"]
+
+
+def test_구독자_목록과_신청_목록은_서로_배타적이다(client, make_user, auth_headers):
+    """두 목록이 겹치면 화면에 같은 사람이 '대기중'과 '구독자'로 두 번 뜬다."""
+    author = make_user(role="writer")
+    a = make_user(role="writer")
+    b = make_user(role="writer")
+    for u in (a, b):
+        client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(u))
+    client.post(f"/api/subscriptions/requests/{a.id}/approve", headers=auth_headers(author))
+
+    h = auth_headers(author)
+    subs = {r["id"] for r in client.get("/api/subscriptions/subscribers", headers=h).json()}
+    reqs = {r["id"] for r in client.get("/api/subscriptions/requests", headers=h).json()}
+    assert subs == {a.id}
+    assert reqs == {b.id}
+    assert subs & reqs == set()
+
+
+def test_강제_해지하면_구독자_목록에서_빠진다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+    client.post(f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author))
+
+    client.delete(f"/api/subscriptions/requests/{reader.id}", headers=auth_headers(author))
+    assert client.get("/api/subscriptions/subscribers", headers=auth_headers(author)).json() == []
+
+
+def test_구독자_목록은_로그인해야_보인다(client):
+    assert client.get("/api/subscriptions/subscribers").status_code == 401
+
+
+def test_남의_구독자는_안_보인다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    other = make_user(role="writer")
+    reader = make_user(role="writer")
+    client.post("/api/subscriptions", json={"author_id": author.id}, headers=auth_headers(reader))
+    client.post(f"/api/subscriptions/requests/{reader.id}/approve", headers=auth_headers(author))
+
+    assert client.get("/api/subscriptions/subscribers", headers=auth_headers(other)).json() == []

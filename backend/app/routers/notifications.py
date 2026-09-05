@@ -36,8 +36,15 @@ class NotificationOut(BaseModel):
     # (models/notification.py 참고):
     #   post_id 있음 + comment_id 없음 → 새 글
     #   post_id 있음 + comment_id 있음 → 새 댓글
-    #   post_id 없음                   → 구독 신청
+    #   post_id 없음                   → 아래 kind 가 가른다
     comment_id: int | None = None
+    # **post_id 가 None 일 때만 읽는다.** 글에 안 매인 알림이 둘이 됐다(2026-09-05):
+    #   'subscribe_request'  → 글쓴이가 받는다. 눌러서 승인·거절한다.
+    #   'subscribe_approved' → 신청자가 받는다. 이제 구독자공개 글이 열린다.
+    # 둘은 모양이 완전히 같아서(post_id NULL + actor_id) 이 값 없이는 못 가른다 —
+    # 없으면 신청자에게 '눌러서 승인하거나 거절해줘'가 뜬다.
+    # 옛 행은 NULL 일 수 있다(마이그레이션이 백필하지만, 그 전 응답과의 호환을 위해).
+    kind: str | None = None
 
 
 class NotificationList(BaseModel):
@@ -64,6 +71,9 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             Notification.read,
             Notification.created_at,
             Notification.comment_id,
+            # 글에 안 매인 알림의 종류(신청·승인). 글에 매인 알림에는 NULL 이고 화면도
+            # 그때는 안 읽는다 — models/notification.py 의 예외 규칙 참고.
+            Notification.kind,
             # 댓글 쓴 사람 이름. 익명이면 자유 입력값이고 회원이면 서버가 고정한
             # 표시명이다(routers/comments.py). 어느 쪽이든 이미 화면에 나가는 값이다.
             Comment.author.label("comment_author"),
@@ -112,6 +122,7 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(get_c
             "read": r.read,
             "created_at": r.created_at,
             "comment_id": r.comment_id,
+            "kind": r.kind,
         }
         for r in rows
     ]

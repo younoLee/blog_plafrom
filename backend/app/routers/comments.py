@@ -13,7 +13,7 @@ from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
 from app.routers.posts import can_view, get_post_or_404, subscribed_author_ids
-from app.schemas.comment import CommentCreate, CommentRead
+from app.schemas.comment import CommentCreate, CommentRead, CommentUpdate
 from app.services.push import notify_new_comment_push
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,14 @@ def _site_owner_id(db: Session) -> int | None:
     return owner.id if owner else None
 
 
-def _read(c: Comment, owner_id: int | None, post_owner_id: int) -> CommentRead:
-    """댓글 하나를 응답 모양으로. **배지는 id로만 판정한다**(이름은 안 본다)."""
+def _read(
+    c: Comment, owner_id: int | None, post_owner_id: int, viewer_id: int | None = None
+) -> CommentRead:
+    """댓글 하나를 응답 모양으로. **배지는 id로만 판정한다**(이름은 안 본다).
+
+    `viewer_id` 는 지금 이 응답을 받는 사람이다. `is_mine` 은 그 사람 자신에 대한
+    1비트라 새로 새는 정보가 없다 — 화면이 '내 댓글'에 삭제·수정을 그릴 근거다.
+    """
     return CommentRead(
         id=c.id,
         post_id=c.post_id,
@@ -58,6 +64,7 @@ def _read(c: Comment, owner_id: int | None, post_owner_id: int) -> CommentRead:
         is_member=c.is_member,
         is_owner=c.user_id is not None and c.user_id == owner_id,
         is_author=c.user_id is not None and c.user_id == post_owner_id,
+        is_mine=c.user_id is not None and viewer_id is not None and c.user_id == viewer_id,
     )
 
 
@@ -102,7 +109,8 @@ def list_comments(
             COMMENTS_MAX,
         )
     owner_id = _site_owner_id(db)
-    return [_read(c, owner_id, post.owner_id if post.owner_id else -1) for c in rows]
+    viewer_id = user.id if user else None
+    return [_read(c, owner_id, post.owner_id if post.owner_id else -1, viewer_id) for c in rows]
 
 
 @router.post("", response_model=CommentRead, status_code=201)
@@ -173,7 +181,11 @@ def create_comment(
         )
     # post.owner_id는 NULL일 수 있다(로그인 이전에 쓴 글). 그땐 글쓴이 배지가 붙을
     # 사람이 없으므로 -1을 넘긴다 — 실제 id와 절대 안 맞는 값이다.
-    return _read(comment, _site_owner_id(db), post.owner_id if post.owner_id else -1)
+    # 방금 쓴 사람에게는 `is_mine` 이 참이어야 한다 — 아니면 새로고침 전까지 자기 댓글에
+    # 지우기·고치기가 안 보인다(익명이면 user 가 None 이라 그대로 false 다).
+    return _read(
+        comment, _site_owner_id(db), post.owner_id if post.owner_id else -1, user.id if user else None
+    )
 
 
 @router.delete("/{comment_id}", status_code=204)
@@ -183,12 +195,45 @@ def delete_comment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # 댓글 삭제(모더레이션): 글 작성자 본인 또는 관리자만
+    """댓글 삭제 — 글 작성자·관리자(모더레이션) **또는 본인**.
+
+    본인 삭제는 2026-09-05에 열었다(09-04 검사 GAP-5). 그전까지 회원이 자기 댓글의
+    오타나 실수를 스스로 지울 방법이 없어서, 남의 블로그에 남긴 말을 그 글쓴이에게
+    부탁해야 했다. 익명 댓글은 여전히 못 지운다 — 소유를 증명할 방법이 없고,
+    IP 로 판정하면 같은 공유망의 남의 댓글을 지울 수 있게 된다.
+    """
     post = get_post_or_404(post_id, db)
     comment = db.get(Comment, comment_id)
     if comment is None or comment.post_id != post_id:
         raise HTTPException(status_code=404, detail="댓글을 찾을 수 없음")
-    if post.owner_id != user.id and user.role != "admin":
+    mine = comment.user_id is not None and comment.user_id == user.id
+    if not mine and post.owner_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="댓글 삭제 권한이 없어")
     db.delete(comment)
     db.commit()
+
+
+@router.patch("/{comment_id}", response_model=CommentRead)
+def update_comment(
+    post_id: int,
+    comment_id: int,
+    data: CommentUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """댓글 수정 — **본인만, 내용만.**
+
+    글쓴이·관리자에게는 열지 않는다. 삭제(모더레이션)와 수정은 다른 권한이다 —
+    남의 말을 지우는 것은 '이 글에서 치운다'이지만 남의 말을 고치는 것은 **하지 않은
+    말을 하게 만드는 것**이다. 익명 댓글도 못 고친다(소유를 증명할 방법이 없다).
+    """
+    post = get_post_or_404(post_id, db)
+    comment = db.get(Comment, comment_id)
+    if comment is None or comment.post_id != post_id:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없음")
+    if comment.user_id is None or comment.user_id != user.id:
+        raise HTTPException(status_code=403, detail="내가 쓴 댓글만 고칠 수 있어")
+    comment.content = data.content
+    db.commit()
+    db.refresh(comment)
+    return _read(comment, _site_owner_id(db), post.owner_id if post.owner_id else -1, user.id)

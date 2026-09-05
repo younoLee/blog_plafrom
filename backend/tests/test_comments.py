@@ -179,3 +179,149 @@ def test_delete_comment_wrong_post_is_404(client, make_user, auth_headers):
     ).json()["id"]
     r = client.delete(f"/api/posts/{other}/comments/{cid}", headers=auth_headers(owner))
     assert r.status_code == 404
+
+
+# ── 내 댓글은 내가 지우고 고친다 (09-04 검사 GAP-5) ──────────────────────────
+#
+# 2026-09-05까지 삭제는 글쓴이·관리자만이었다. 회원이 자기 오타를 스스로 못 지워서
+# 남의 블로그에 남긴 말을 그 글쓴이에게 부탁해야 했다 — 댓글은 열려 있는데 회수 경로가
+# 없는 상태다. 익명 댓글은 여전히 못 지운다(소유를 증명할 방법이 없고, IP 로 판정하면
+# 같은 공유망의 남의 댓글을 지울 수 있게 된다).
+
+
+def _post_by(client, headers):
+    return client.post(
+        "/api/posts", headers=headers, json={"title": "T", "content": "C", "visibility": "public"}
+    ).json()
+
+
+def test_회원은_자기_댓글을_지운다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    c = client.post(
+        f"/api/posts/{post['id']}/comments",
+        json={"author": "무시됨", "content": "오타 있음"},
+        headers=auth_headers(reader),
+    ).json()
+
+    r = client.delete(f"/api/posts/{post['id']}/comments/{c['id']}", headers=auth_headers(reader))
+    assert r.status_code == 204
+    assert client.get(f"/api/posts/{post['id']}/comments").json() == []
+
+
+def test_남의_댓글은_못_지운다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    a = make_user(role="writer")
+    b = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    c = client.post(
+        f"/api/posts/{post['id']}/comments", json={"author": "x", "content": "내 말"}, headers=auth_headers(a)
+    ).json()
+
+    assert client.delete(
+        f"/api/posts/{post['id']}/comments/{c['id']}", headers=auth_headers(b)
+    ).status_code == 403
+
+
+def test_글쓴이의_모더레이션은_그대로다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    c = client.post(
+        f"/api/posts/{post['id']}/comments", json={"author": "x", "content": "도배"}, headers=auth_headers(reader)
+    ).json()
+
+    assert client.delete(
+        f"/api/posts/{post['id']}/comments/{c['id']}", headers=auth_headers(author)
+    ).status_code == 204
+
+
+def test_익명_댓글은_로그인해도_못_지운다(client, make_user, auth_headers):
+    """소유를 증명할 방법이 없다. '아무 회원이나 지울 수 있다'로 새면 안 된다."""
+    author = make_user(role="writer")
+    other = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    c = client.post(
+        f"/api/posts/{post['id']}/comments", json={"author": "손님", "content": "익명"}
+    ).json()
+
+    assert client.delete(
+        f"/api/posts/{post['id']}/comments/{c['id']}", headers=auth_headers(other)
+    ).status_code == 403
+
+
+def test_내_댓글은_내용만_고친다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer", display_name="읽는이")
+    post = _post_by(client, auth_headers(author))
+    c = client.post(
+        f"/api/posts/{post['id']}/comments", json={"author": "x", "content": "오타"}, headers=auth_headers(reader)
+    ).json()
+
+    r = client.patch(
+        f"/api/posts/{post['id']}/comments/{c['id']}",
+        json={"content": "고쳤다"},
+        headers=auth_headers(reader),
+    )
+    assert r.status_code == 200
+    assert r.json()["content"] == "고쳤다"
+    assert r.json()["author"] == "읽는이"  # 작성자명은 서버가 고정한 값 그대로
+    assert r.json()["created_at"] == c["created_at"]  # 시각도 안 바뀐다
+
+
+def test_글쓴이도_남의_댓글은_못_고친다(client, make_user, auth_headers):
+    """지우는 것과 고치는 것은 다른 권한이다 — 고치기는 '하지 않은 말을 하게 만드는 것'이다."""
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    c = client.post(
+        f"/api/posts/{post['id']}/comments", json={"author": "x", "content": "원문"}, headers=auth_headers(reader)
+    ).json()
+
+    assert client.patch(
+        f"/api/posts/{post['id']}/comments/{c['id']}",
+        json={"content": "바꿔치기"},
+        headers=auth_headers(author),
+    ).status_code == 403
+
+
+def test_익명_댓글은_아무도_못_고친다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    c = client.post(f"/api/posts/{post['id']}/comments", json={"author": "손님", "content": "익명"}).json()
+
+    assert client.patch(
+        f"/api/posts/{post['id']}/comments/{c['id']}",
+        json={"content": "x"},
+        headers=auth_headers(author),
+    ).status_code == 403
+
+
+def test_is_mine은_보는_사람_기준이다(client, make_user, auth_headers):
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    client.post(
+        f"/api/posts/{post['id']}/comments", json={"author": "x", "content": "내 말"}, headers=auth_headers(reader)
+    )
+
+    mine = client.get(f"/api/posts/{post['id']}/comments", headers=auth_headers(reader)).json()[0]
+    theirs = client.get(f"/api/posts/{post['id']}/comments", headers=auth_headers(author)).json()[0]
+    anon = client.get(f"/api/posts/{post['id']}/comments").json()[0]
+    assert mine["is_mine"] is True
+    assert theirs["is_mine"] is False
+    assert anon["is_mine"] is False
+
+
+def test_방금_쓴_댓글의_응답에도_is_mine이_붙는다(client, make_user, auth_headers):
+    """안 붙으면 새로고침 전까지 자기 댓글에 지우기·고치기가 안 보인다."""
+    author = make_user(role="writer")
+    reader = make_user(role="writer")
+    post = _post_by(client, auth_headers(author))
+    r = client.post(
+        f"/api/posts/{post['id']}/comments", json={"author": "x", "content": "방금"}, headers=auth_headers(reader)
+    )
+    assert r.json()["is_mine"] is True
+    anon = client.post(f"/api/posts/{post['id']}/comments", json={"author": "손님", "content": "익명"})
+    assert anon.json()["is_mine"] is False

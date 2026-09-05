@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -9,8 +9,13 @@ from app.core.deps import get_current_user
 from app.core.display import display_name_of
 from app.core.ratelimit import limiter
 from app.models.author_subscription import AuthorSubscription
-from app.models.notification import Notification
+from app.models.notification import (
+    NOTIFY_SUBSCRIBE_APPROVED,
+    NOTIFY_SUBSCRIBE_REQUEST,
+    Notification,
+)
 from app.models.user import PUBLIC_BLOG_ROLES, User
+from app.services.push import notify_subscription_approved_push
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
@@ -187,7 +192,11 @@ def subscribe(
         # **같은 트랜잭션에 넣는다.** 아래 IntegrityError 로 롤백되면 알림도 같이
         # 사라져야 한다 — 신청이 안 만들어졌는데 "신청이 왔어"가 남으면 글쓴이는
         # 승인할 대상이 없는 알림을 보게 된다.
-        db.add(Notification(user_id=data.author_id, actor_id=user.id))
+        db.add(
+            Notification(
+                user_id=data.author_id, actor_id=user.id, kind=NOTIFY_SUBSCRIBE_REQUEST
+            )
+        )
         try:
             db.commit()
         except IntegrityError:  # 동시 중복 신청 레이스(유니크 충돌) — 500 대신 멱등으로 흡수
@@ -254,6 +263,30 @@ class RequestOut(BaseModel):
     name: str
 
 
+@router.get("/subscribers", response_model=list[RequestOut])
+def my_subscribers(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """나를 **구독 중인**(승인된) 사람 목록.
+
+    **왜 필요한가 (2026-09-04 검사 GAP-4)** — 강제 해지 API 는 08-11부터 있었는데
+    (`DELETE /subscriptions/requests/{id}` 가 승인된 관계도 지운다) 그걸 부를 화면이
+    없었다. 즉 글쓴이는 **자기 구독자가 누구인지 볼 수도, 내보낼 수도 없었다.**
+    구독자공개 글을 쓰는 사람에게 '지금 이 글이 누구에게 보이는가'는 발행 전에
+    알아야 하는 사실이다.
+
+    위 `my_requests` 와 짝이다 — 저쪽은 approved=False(대기), 이쪽은 True(구독 중).
+    """
+    rows = db.execute(
+        select(User.id, User.display_name)
+        .join(AuthorSubscription, AuthorSubscription.subscriber_id == User.id)
+        .where(
+            AuthorSubscription.author_id == user.id,
+            AuthorSubscription.approved.is_(True),
+        )
+        .order_by(AuthorSubscription.created_at)
+    ).all()
+    return [{"id": r.id, "name": display_name_of(r.id, r.display_name)} for r in rows]
+
+
 @router.get("/requests", response_model=list[RequestOut])
 def my_requests(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     # 나(글쓴이)에게 온 '승인 대기' 구독 신청 목록
@@ -287,16 +320,36 @@ def _subscription(db: Session, author_id: int, subscriber_id: int) -> AuthorSubs
 
 @router.post("/requests/{subscriber_id}/approve", status_code=204)
 def approve_request(
-    subscriber_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    subscriber_id: int,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    # 내 글에 대한 구독 신청 승인 (author = 나)
+    """내 글에 대한 구독 신청 승인 (author = 나).
+
+    **승인은 신청자에게 알린다** (2026-09-04 검사 GAP-3). 08-27에 반대 방향(신청이
+    글쓴이에게 아무 신호도 못 냈다)을 고치면서 이쪽이 남아 있었다 — 신청자는
+    '승인 대기중' 배지가 언제 풀렸는지 알 방법이 없어 구독 화면을 주기적으로 다시
+    열어봐야 했다. 구독자공개 글은 그동안 안 열린 채로 있다.
+    """
     sub = _subscription(db, user.id, subscriber_id)
     if sub is None:
         raise HTTPException(status_code=404, detail="구독 신청을 찾을 수 없어")
+    if sub.approved:
+        return  # 이미 승인됨 — 알림을 또 만들지 않는다(멱등)
     sub.approved = True
     # 승인했으면 '승인하거나 거절해줘' 줄은 할 일을 다했다.
     _drop_request_notification(db, user.id, subscriber_id)
+    # 인앱 알림은 **같은 커밋**에 실린다(신청 알림과 같은 방침).
+    db.add(
+        Notification(
+            user_id=subscriber_id, actor_id=user.id, kind=NOTIFY_SUBSCRIBE_APPROVED
+        )
+    )
+    author_name = display_name_of(user.id, user.display_name)
     db.commit()
+    # 푸시는 백그라운드 — 발송이 느리거나 실패해도 승인 응답을 막지 않는다.
+    background.add_task(notify_subscription_approved_push, subscriber_id, author_name)
 
 
 @router.delete("/requests/{subscriber_id}", status_code=204)
