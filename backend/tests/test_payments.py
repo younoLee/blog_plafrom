@@ -488,3 +488,80 @@ def test_pro_within_period_keeps_premium_models(client, make_user, auth_headers,
     ids = [m["id"] for m in client.get("/api/ai/models", headers=auth_headers(user)).json()["models"]]
     assert "claude-opus-4-8" in ids
     assert db.get(User, user.id).is_pro is True
+
+
+# ── 게이트웨이가 아플 때: '거절'이 아니라 '모름' ──────────────────────────────
+#
+# payments.py:185-192 가 2026-08-26 카오스 훈련의 결론을 길게 적어뒀다. 5xx 를 400 +
+# failed 로 굳히면 두 가지가 동시에 어긋난다. 사용자는 "내 카드가 거절됐다"를 보고
+# (프론트의 절전 판정은 502/503/504 만 일시적 장애로 접는다), 장부에는 토스가 판단한
+# 적도 없는 failed 가 남는다. 돈 경로에서 원인을 정반대로 알려주는 셈이다.
+#
+# ⚠️ **그런데 그 분기에 시험이 0건이었다**(2026-09-04 검사 BQ-4). coverage 의 미커버
+# 라인에 그 raise 가 그대로 있었다. `>= 500` 을 `> 500` 으로 바꾸거나 분기를 통째로
+# 지워도 전 스위트가 초록이었다는 뜻이다. 여기서 그 자리를 잠근다.
+
+
+@pytest.mark.parametrize("code", [500, 502, 503])
+def test_confirm_gateway_5xx_is_not_a_rejection(
+    client, make_user, auth_headers, toss, db, code
+):
+    """토스가 5xx 면 502 를 내고 장부를 failed 로 굳히지 않는다."""
+    user = make_user(role="writer")
+    order = _checkout(client, auth_headers(user))
+    toss.configure(status_code=code, body={})
+
+    r = client.post(
+        "/api/payments/confirm",
+        headers=auth_headers(user),
+        json={"payment_key": "pk", "order_id": order["order_id"], "amount": 9900},
+    )
+
+    assert r.status_code == 502, "5xx 를 400(거절)으로 내면 사용자가 원인을 반대로 안다"
+    p = _payment(db, order["order_id"])
+    assert p.status == "confirming", "토스가 판단한 적 없는데 failed 로 굳었다"
+    assert db.get(User, user.id).is_pro is False
+
+
+def test_confirm_gateway_5xx_message_points_at_the_gateway(
+    client, make_user, auth_headers, toss
+):
+    """문구도 '카드가 거절됐다'가 아니어야 한다 — 사용자가 할 일은 재시도다."""
+    user = make_user(role="writer")
+    order = _checkout(client, auth_headers(user))
+    toss.configure(status_code=503, body={})
+
+    r = client.post(
+        "/api/payments/confirm",
+        headers=auth_headers(user),
+        json={"payment_key": "pk", "order_id": order["order_id"], "amount": 9900},
+    )
+    detail = r.json()["detail"]
+    assert "거절" not in detail, detail
+    assert "다시" in detail, detail
+
+
+def test_lookup_failure_after_duplicate_leaves_order_confirming(
+    client, make_user, auth_headers, toss, db
+):
+    """중복 승인 뒤 **주문조회마저 실패**하면 confirming 으로 남긴다.
+
+    토스가 ALREADY_PROCESSED_PAYMENT(400)를 주면 우리는 주문번호로 실제 상태를
+    되묻는다. 그 조회가 비200이면 결과를 모르는 것이므로 failed 로 굳히면 안 된다 —
+    '돈은 나갔는데 Pro 는 안 열린' 상태가 영구화된다. payments.py:215-217 도
+    미커버였다(2026-09-04 검사 BQ-4).
+    """
+    user = make_user(role="writer")
+    order = _checkout(client, auth_headers(user))
+    toss.configure(status_code=400, body={"code": "ALREADY_PROCESSED_PAYMENT"})
+    toss.configure_lookup(status_code=500, body={})
+
+    r = client.post(
+        "/api/payments/confirm",
+        headers=auth_headers(user),
+        json={"payment_key": "pk", "order_id": order["order_id"], "amount": 9900},
+    )
+
+    assert r.status_code == 502
+    assert _payment(db, order["order_id"]).status == "confirming"
+    assert db.get(User, user.id).is_pro is False
