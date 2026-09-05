@@ -129,6 +129,14 @@ function WritePostPage() {
   // 그러면 저장이 끝났는데 다음 방문에 "쓰다 만 글이 있어" 배너가 뜬다.
   // 두 자리 모두 곧바로 navigate하므로 다시 false로 돌릴 일은 없다.
   const discarded = useRef(false)
+  // 서버 원본으로 폼을 채우는 것이 아직 유효한가.
+  //
+  // ⚠️ **수정 모드의 getPost 응답이 사용자가 이미 넣은 내용을 덮어썼다**(2026-09-04 검사 FE-7).
+  // 복구 배너는 진입 즉시 뜨는데(위 recovered 는 동기로 읽는다) getPost 는 절전 상한
+  // 8초까지 걸릴 수 있다. 그 사이 '이어서 쓰기'를 눌렀거나 몇 글자 고쳤으면, 늦게 온
+  // 응답이 그걸 소리 없이 서버 본문으로 되돌린다. 사용자가 잃는 것이 자기가 쓴 글이라
+  // 조용히 넘어가면 안 되는 자리다.
+  const formTouched = useRef(false)
 
   // AI 초안 생성용
   const [memo, setMemo] = useState('')
@@ -217,8 +225,15 @@ function WritePostPage() {
   // 수정 모드면 기존 글 불러와 폼에 채움
   useEffect(() => {
     if (editingId === null) return
+    // 이 요청이 아직 유효한가. 언마운트되거나 editingId 가 바뀌면 응답을 버린다.
+    // 같은 파일의 다른 자리가 이미 이 규약을 쓴다(PostDetailPage 의 alive 주석 참고).
+    let alive = true
     getPost(editingId)
       .then((p) => {
+        // **늦게 온 응답이 사람이 쓴 것을 덮지 않는다.** formTouched 는 복구 배너의
+        // '이어서 쓰기'와 입력칸이 세운다. 서버 원본을 버리는 대신, 사용자가 원하면
+        // 다시 불러올 수 있게 안내만 남긴다.
+        if (!alive || formTouched.current) return
         setTitle(p.title)
         setContent(p.content)
         setCoverImage(p.cover_image ?? '')
@@ -235,7 +250,12 @@ function WritePostPage() {
           visibility: p.visibility,
         })
       })
-      .catch((e) => setError((e as Error).message))
+      .catch((e) => {
+        if (alive) setError((e as Error).message)
+      })
+    return () => {
+      alive = false
+    }
   }, [editingId])
 
   // alt 를 파일 이름으로 채운다(2026-08-31). 예전에는 `![](url)` 로 **항상 빈 값**이라
@@ -482,6 +502,8 @@ function WritePostPage() {
                 // 불러온 뒤에는 서버 지문을 지운다. 안 그러면 수정 모드에서 '원본과 같다'는
                 // 판정에 걸려 불러온 내용이 다시 임시보관되지 않는다.
                 serverSnapshot.current = null
+                // 아직 안 온 getPost 응답이 이걸 덮지 못하게 한다(FE-7).
+                formTouched.current = true
                 setRecovered(null)
               }}
             >
@@ -629,7 +651,7 @@ function WritePostPage() {
           placeholder="제목"
           aria-label="제목"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => { formTouched.current = true; setTitle(e.target.value) }}
           className={`${input} text-lg`}
         />
         {/* 커버(대표) 이미지: 홈 목록 카드 썸네일 + 글 상단에 크게 노출 */}
@@ -659,7 +681,7 @@ function WritePostPage() {
           <input
             id="series-input"
             value={series}
-            onChange={(e) => setSeries(e.target.value)}
+            onChange={(e) => { formTouched.current = true; setSeries(e.target.value) }}
             maxLength={100}
             placeholder="예: 블로그 만들기"
             className={ui.input}
@@ -739,7 +761,7 @@ function WritePostPage() {
             placeholder="내용 (위 버튼으로 꾸미거나 마크다운 직접 입력. 이미지는 붙여넣거나 끌어다 놓으면 커서 자리에 들어가)"
             rows={14}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => { formTouched.current = true; setContent(e.target.value) }}
             // **이미지가 아닌 붙여넣기는 기본 동작을 막지 않는다.** 글 쓰는 칸에서
             // 가장 흔한 붙여넣기는 그냥 텍스트라, 여기서 preventDefault 를 먼저 부르면
             // 평범한 복사·붙여넣기가 통째로 죽는다. 이미지가 있을 때만 가로챈다.

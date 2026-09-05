@@ -68,6 +68,10 @@ IP의 흔한 누출 형태를 통과), BQ-10(alembic check 가 server_default �
 
 ### BE-1 · 푸시 발송 결과 ok가 HTTP 4xx/5xx 응답도 '성공'으로 센다
 
+> ✅ **2026-09-05에 고쳤다.** `PushFailed` 예외를 만들어 4xx·5xx 거절을 성공과 갈랐고,
+> 발송 기록에 `failed` 를 담아 관리자 화면이 '실패 N대'를 그린다. 시도 전부가 실패면
+> 서버 쪽(VAPID 키 불일치)을 보라는 안내도 붙였다. 테스트 2개로 잠갔다.
+
 `backend/app/services/push.py:573` — 백엔드 정확성 · correctness
 
 send_push는 404/410만 PushGone으로 던지고 그 외 4xx/5xx는 로그만 남기고 정상 반환한다. _deliver는 예외가 없으면 ok += 1 하므로 401·403·400·413·429·5xx 전부가 성공으로 집계되고, 관리자 화면이 그 값을 'N대 성공'(초록)으로 보여준다.
@@ -166,6 +170,10 @@ fetchAuthors는 !res.ok면 []를 주고 페이지도 catch에서 []로 접는다
 
 ### FE-7 · 수정 모드에서 늦게 온 getPost 응답이 복구한 초안·입력 중인 내용을 덮어쓴다
 
+> ✅ **2026-09-05에 고쳤다.** `alive` 취소 플래그와 `formTouched` 를 넣어, 사용자가
+> '이어서 쓰기'를 눌렀거나 입력칸을 건드린 뒤에는 늦게 온 응답이 폼을 덮지 않는다.
+> 가드를 빼면 새 테스트가 실패하는 것까지 확인했다.
+
 `frontend/src/pages/WritePostPage.tsx:220` — 프론트 정확성 · correctness
 
 복구 배너는 마운트 즉시 뜨고 getPost는 차가운 서버에서 8초까지 걸린다. 그 사이 '이어서 쓰기'를 누르거나 타이핑하면, 응답 도착 시 setTitle/setContent가 서버 본문으로 통째로 갈아끼운다. 언마운트 가드도 없다.
@@ -177,6 +185,11 @@ fetchAuthors는 !res.ok면 []를 주고 페이지도 catch에서 []로 접는다
 **검증** (medium) WritePostPage:218-238의 getPost 응답이 dirty·serverSnapshot=null 검사 없이 6개 필드를 덮고 alive 가드도 없으며, 복구 배너는 :122에서 동기로 먼저 뜨고 getPost는 8초까지 걸릴 수 있어 '이어서 쓰기'를 누른 내용이 화면에서 소리 없이 서버 본문으로 되돌아간다.
 
 ### OPS-3 · 감시 7절(프론트 최신 여부)이 content/about.md·content/infra.json 변경을 못 본다
+
+> ✅ **2026-09-05에 고쳤다.** pathspec 을 `content/devlog/` 에서 `content/` 로 넓혔다.
+> 하위 파일을 하나씩 적는 한 새 파일이 생길 때마다 같은 구멍이 다시 열리기 때문이다.
+> 실제 히스토리로 확인했다 — `fc3d36c`(infra.json 단독)와 `1151d4d`(about.md 단독)가
+> 옛 규칙에서 0, 새 규칙에서 1로 잡힌다.
 
 `scripts/watch.sh:839` — 운영(스크립트·terraform·CI) · ops
 

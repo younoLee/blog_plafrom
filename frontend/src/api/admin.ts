@@ -148,6 +148,11 @@ export interface InfraStatus {
     targets: number // 보낼 대상이던 기기 수
     tried: number // 실제로 시도한 수 (예산에 걸리면 targets보다 작다)
     ok: number // 성공한 수. tried와 다르면 벤더 쪽이 아프다
+    // 벤더가 거절한 수(401·429·5xx 등). 구독은 멀쩡하므로 지우지 않는다.
+    // 2026-09-05 이전에는 이 갈래가 **ok로 세어졌다** — 전 기기가 401을 받아도
+    // 화면이 "N대 성공" 초록이었다(2026-09-04 검사 BE-1). 옛 서버가 이 필드를
+    // 안 보낼 수 있으므로 선택 필드로 둔다.
+    failed?: number
     gone: number // 만료로 정리된 구독 수
     budget_hit: boolean // 45초 예산에 걸려 남은 기기를 버렸는가
   } | null

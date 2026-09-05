@@ -702,3 +702,87 @@ def test_deliver_does_not_count_a_failed_send_as_delivered(monkeypatch, caplog):
     # 전부 실패했으므로 '성공'을 주장하는 문구가 없어야 한다.
     # (예산 안에 끝났으니 중단 로그 자체는 안 뜬다 — 예외 로그만 남는다)
     assert "성공 3대" not in caplog.text
+
+
+def test_vendor_rejection_is_not_counted_as_success(monkeypatch):
+    """4xx·5xx 거절을 '성공'으로 세지 않는다.
+
+    ⚠️ **2026-09-05까지 셌다.** `send_push` 가 404/410 외의 거절을 로그만 남기고
+    정상 반환해서 호출부의 `ok += 1` 이 그대로 돌았다. VAPID 키가 어긋나 전 기기가
+    401을 받는 상황에서도 관리자 화면은 "3대 중 3대 성공"이라는 초록 거짓말을 했다.
+    그 화면의 존재 이유가 '지금 알림이 나가고 있나'인데 안 나갈 때 초록이면
+    화면이 없는 것만 못하다(2026-09-04 검사 BE-1).
+
+    여기서는 send_push 를 가짜로 바꾸지 않고 **HTTP 응답만 401로 만든다.** 가짜로
+    바꾸면 이 결함이 사는 자리(응답 코드 → 예외 여부 판단)를 통째로 건너뛴다.
+    """
+    from app.services import push as push_svc
+
+    class _Res:
+        status_code = 401
+        text = "VAPID credential mismatch"
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, *a, **kw):
+            return _Res()
+
+    monkeypatch.setattr(push_svc.httpx, "Client", _Client)
+    monkeypatch.setattr(push_svc, "_encrypt", lambda *a, **kw: b"x")
+    monkeypatch.setattr(push_svc, "_vapid_headers", lambda endpoint: {})
+
+    with pytest.raises(push_svc.PushFailed):
+        push_svc.send_push(
+            "https://fcm.googleapis.com/fcm/send/x", FAKE["p256dh"], FAKE["auth"], {"a": 1}
+        )
+
+
+def test_delivery_record_counts_failures_separately(
+    client, make_user, auth_headers, db, monkeypatch
+):
+    """관리자 화면이 읽는 기록에 실패 대수가 남는다.
+
+    `ok` 만 있고 `failed` 가 없던 동안 화면은 `ok < tried` 로만 실패를 알았는데,
+    거절이 성공으로 세어지고 있었으므로 그 조건이 참이 되는 일이 거의 없었다.
+    """
+    from app.models.author_subscription import AuthorSubscription
+    from app.services import push as push_svc
+
+    author = make_user(role="writer")
+    sub_user = make_user(role="pending")
+    db.add(
+        AuthorSubscription(
+            subscriber_id=sub_user.id, author_id=author.id, approved=True, notify=True
+        )
+    )
+    db.commit()
+    base = "https://fcm.googleapis.com/fcm/send/"
+    for name in ("gone", "rejected", "ok"):
+        _sub(client, auth_headers(sub_user), base + name)
+
+    def fake_send(endpoint, p256dh, auth, data):
+        if endpoint.endswith("gone"):
+            raise push_svc.PushGone("410")
+        if endpoint.endswith("rejected"):
+            raise push_svc.PushFailed("fcm.googleapis.com 401")
+
+    monkeypatch.setattr(push_svc, "send_push", fake_send)
+    monkeypatch.setattr(push_svc, "SessionLocal", lambda: _KeepOpen(db))
+    push_svc.notify_new_post_push(1, "새 글", author.id)
+
+    rec = push_svc.last_delivery()
+    assert rec is not None
+    assert rec["tried"] == 3
+    assert rec["ok"] == 1, "거절당한 기기가 성공으로 세어졌다"
+    assert rec["failed"] == 1
+    assert rec["gone"] == 1
+    # 셋을 합치면 시도 수가 된다 — 어느 갈래로도 안 세어지는 기기가 없어야 한다
+    assert rec["ok"] + rec["failed"] + rec["gone"] == rec["tried"]

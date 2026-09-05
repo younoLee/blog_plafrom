@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import WritePostPage from './WritePostPage'
 import { AuthContext, type AuthState } from '../auth/auth-context'
 
@@ -29,8 +29,9 @@ vi.mock('../api/ai', () => ({
   fetchKeys: async () => [],
   fetchUsage: async () => null,
 }))
+const getPostMock = vi.fn<(...a: unknown[]) => Promise<unknown>>(async () => null)
 vi.mock('../api/posts', () => ({
-  getPost: async () => null,
+  getPost: (...a: unknown[]) => getPostMock(...a),
   createPost: async () => ({ id: 1 }),
   updatePost: async () => ({ id: 1 }),
 }))
@@ -83,6 +84,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  getPostMock.mockReset()
+  getPostMock.mockResolvedValue(null)
   act(() => root.unmount())
   container.remove()
   vi.unstubAllGlobals()
@@ -143,5 +146,101 @@ describe('글쓰기 — 이미지 붙여넣기·드롭', () => {
     })
 
     expect(container.textContent).toContain('이미지가 너무 커')
+  })
+})
+
+/**
+ * **늦게 온 서버 응답이 사람이 쓴 것을 덮지 않는다** (2026-09-04 검사 FE-7).
+ *
+ * 수정 모드에서 복구 배너는 진입 즉시 뜬다(초안을 동기로 읽는다). 그런데 `getPost` 는
+ * 절전 상한 8초까지 걸릴 수 있어서, 그 사이 '이어서 쓰기'를 누르거나 몇 글자 고치면
+ * 늦게 온 응답이 그걸 소리 없이 서버 본문으로 되돌렸다. 사용자가 잃는 것이 자기가
+ * 쓴 글이라 조용히 넘어가면 안 되는 자리다.
+ */
+describe('글쓰기 — 수정 모드의 늦은 응답', () => {
+  async function mountEditing() {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/write/5']}>
+          <AuthContext.Provider value={WRITER}>
+            <Routes>
+              <Route path="/write/:id" element={<WritePostPage />} />
+            </Routes>
+          </AuthContext.Provider>
+        </MemoryRouter>,
+      )
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  const clickText = (label: string) => {
+    const btn = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === label,
+    )
+    if (!btn) throw new Error(`버튼을 못 찾았다: ${label}`)
+    act(() => btn.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  }
+
+  it('복구한 초안을 늦게 온 getPost 가 덮지 않는다', async () => {
+    localStorage.setItem(
+      'draft:post:5',
+      JSON.stringify({
+        title: '내가 쓰던 제목',
+        content: '내가 쓰던 본문',
+        coverImage: '',
+        tags: [],
+        series: '',
+        visibility: 'public',
+        savedAt: Date.now(),
+      }),
+    )
+    // 아직 응답이 안 온 상태로 둔다
+    let resolveGet: (v: unknown) => void = () => {}
+    getPostMock.mockImplementation(
+      () => new Promise<unknown>((r) => { resolveGet = r }),
+    )
+
+    await mountEditing()
+    clickText('이어서 쓰기')
+    expect(body().value).toBe('내가 쓰던 본문')
+
+    // 이제서야 서버 응답이 도착한다
+    await act(async () => {
+      resolveGet({
+        title: '서버에 저장된 제목',
+        content: '서버에 저장된 본문',
+        cover_image: null,
+        tags: [],
+        series: null,
+        visibility: 'public',
+      })
+      await Promise.resolve()
+    })
+
+    expect(body().value).toBe('내가 쓰던 본문')
+  })
+
+  it('아무것도 안 건드렸으면 서버 원본으로 채운다 — 정상 경로는 그대로다', async () => {
+    let resolveGet: (v: unknown) => void = () => {}
+    getPostMock.mockImplementation(
+      () => new Promise<unknown>((r) => { resolveGet = r }),
+    )
+
+    await mountEditing()
+    await act(async () => {
+      resolveGet({
+        title: '서버에 저장된 제목',
+        content: '서버에 저장된 본문',
+        cover_image: null,
+        tags: [],
+        series: null,
+        visibility: 'public',
+      })
+      await Promise.resolve()
+    })
+
+    expect(body().value).toBe('서버에 저장된 본문')
   })
 })

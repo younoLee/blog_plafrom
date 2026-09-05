@@ -129,6 +129,23 @@ class PushGone(Exception):
     흔들릴 때 멀쩡한 구독을 전부 지워버린다."""
 
 
+class PushFailed(Exception):
+    """벤더가 4xx·5xx로 거절했다 — 이 기기는 **못 받았다**.
+
+    ⚠️ **2026-09-05까지 이 예외가 없었다.** `send_push` 가 404/410 외의 4xx·5xx를
+    로그만 남기고 정상 반환해서, 호출부의 `ok += 1` 이 그대로 돌았다. 그래서
+    VAPID 키가 어긋나 전 기기가 401을 받는 상황에서도 관리자 화면이 "3대 중 3대
+    성공"이라는 **초록 거짓말**을 했다. 그 화면의 존재 이유가 정확히 '지금 알림이
+    나가고 있나'인데, 안 나갈 때 초록이면 화면이 없는 것만 못하다.
+
+    바로 위 `_deliver` 의 주석이 "시도와 성공을 가른다"고 적어둔 그 구분이 실제로는
+    예외가 난 경우에만 서 있었다 — 08-27에 그 자리를 고치면서 예외 갈래만 봤고
+    '거절당했지만 예외는 아닌' 갈래가 남았다(2026-09-04 검사 BE-1).
+
+    PushGone 과 다른 이유: 이건 지우면 안 된다. 401은 서버 키 문제이고 429·5xx는
+    벤더 사정이라, 구독은 멀쩡한데 이번에 못 보낸 것뿐이다."""
+
+
 def _b64url_decode(value: str) -> bytes:
     """브라우저가 주는 키는 패딩 없는 base64url이다 — 붙여서 디코드한다."""
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
@@ -170,8 +187,12 @@ def send_push(endpoint: str, p256dh: str, auth: str, data: dict) -> None:
 
     실패는 두 갈래다:
       - 404/410 → 구독이 영구 무효 → `PushGone` (호출부가 지운다)
-      - 그 외    → 일시적일 수 있으므로 로그만 남기고 삼킨다. 알림 하나 때문에
-                   글 발행 요청이 실패하면 안 된다.
+      - 그 외 4xx·5xx → 이번에 못 보냈다 → `PushFailed` (호출부가 실패로 센다)
+
+    둘 다 예외로 올린다. 예전엔 뒤쪽을 로그만 남기고 정상 반환했는데, 그러면
+    호출부가 성공으로 세서 "N대 성공"이 거짓이 됐다(PushFailed 주석 참고).
+    호출부(`_deliver`)가 둘 다 잡으므로 **알림 하나 때문에 글 발행이 실패하지는
+    않는다** — 그 방침은 그대로다.
     """
     # 등록 시점에도 막지만 여기서 한 번 더 본다 — 이 검사가 생기기 전에 들어온 행,
     # 또는 DB를 직접 만져 넣은 행이 그대로 나가면 안 된다.
@@ -200,6 +221,7 @@ def send_push(endpoint: str, p256dh: str, auth: str, data: dict) -> None:
         logger.warning(
             "푸시 발송 실패 %s: %s %s", origin, res.status_code, res.text[:200]
         )
+        raise PushFailed(f"{origin} {res.status_code}")
 
 
 def notify_new_post_push(post_id: int, post_title: str, author_id: int) -> None:
@@ -309,6 +331,7 @@ def _deliver(
     # 수신은 0대다 — 08-27 훈련에서 그 로그를 근거로 정반대 결론이 날 뻔했다.
     tried = 0
     ok = 0
+    failed = 0  # 벤더가 거절했거나 예외가 난 기기 수. tried - ok - gone 과 같다.
     for sub_id, endpoint, p256dh, auth in subs:
         if time.monotonic() > deadline:
             # 예산을 넘기면 남은 기기를 버린다. 알림 몇 개를 못 보내는 것보다
@@ -327,8 +350,12 @@ def _deliver(
             ok += 1
         except PushGone:
             dead.append(sub_id)
+        except PushFailed:
+            # 벤더가 거절했다. 구독은 멀쩡하므로 지우지 않고 실패로만 센다.
+            failed += 1
         except Exception:
             # 한 기기 실패가 나머지 발송을 막지 않게(email.py와 같은 방침)
+            failed += 1
             logger.exception("푸시 발송 중 예외")
 
     # 결과를 남긴다. 관리자 화면이 이걸 읽는다(위 _last_delivery 주석).
@@ -343,6 +370,9 @@ def _deliver(
         "targets": len(subs),
         "tried": tried,
         "ok": ok,
+        # 거절당한 기기 수. 이 값이 없던 동안 화면은 `ok < tried` 로만 실패를 알았는데,
+        # 거절이 성공으로 세어지고 있었으므로 그 조건이 참이 되는 일이 거의 없었다.
+        "failed": failed,
         "gone": len(dead),
         "budget_hit": tried < len(subs),
     }

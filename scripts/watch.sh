@@ -834,9 +834,18 @@ elif ! git cat-file -e "${deployed}^{commit}" 2>/dev/null; then
 else
   # dist에 영향을 주는 경로만 본다. 프론트 테스트·마크다운은 산출물에 안 들어가므로
   # 빼지 않으면 "테스트만 고쳤는데 배포하라"는 오탐이 상시로 뜬다.
-  # content/devlog/ 를 포함하는 이유: 개발일지 정적 아카이브의 **원본**이 거기다.
+  #
+  # ⚠️ **2026-09-05까지 `content/devlog/` 만 봤다.** 그런데 gen-static.mjs 는 그 밖에도
+  # `content/about.md`(소개 페이지 + /about.md 원문)와 `content/infra.json`(인프라 페이지)을
+  # 읽는다. 둘 중 하나만 고친 커밋이 실제로 히스토리에 있고, 그 상태에서 이 검사는
+  # "✅ 프론트 최신"이라는 **거짓 사실**을 찍었다(2026-09-04 검사 OPS-3).
+  #
+  # 그래서 목록을 `content/` 전체로 넓힌다. 하위 파일을 하나씩 적는 한 새 파일이
+  # 생길 때마다 같은 구멍이 다시 열린다 — 이 저장소가 watch.yml 의 bash -n 에서
+  # 두 번 겪고 "대상을 디렉터리 목록으로 두는 한 반복된다"고 적어둔 그 모양이다.
+  # 지금 content/ 아래는 about.md · infra.json · devlog/ 셋뿐이고 셋 다 생성기가 읽는다.
   behind=$(git rev-list --count "$deployed..HEAD" -- \
-    frontend/ content/devlog/ \
+    frontend/ content/ \
     ':!frontend/**/*.test.ts' ':!frontend/**/*.test.tsx' ':!frontend/*.md' 2>/dev/null || echo "?")
   if [ "$behind" = "?" ]; then
     warn "프론트 변경분을 세지 못했다(git rev-list 실패)."
@@ -846,7 +855,7 @@ else
     warn "프론트가 $behind 커밋 뒤처져 있다 (배포 ${deployed:0:7} → HEAD $(git rev-parse --short HEAD))."
     echo "       Actions → '배포' → Run workflow 를 눌러야 나간다. 안 누르면 영원히 옛것이 뜬다."
     git log --oneline "$deployed..HEAD" -- \
-      frontend/ content/devlog/ \
+      frontend/ content/ \
       ':!frontend/**/*.test.ts' ':!frontend/**/*.test.tsx' ':!frontend/*.md' 2>/dev/null \
       | head -10 | sed 's/^/       /'
   fi

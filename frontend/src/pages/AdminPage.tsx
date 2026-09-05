@@ -555,8 +555,26 @@ function AdminPage() {
                 >
                   {infra.last_push.ok}대 성공
                 </span>
+                {(infra.last_push.failed ?? 0) > 0 && (
+                  <>
+                    {' · '}
+                    <span className="font-semibold text-red-500">
+                      {infra.last_push.failed}대 실패
+                    </span>
+                  </>
+                )}
                 {infra.last_push.gone > 0 && ` · 만료 ${infra.last_push.gone}대 정리`}
               </p>
+              {/* 실패가 시도 전부라면 알림이 한 대도 안 나갔다는 뜻이다. 원인이
+                  기기가 아니라 서버 쪽(VAPID 키 불일치 등)일 가능성이 높아서,
+                  '몇 대 실패'보다 '어디를 봐야 하는지'를 말해준다. */}
+              {(infra.last_push.failed ?? 0) > 0 &&
+                infra.last_push.failed === infra.last_push.tried && (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                    한 대도 못 받았어. 기기가 아니라 서버 쪽 문제일 수 있어 (VAPID 키가
+                    프론트와 어긋났는지부터 확인해줘).
+                  </p>
+                )}
               {/* 예산에 걸리면 남은 기기는 그 발행을 못 받는다. 아무 에러도 안 나는
                   자리라 여기서 말하지 않으면 아무도 모른다. */}
               {infra.last_push.budget_hit && (
