@@ -33,6 +33,10 @@ class Payment(Base):
     order_name: Mapped[str] = mapped_column(String(100), server_default="")
     # 토스가 발급한 결제 키 (승인 후 저장, 환불 등에 사용)
     payment_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 토스가 준 영수증 주소. **승인 응답에 실려 오는데 2026-09-05까지 버렸다**
+    # (09-04 검사 GAP-7) — 그래서 결제한 사람도 관리자도 '얼마를 언제 냈나'를 확인할
+    # 방법이 카드사 명세서뿐이었다. 옛 행은 NULL 이고, 화면은 값이 있을 때만 링크를 그린다.
+    receipt_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

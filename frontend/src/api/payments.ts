@@ -1,4 +1,4 @@
-import { apiFetch, failWith } from './http'
+import { apiFetch, failWith, fetchWithTimeout } from './http'
 import { authHeaders, type User } from './auth'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -41,6 +41,25 @@ export async function confirmPayment(paymentKey: string, orderId: string, amount
 }
 
 // 구독 해지 (is_pro 끔)
+// 내 결제 내역. **실패·대기 주문도 함께 온다** — 성공만 보여주면 '결제가 안 됐는데
+// 돈이 빠져나간 것 같다'는 상황에서 화면이 아무 말도 안 하게 된다(09-04 검사 GAP-7).
+export interface PaymentRow {
+  order_id: string
+  order_name: string
+  amount: number
+  /** pending(주문만 만듦) · confirming(확인 중, 실패가 아니다) · paid · failed */
+  status: string
+  receipt_url: string | null
+  created_at: string
+  paid_at: string | null
+}
+
+export async function fetchMyPayments(): Promise<PaymentRow[]> {
+  const res = await fetchWithTimeout(`${BASE}/payments/me`, { headers: authHeaders() })
+  if (!res.ok) await failWith(res, '결제 내역을 불러오지 못했어')
+  return res.json()
+}
+
 export async function unsubscribe(): Promise<User> {
   const res = await apiFetch(`${BASE}/payments/unsubscribe`, {
     method: 'POST',

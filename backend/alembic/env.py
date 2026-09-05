@@ -14,6 +14,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 우리 앱의 설정과 모델을 연결
+import app.models.admin_action  # noqa: F401
 import app.models.ai_usage  # noqa: F401
 import app.models.author_subscription  # noqa: F401
 import app.models.comment  # noqa: F401

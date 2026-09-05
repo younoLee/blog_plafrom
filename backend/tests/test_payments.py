@@ -565,3 +565,125 @@ def test_lookup_failure_after_duplicate_leaves_order_confirming(
     assert r.status_code == 502
     assert _payment(db, order["order_id"]).status == "confirming"
     assert db.get(User, user.id).is_pro is False
+
+
+# ── 결제 내역·영수증·연장 (09-04 검사 GAP-7) ────────────────────────────────
+#
+# 그전까지 '얼마를 언제 냈나'를 확인할 방법이 카드사 명세서뿐이었다. 결제는 이 사이트에서
+# 돈이 오가는 유일한 자리이고, 그 기록을 사용자가 못 보면 문의가 와도 서로 볼 수 있는
+# 근거가 없다. 영수증 주소는 승인 응답에 실려 오는데 저장하지 않고 버리고 있었다.
+
+
+def test_영수증_주소를_저장한다(client, make_user, auth_headers, toss, db):
+    user = make_user(role="writer")
+    order = _checkout(client, auth_headers(user))
+    toss.configure(
+        status_code=200,
+        body={
+            "status": "DONE",
+            "orderId": order["order_id"],
+            "totalAmount": 9900,
+            "receipt": {"url": "https://receipt.example/xyz"},
+        },
+    )
+    client.post(
+        "/api/payments/confirm",
+        headers=auth_headers(user),
+        json={"payment_key": "pk_live", "order_id": order["order_id"], "amount": 9900},
+    )
+    assert _payment(db, order["order_id"]).receipt_url == "https://receipt.example/xyz"
+
+
+def test_영수증이_없어도_확정은_된다(client, make_user, auth_headers, toss, db):
+    """모양이 다르거나 없을 수 있다. 여기서 죽으면 **돈은 나갔는데 확정이 안 된다**."""
+    user = make_user(role="writer")
+    order = _checkout(client, auth_headers(user))
+    toss.configure(
+        status_code=200,
+        body={"status": "DONE", "orderId": order["order_id"], "totalAmount": 9900, "receipt": None},
+    )
+    r = client.post(
+        "/api/payments/confirm",
+        headers=auth_headers(user),
+        json={"payment_key": "pk_live", "order_id": order["order_id"], "amount": 9900},
+    )
+    assert r.status_code == 200
+    p = _payment(db, order["order_id"])
+    assert p.status == "paid" and p.receipt_url is None
+
+
+def test_내_결제_내역이_보인다(client, make_user, auth_headers, toss):
+    user = make_user(role="writer")
+    order = _checkout(client, auth_headers(user))
+    toss.configure(
+        status_code=200,
+        body={"status": "DONE", "orderId": order["order_id"], "totalAmount": 9900},
+    )
+    client.post(
+        "/api/payments/confirm",
+        headers=auth_headers(user),
+        json={"payment_key": "pk_live", "order_id": order["order_id"], "amount": 9900},
+    )
+
+    rows = client.get("/api/payments/me", headers=auth_headers(user)).json()
+    assert len(rows) == 1
+    assert rows[0]["order_id"] == order["order_id"]
+    assert rows[0]["status"] == "paid"
+    assert rows[0]["amount"] == 9900
+    assert rows[0]["paid_at"] is not None
+
+
+def test_실패한_주문도_내역에_남는다(client, make_user, auth_headers):
+    """성공만 보여주면 '결제가 안 됐는데 돈이 빠져나간 것 같다'는 상황에서 화면이
+    아무 말도 안 하게 된다."""
+    user = make_user(role="writer")
+    _checkout(client, auth_headers(user))  # pending 으로 남는다
+    rows = client.get("/api/payments/me", headers=auth_headers(user)).json()
+    assert [r["status"] for r in rows] == ["pending"]
+
+
+def test_남의_결제_내역은_안_보인다(client, make_user, auth_headers):
+    a = make_user(role="writer")
+    b = make_user(role="writer")
+    _checkout(client, auth_headers(a))
+    assert client.get("/api/payments/me", headers=auth_headers(b)).json() == []
+    assert client.get("/api/payments/me").status_code == 401
+
+
+def test_만료가_멀면_연장_결제를_막는다(client, make_user, auth_headers, db):
+    user = make_user(role="writer", is_pro=True)
+    user.pro_until = datetime.now(UTC) + timedelta(days=20)
+    db.commit()
+    r = client.post("/api/payments/checkout", headers=auth_headers(user))
+    assert r.status_code == 400
+    assert "연장할 수 있어" in r.json()["detail"]
+
+
+def test_만료가_임박하면_연장_결제가_열린다(client, make_user, auth_headers, db):
+    """그전에는 구독이 끊기는 날까지 기다렸다 결제해야 했다 — 그 사이 상위 모델이 잠기고,
+    하필 그날 서버가 꺼져 있으면 더 길어진다."""
+    user = make_user(role="writer", is_pro=True)
+    user.pro_until = datetime.now(UTC) + timedelta(days=3)
+    db.commit()
+    r = client.post("/api/payments/checkout", headers=auth_headers(user))
+    assert r.status_code == 200
+    assert r.json()["amount"] == 9900
+
+
+def test_관리자는_전체_결제_내역을_본다(client, make_user, auth_headers):
+    """사용자 쪽 `/payments/me` 와 짝이다. 한쪽만 보이면 문의가 왔을 때 서로 다른
+    화면을 보고 이야기하게 된다."""
+    admin = make_user(role="admin")
+    buyer = make_user(role="writer", email="buyer@test.com")
+    _checkout(client, auth_headers(buyer))
+
+    rows = client.get("/api/admin/payments", headers=auth_headers(admin)).json()
+    assert len(rows) == 1
+    assert rows[0]["user_email"] == "buyer@test.com"
+    assert rows[0]["status"] == "pending"
+
+
+def test_결제_내역은_관리자만_전체를_본다(client, make_user, auth_headers):
+    writer = make_user(role="writer")
+    assert client.get("/api/admin/payments").status_code == 401
+    assert client.get("/api/admin/payments", headers=auth_headers(writer)).status_code == 403

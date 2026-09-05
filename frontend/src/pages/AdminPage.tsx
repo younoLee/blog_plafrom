@@ -7,7 +7,10 @@ import {
   revokeUser,
   banUser,
   unbanUser,
+  changeEmail,
   deleteUser,
+  listActions,
+  listPayments,
   releaseHandle,
   toggleProUser,
   fetchInfra,
@@ -22,6 +25,7 @@ import {
   fetchAiGuard,
   type AiGuardSummary,
 } from '../api/admin'
+import type { AdminAction, AdminPayment } from '../api/admin'
 import type { User, Role } from '../api/auth'
 import { ui } from '../ui'
 import { CopyButton } from '../components/CopyButton'
@@ -281,6 +285,134 @@ function AiUsageSection() {
 
 // 초대 발급/취소. '초대제'라는 말에 실체를 주는 화면이다 — 그전까지 초대는
 // 관리자가 DB를 직접 만지는 것이었다.
+/**
+ * 관리자 조치 기록 — '누구를 언제 내보냈나'.
+ *
+ * **왜 화면에 내놓나 (09-04 검사 GAP-2)** — 차단·승인취소·계정삭제·Pro 토글은 남의 글과
+ * 접근 권한을 되돌릴 수 없게 바꾸는데 그 사실이 어디에도 안 남았다. 특히 계정 삭제는
+ * 글·댓글까지 함께 지우므로, 기록이 없으면 사고 뒤에 무엇이 사라졌는지 재구성할 수 없다.
+ * 초대 목록이 '누구를 언제 들였나'의 답인 것과 짝이라 그 바로 아래 둔다.
+ */
+const ACTION_LABEL: Record<string, string> = {
+  approve: '승인',
+  revoke: '승인 취소',
+  ban: '차단',
+  unban: '차단 해제',
+  toggle_pro: '유료',
+  release_handle: '주소 회수',
+  delete: '계정 삭제',
+  change_email: '이메일 변경',
+}
+
+/** 전체 결제 내역. 사용자 화면(PaymentPage)의 '결제 내역'과 같은 값을 관리자 쪽에서 본다. */
+function PaymentsSection() {
+  const [rows, setRows] = useState<AdminPayment[] | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    listPayments()
+      .then(setRows)
+      .catch(() => setFailed(true))
+  }, [])
+
+  if (failed) {
+    return (
+      <section className="mt-8">
+        <h2 className="mb-1 text-xl font-semibold tracking-tight">결제</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          지금은 못 불러왔어 (서버 정지 또는 장애).
+        </p>
+      </section>
+    )
+  }
+  if (rows === null) return null
+
+  return (
+    <section className="mt-8">
+      <h2 className="mb-1 text-xl font-semibold tracking-tight">결제</h2>
+      <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+        ‘확인 중’은 실패가 아니야. 토스 승인을 기다리는 상태라, 실패로 읽고 환불을
+        안내하면 같은 결제가 두 번 처리될 수 있어.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">아직 결제가 없어.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((p) => (
+            <li
+              key={p.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-black/[0.07] bg-white px-4 py-3 text-sm dark:border-white/10 dark:bg-white/[0.06]"
+            >
+              <span className="font-medium">{p.user_email}</span>
+              <span>{p.amount.toLocaleString('ko-KR')}원</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{p.status}</span>
+              <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
+                {new Date(p.paid_at ?? p.created_at).toLocaleString()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function ActionLogSection() {
+  const [rows, setRows] = useState<AdminAction[] | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    listActions()
+      .then(setRows)
+      .catch(() => setFailed(true))
+  }, [])
+
+  if (failed) {
+    return (
+      <section className="mt-8">
+        <h2 className="mb-1 text-xl font-semibold tracking-tight">조치 기록</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          지금은 못 불러왔어 (서버 정지 또는 장애).
+        </p>
+      </section>
+    )
+  }
+  if (rows === null) return null
+
+  return (
+    <section className="mt-8">
+      <h2 className="mb-1 text-xl font-semibold tracking-tight">조치 기록</h2>
+      <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+        계정에 한 조치가 남는 자리야. 계정을 지우면 글·댓글도 함께 사라지니까, 무엇을 언제
+        했는지는 여기서만 확인할 수 있어.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">아직 기록된 조치가 없어.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((a) => (
+            <li
+              key={a.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-black/[0.07] bg-white px-4 py-3 dark:border-white/10 dark:bg-white/[0.06]"
+            >
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">
+                {ACTION_LABEL[a.action] ?? a.action}
+              </span>
+              <span className="text-sm font-medium">{a.target_email}</span>
+              {a.detail && (
+                <span className="text-xs text-gray-500 dark:text-gray-400">{a.detail}</span>
+              )}
+              <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
+                {new Date(a.created_at).toLocaleString()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 function InviteSection() {
   const [invites, setInvites] = useState<Invite[]>([])
   const [email, setEmail] = useState('')
@@ -513,6 +645,20 @@ function AdminPage() {
     }
   }
 
+  // 이메일 주소 바꾸기. 오타로 초대된 계정을 되살리는 유일한 경로다(09-04 검사 GAP-9).
+  // prompt 를 쓰는 이유: 목록의 행마다 입력칸을 만들면 화면이 폼 밭이 되는데, 이 조치는
+  // 몇 달에 한 번이다. 취소(null)와 빈 문자열을 모두 '안 함'으로 본다.
+  async function handleChangeEmail(id: number, current: string) {
+    const next = window.prompt(`${current} 의 새 주소를 적어줘. 이 계정의 기존 로그인은 끊겨.`, current)
+    if (!next || next.trim() === current) return
+    try {
+      const updated = await changeEmail(id, next.trim())
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '주소 변경 실패')
+    }
+  }
+
   // 영구 삭제 (글·댓글까지) — 되돌릴 수 없으니 확인창
   async function handleDelete(id: number, email: string) {
     if (!window.confirm(`정말 ${email} 계정을 삭제할까?\n이 사람의 글·댓글도 영구 삭제되고 되돌릴 수 없어.`)) return
@@ -635,6 +781,10 @@ function AdminPage() {
 
       <InviteSection />
 
+      <PaymentsSection />
+
+      <ActionLogSection />
+
       <h2 className="mb-3 mt-8 text-xl font-semibold tracking-tight">가입자 관리</h2>
       <ul className="space-y-3">
         {users.map((u) => {
@@ -700,6 +850,16 @@ function AdminPage() {
                     className={ui.btnGhost}
                   >
                     주소 회수(/@{u.handle})
+                  </button>
+                )}
+                {u.role !== 'admin' && (
+                  <button
+                    type="button"
+                    onClick={() => handleChangeEmail(u.id, u.email)}
+                    title="오타로 초대된 계정을 되살리는 유일한 경로야. 바꾸면 그 계정의 로그인이 끊겨"
+                    className={ui.btnGhost}
+                  >
+                    주소 변경
                   </button>
                 )}
                 {/* admin 외 모든 계정에 영구 삭제 버튼 */}

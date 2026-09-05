@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from app.core.config import settings
@@ -9,10 +11,13 @@ from app.core.database import get_db
 from app.core.deps import require_admin
 from app.core.display import display_name_of
 from app.core.security import hash_invite_token, new_invite_token
+from app.models.admin_action import AdminAction
 from app.models.ai_usage import AiGuardViolation, AiUsage
 from app.models.invite import Invite
+from app.models.payment import Payment
 from app.models.post import Post
 from app.models.user import BANNED_ROLE, User
+from app.routers.auth import _find_user_by_email
 from app.schemas.invite import InviteCreate, InviteCreated, InviteOut
 from app.schemas.user import UserRead
 from app.services.ai_usage import count_today_all_users, today, tokens_today_all_users
@@ -195,6 +200,25 @@ def _get_user_or_404(user_id: int, db: Session) -> User:
     return user
 
 
+def _record(db: Session, actor: User, target: User, action: str, detail: str = "") -> None:
+    """관리자 조치를 감사 기록에 남긴다. **커밋은 호출부가 한다**(같은 트랜잭션).
+
+    같은 트랜잭션에 넣는 이유는 구독 신청 알림과 같다 — 조치는 반영됐는데 기록만
+    사라지거나 그 반대가 되면, 그 표를 믿을 수 없게 되어 표가 있는 의미가 없다.
+    대상의 id·이메일을 **값으로 복사**한다(계정 삭제를 기록하는 게 주 용도다).
+    """
+    db.add(
+        AdminAction(
+            actor_id=actor.id,
+            actor_email=actor.email,
+            target_id=target.id,
+            target_email=target.email,
+            action=action,
+            detail=detail,
+        )
+    )
+
+
 def _reject_banned(user: User) -> None:
     """차단된 계정에는 역할·등급을 못 바꾼다 — 해제는 unban 한 곳으로만.
 
@@ -211,37 +235,48 @@ def _reject_banned(user: User) -> None:
 
 
 @router.post("/users/{user_id}/approve", response_model=UserRead)
-def approve_user(user_id: int, db: Session = Depends(get_db)):
+def approve_user(
+    user_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+):
     # 승인: pending → writer (글쓰기 허용)
     user = _get_user_or_404(user_id, db)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 변경할 수 없어")
     _reject_banned(user)
+    before = user.role
     user.role = "writer"
+    _record(db, actor, user, "approve", f"{before} → writer")
     db.commit()
     db.refresh(user)
     return user
 
 
 @router.post("/users/{user_id}/revoke", response_model=UserRead)
-def revoke_user(user_id: int, db: Session = Depends(get_db)):
+def revoke_user(
+    user_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+):
     # 승인 취소: writer → pending (글쓰기 차단). 기존 글은 남지만 새 글/수정 불가
     user = _get_user_or_404(user_id, db)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 변경할 수 없어")
     _reject_banned(user)
+    before = user.role
     user.role = "pending"
+    _record(db, actor, user, "revoke", f"{before} → pending")
     db.commit()
     db.refresh(user)
     return user
 
 
 @router.post("/users/{user_id}/ban", response_model=UserRead)
-def ban_user(user_id: int, db: Session = Depends(get_db)):
+def ban_user(
+    user_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+):
     # 차단: role을 banned로. 로그인·토큰 모두 무효. 기존 글은 남음(admin이 따로 삭제 가능)
     user = _get_user_or_404(user_id, db)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 차단할 수 없어")
+    _record(db, actor, user, "ban", f"{user.role} → {BANNED_ROLE}")
     user.role = BANNED_ROLE
     user.token_version += 1  # 차단 즉시 기존 토큰 무효화
 
@@ -262,19 +297,24 @@ def ban_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/users/{user_id}/unban", response_model=UserRead)
-def unban_user(user_id: int, db: Session = Depends(get_db)):
+def unban_user(
+    user_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+):
     # 차단 해제: pending으로 되돌림(재승인 필요)
     user = _get_user_or_404(user_id, db)
     if user.role != BANNED_ROLE:
         raise HTTPException(status_code=400, detail="차단된 계정이 아니야")
     user.role = "pending"
+    _record(db, actor, user, "unban", f"{BANNED_ROLE} → pending")
     db.commit()
     db.refresh(user)
     return user
 
 
 @router.post("/users/{user_id}/toggle-pro", response_model=UserRead)
-def toggle_pro(user_id: int, db: Session = Depends(get_db)):
+def toggle_pro(
+    user_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+):
     # 유료(pro) 토글: AI 초안에서 Opus 등 상위 모델 해금/회수.
     # 지금은 admin이 수동으로. 나중에 Stripe 결제가 이 플래그를 대신 켜줌(C단계).
     user = _get_user_or_404(user_id, db)
@@ -284,13 +324,16 @@ def toggle_pro(user_id: int, db: Session = Depends(get_db)):
     # _expire_pro_if_due(deps.py)가 즉시 되돌린다 → 관리자 수동 부여가 조용히 무효화됐다.
     if user.is_pro:
         user.pro_until = None
+    _record(db, actor, user, "toggle_pro", "부여" if user.is_pro else "회수")
     db.commit()
     db.refresh(user)
     return user
 
 
 @router.post("/users/{user_id}/release-handle", response_model=UserRead)
-def release_handle(user_id: int, db: Session = Depends(get_db)):
+def release_handle(
+    user_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+):
     """이 계정이 잡고 있는 블로그 주소(`/@handle`)를 비운다.
 
     **왜 관리자 쪽에 있나 (2026-09-04 검사 SEC-04)** — `PATCH /auth/me/handle` 의 주석은
@@ -307,18 +350,68 @@ def release_handle(user_id: int, db: Session = Depends(get_db)):
     user = _get_user_or_404(user_id, db)
     if user.handle is None:
         raise HTTPException(status_code=400, detail="이 계정은 블로그 주소가 없어")
+    _record(db, actor, user, "release_handle", f"/@{user.handle}")
     user.handle = None
     db.commit()
     db.refresh(user)
     return user
 
 
+class EmailChange(BaseModel):
+    email: EmailStr
+
+
+@router.patch("/users/{user_id}/email", response_model=UserRead)
+def change_email(
+    user_id: int,
+    data: EmailChange,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """계정의 이메일 주소를 바꾼다.
+
+    **왜 관리자 쪽인가 (2026-09-04 검사 GAP-9)** — 그전까지 주소를 바꿀 방법이 아예
+    없었다. 오타로 초대된 계정은 로그인 자체가 그 오타로만 되고, 알림 메일도 그 주소로
+    간다. 본인이 바꾸게 하려면 새 주소로 확인 링크를 보내 소유를 증명받아야 하는데,
+    이 사이트의 SES 는 샌드박스라 **검증된 주소로만 메일이 나간다** — 새 주소는 정의상
+    아직 검증돼 있지 않으므로 그 링크가 영영 안 닿는다. 초대제가 '주소는 관리자가 고른다'로
+    설계된 것과 같은 제약이고, 같은 답을 쓴다.
+
+    **기존 세션을 끊는다**(token_version++). 주소는 로그인 식별자라, 안 끊으면 옛 주소로
+    받은 토큰이 새 주소의 계정으로 계속 살아 있다.
+    """
+    user = _get_user_or_404(user_id, db)
+    new_email = data.email.strip()
+    if _find_user_by_email(db, new_email) is not None:
+        raise HTTPException(status_code=409, detail="그 주소를 쓰는 계정이 이미 있어")
+    before = user.email
+    user.email = new_email
+    user.token_version += 1
+    _record(db, actor, user, "change_email", f"{before} → {new_email}")
+    try:
+        db.commit()
+    except IntegrityError:
+        # 대소문자만 다른 주소가 그 사이에 들어오는 경우. 유니크 인덱스가 진짜 방어선이고
+        # 위 조회는 사람이 읽을 문장을 주기 위한 것이다(auth.py 의 handle 과 같은 구조).
+        db.rollback()
+        raise HTTPException(status_code=409, detail="그 주소를 쓰는 계정이 이미 있어") from None
+    db.refresh(user)
+    return user
+
+
 @router.delete("/users/{user_id}", status_code=204)
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(
+    user_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+):
     # 영구 삭제(되돌리기 불가). admin은 삭제 불가
     user = _get_user_or_404(user_id, db)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자 계정은 삭제할 수 없어")
+    # **지우기 전에 기록한다.** 이 표가 존재하는 주된 이유가 이 줄이다 — 계정과 함께
+    # 글·댓글이 사라지므로, 남는 게 없으면 사고 뒤에 무엇이 사라졌는지 재구성할 수 없다.
+    # 대상 정보를 값으로 복사해 두므로 행이 지워져도 답할 수 있다.
+    posts_deleted = db.scalar(select(func.count()).select_from(Post).where(Post.owner_id == user_id)) or 0
+    _record(db, actor, user, "delete", f"글 {posts_deleted}편 함께 삭제")
     # 이 사용자의 글 삭제 → 댓글은 posts FK CASCADE로 함께 삭제
     # (2026-08-15부터 posts.owner_id도 ondelete=CASCADE라 이 줄이 없어도 지워진다.
     #  그래도 남긴다 — '사용자 삭제가 글을 지운다'는 건 부수효과가 아니라 이 함수의
@@ -328,6 +421,85 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     # user 삭제 시 자동 정리된다(models/author_subscription.py:17,20, push_subscription.py:38).
     db.delete(user)
     db.commit()
+
+
+# ── 감사 기록 (2026-09-05 신설, 09-04 검사 GAP-2) ───────────────────────────
+
+
+class AdminActionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    actor_email: str
+    target_id: int
+    target_email: str
+    action: str
+    detail: str
+    created_at: datetime
+
+
+@router.get("/actions", response_model=list[AdminActionOut])
+def list_actions(db: Session = Depends(get_db), limit: int = 50):
+    """관리자 조치 최근 기록.
+
+    초대 목록이 '누구를 언제 들였나'의 답이라면 이 목록은 '누구를 언제 내보냈나'의
+    답이다. 관리자가 한 명뿐이라 '누가'는 자명하지만 **'무엇을 언제'는 자명하지 않다** —
+    특히 계정 삭제는 글·댓글까지 함께 지우므로 기록이 없으면 되돌아볼 방법이 없다.
+
+    이메일을 그대로 싣는다. 이건 관리자 전용 화면이고(라우터가 require_admin),
+    지워진 계정을 가리키는 유일한 식별자가 그 값이다 — 표시명은 지워지면 남지 않는다.
+    """
+    limit = max(1, min(limit, 200))
+    # id 를 두 번째 정렬 키로 둔다. 같은 초에 두 건이 들어오면 시각만으로는 순서가
+    # 정해지지 않아, 목록이 새로고침할 때마다 뒤바뀐다 — 감사 기록에서 순서가 흔들리면
+    # '무엇 다음에 무엇을 했나'를 못 읽는다.
+    rows = db.scalars(
+        select(AdminAction)
+        .order_by(AdminAction.created_at.desc(), AdminAction.id.desc())
+        .limit(limit)
+    ).all()
+    return rows
+
+
+class AdminPaymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_email: str
+    order_id: str
+    amount: int
+    status: str
+    receipt_url: str | None = None
+    created_at: datetime
+    paid_at: datetime | None = None
+
+
+@router.get("/payments", response_model=list[AdminPaymentOut])
+def list_payments(db: Session = Depends(get_db), limit: int = 50):
+    """전체 결제 내역 (09-04 검사 GAP-7).
+
+    사용자 쪽 `/api/payments/me` 와 짝이다. 돈이 오가는 자리라 **한쪽만 보이면
+    문의가 왔을 때 서로 다른 화면을 보고 이야기하게 된다.** 실패·대기 주문도 함께
+    보여준다 — 'confirming' 은 결제가 확정되지 않았다는 뜻이지 실패가 아니다
+    (models/payment.py). 그 구분이 화면에 없으면 관리자가 실패로 읽고 환불을 안내한다.
+    """
+    limit = max(1, min(limit, 200))
+    rows = db.execute(
+        select(
+            Payment.id,
+            User.email.label("user_email"),
+            Payment.order_id,
+            Payment.amount,
+            Payment.status,
+            Payment.receipt_url,
+            Payment.created_at,
+            Payment.paid_at,
+        )
+        .join(User, User.id == Payment.user_id)
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .limit(limit)
+    ).all()
+    return rows
 
 
 # ── 초대 (초대제 가입의 실제 절차) ──────────────────────────────────────────

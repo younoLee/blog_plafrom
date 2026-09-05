@@ -243,3 +243,85 @@ def test_쿼리스트링으로_주면_안_받는다(client, make_user):
 
 def test_위조된_토큰은_400(client):
     assert client.post("/api/auth/verify", json={"token": "not-a-token"}).status_code == 400
+
+
+# ── 내 계정을 내가 지운다 · 내 것을 내려받는다 (09-04 검사 GAP-6) ────────────
+#
+# 그전까지 계정을 지울 수 있는 사람은 관리자뿐이었다. 나가고 싶은 사람은 서버가 켜진
+# 날 관리자에게 부탁해야 했고 그 요청을 받을 창구도 없었다. 내보내기를 함께 두는 이유는
+# 가져갈 방법 없는 삭제가 '전부 잃거나 전부 남기거나'만 남기기 때문이다.
+
+
+def test_내_글과_댓글을_내려받는다(client, make_user, auth_headers):
+    me = make_user(role="writer", display_name="나")
+    other = make_user(role="writer")
+    h = auth_headers(me)
+    post = client.post("/api/posts", headers=h, json={"title": "내 글", "content": "본문"}).json()
+    others_post = client.post(
+        "/api/posts", headers=auth_headers(other), json={"title": "남의 글", "content": "C"}
+    ).json()
+    client.post(
+        f"/api/posts/{others_post['id']}/comments", json={"author": "x", "content": "내 댓글"}, headers=h
+    )
+
+    body = client.get("/api/auth/me/export", headers=h).json()
+    assert body["account"]["display_name"] == "나"
+    assert [p["title"] for p in body["posts"]] == ["내 글"]
+    assert [c["content"] for c in body["comments"]] == ["내 댓글"]
+    assert body["posts"][0]["id"] == post["id"]
+
+
+def test_익명_댓글은_내보내기에_없다(client, make_user, auth_headers):
+    """user_id 가 없는 게 익명의 정의다 — 넣으려면 IP 로 짐작해야 하고, 그건 남의 댓글을
+    내 것으로 내보낼 수 있다는 뜻이다."""
+    me = make_user(role="writer")
+    post = client.post(
+        "/api/posts", headers=auth_headers(me), json={"title": "T", "content": "C"}
+    ).json()
+    client.post(f"/api/posts/{post['id']}/comments", json={"author": "손님", "content": "익명"})
+
+    assert client.get("/api/auth/me/export", headers=auth_headers(me)).json()["comments"] == []
+
+
+def test_내보내기는_로그인해야_한다(client):
+    assert client.get("/api/auth/me/export").status_code == 401
+
+
+def test_비밀번호가_맞아야_계정이_지워진다(client, make_user, auth_headers):
+    me = make_user(role="writer", password="password123")
+    h = auth_headers(me)
+    assert client.post("/api/auth/me/delete", json={"password": "틀린비번"}, headers=h).status_code == 401
+    assert client.get("/api/auth/me", headers=h).status_code == 200  # 아직 살아 있다
+
+
+def test_계정을_지우면_글도_지워지고_댓글은_익명으로_남는다(client, make_user, auth_headers, db):
+    """정리 범위는 관리자 삭제와 같다. 남의 글에 남긴 대화까지 지우는 것은
+    '내 것을 지운다'의 범위를 넘는다(comments.user_id 가 SET NULL 인 이유)."""
+    me = make_user(role="writer", password="password123")
+    other = make_user(role="writer")
+    h = auth_headers(me)
+    my_post = client.post("/api/posts", headers=h, json={"title": "내 글", "content": "C"}).json()
+    others_post = client.post(
+        "/api/posts", headers=auth_headers(other), json={"title": "남의 글", "content": "C"}
+    ).json()
+    client.post(
+        f"/api/posts/{others_post['id']}/comments", json={"author": "x", "content": "남긴 말"}, headers=h
+    )
+
+    assert client.post("/api/auth/me/delete", json={"password": "password123"}, headers=h).status_code == 204
+
+    assert client.get(f"/api/posts/{my_post['id']}").status_code == 404
+    assert client.get("/api/auth/me", headers=h).status_code == 401
+    left = client.get(f"/api/posts/{others_post['id']}/comments").json()
+    assert [c["content"] for c in left] == ["남긴 말"]
+    assert left[0]["is_member"] is False  # 익명으로 남는다
+
+
+def test_관리자는_스스로_못_지운다(client, make_user, auth_headers):
+    """그 계정이 사라지면 아무도 관리 화면에 못 들어가고, 새로 만들 경로는 서버에
+    직접 붙는 것뿐이다."""
+    admin = make_user(role="admin", password="password123")
+    r = client.post(
+        "/api/auth/me/delete", json={"password": "password123"}, headers=auth_headers(admin)
+    )
+    assert r.status_code == 400

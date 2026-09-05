@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
-import { updateDisplayName, updateHandle } from '../api/auth'
+import { deleteMyAccount, exportMyData, updateDisplayName, updateHandle } from '../api/auth'
 import { canWrite } from '../api/auth'
 import { fetchKeys, saveKey, deleteKey, type KeyStatus } from '../api/ai'
 import { ui } from '../ui'
@@ -39,7 +39,9 @@ const PROVIDERS: { id: string; name: string; hint: string; needsBaseUrl?: boolea
 
 function SettingsPage() {
   useDocumentTitle('설정')
-  const { user, loading, refreshUser } = useAuth()
+  const { user, loading, refreshUser, logout } = useAuth()
+  const [exporting, setExporting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [keys, setKeys] = useState<KeyStatus[]>([])
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [baseUrls, setBaseUrls] = useState<Record<string, string>>({}) // compatible용 주소
@@ -66,6 +68,52 @@ function SettingsPage() {
 
   const name = nameDraft ?? user?.display_name ?? ''
   const handle = handleDraft ?? user?.handle ?? ''
+
+  // 내 데이터를 브라우저에서 바로 파일로 만든다. 서버에 파일을 만들어 두지 않는 이유는
+  // 그 파일이 어디에 얼마나 남는지를 또 관리해야 하기 때문이다 — 내보내기는 한 번 쓰고
+  // 버리는 것이라 응답을 그대로 Blob 으로 내려주면 끝난다.
+  async function handleExport() {
+    if (exporting) return
+    setExporting(true)
+    setError('')
+    try {
+      const data = await exportMyData()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `내-데이터-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      // 안 지우면 이 탭이 살아 있는 동안 메모리에 남는다.
+      URL.revokeObjectURL(url)
+      setMsg('내려받기를 시작했어')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // 계정 삭제. 확인창 + 비밀번호 재확인 **둘 다** 받는다 — 확인창만 두면 자리를 비운
+  // 사이 남이 두 번 눌러 끝낼 수 있고, 이건 글까지 사라지는 조치다.
+  async function handleDeleteAccount() {
+    if (deleting) return
+    if (!window.confirm('계정을 지우면 내가 쓴 글도 함께 사라지고 되돌릴 수 없어. 먼저 데이터를 내려받았어?')) return
+    const password = window.prompt('확인을 위해 비밀번호를 다시 입력해줘')
+    if (!password) return
+    setDeleting(true)
+    setError('')
+    try {
+      await deleteMyAccount(password)
+      // 서버에서 계정이 사라졌으니 이 기기의 토큰도 의미가 없다. logout 이 토큰을 지우고
+      // 화면을 비로그인 상태로 되돌린다(서버 로그아웃 실패는 그 안에서 삼킨다).
+      await logout()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   async function handleSaveName() {
     setError(''); setMsg('')
@@ -274,6 +322,33 @@ function SettingsPage() {
           </div>
         ))}
       </div>
+
+      {/* 계정 — 내보내기와 자진 삭제. **둘을 한 자리에 둔다** (09-04 검사 GAP-6):
+          가져갈 방법이 없는 삭제는 '전부 잃거나 전부 남기거나'만 남겨서 실제로는
+          아무도 못 지운다. 지우기 전에 받아 갈 수 있어야 지울 수 있다. */}
+      <section className={`${ui.card} mt-8`}>
+        <h2 className="text-lg font-semibold tracking-tight">계정</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          내가 쓴 글과 댓글을 파일로 받아 두고, 원하면 계정을 지울 수 있어.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button type="button" className={ui.btnGhost} onClick={handleExport} disabled={exporting}>
+            {exporting ? '만드는 중…' : '내 데이터 내려받기(JSON)'}
+          </button>
+          <button
+            type="button"
+            className="rounded-full px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+            onClick={handleDeleteAccount}
+            disabled={deleting}
+          >
+            {deleting ? '지우는 중…' : '계정 삭제'}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          계정을 지우면 내가 쓴 글도 함께 사라지고 되돌릴 수 없어. 남의 글에 남긴 댓글은
+          익명으로 남아(대화를 지우지는 않아).
+        </p>
+      </section>
     </div>
   )
 }

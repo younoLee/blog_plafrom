@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loadTossPayments } from '@tosspayments/tosspayments-sdk'
 import { useAuth } from '../auth/auth-context'
-import { createCheckout, unsubscribe } from '../api/payments'
+import { createCheckout, fetchMyPayments, unsubscribe, type PaymentRow } from '../api/payments'
 import { ui } from '../ui'
 import { useDocumentTitle } from '../useDocumentTitle'
 
@@ -19,6 +19,82 @@ const PERKS = [
   { title: 'Claude Fable 5', desc: '가장 강력한 최신 모델. 어려운 주제도 정돈해줘' },
   { title: '기본 모델도 그대로', desc: 'Sonnet·Haiku는 무료로 계속 사용' },
 ]
+
+const STATUS_LABEL: Record<string, string> = {
+  paid: '결제 완료',
+  // **확인 중은 실패가 아니다.** 토스 승인을 기다리는 짧은 상태이고, 실패로 읽히면
+  // 사용자가 다시 결제해서 두 번 낼 수 있다(backend models/payment.py).
+  confirming: '확인 중',
+  pending: '결제 안 함',
+  failed: '실패',
+}
+
+/**
+ * 내 결제 내역.
+ *
+ * **왜 필요한가 (09-04 검사 GAP-7)** — 그전까지 '얼마를 언제 냈나'를 확인할 방법이
+ * 카드사 명세서뿐이었다. 결제는 이 사이트에서 돈이 오가는 유일한 자리다.
+ * 실패·대기 주문도 보여준다 — 성공만 보여주면 '결제가 안 됐는데 돈이 빠져나간 것
+ * 같다'는 상황에서 화면이 아무 말도 안 하게 된다.
+ */
+function PaymentHistory() {
+  const [rows, setRows] = useState<PaymentRow[] | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    fetchMyPayments()
+      .then(setRows)
+      .catch(() => setFailed(true))
+  }, [])
+
+  if (failed) {
+    return (
+      <section className="mt-8">
+        <h2 className="mb-2 text-lg font-semibold tracking-tight">결제 내역</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          지금은 못 불러왔어 (서버 정지 또는 장애).
+        </p>
+      </section>
+    )
+  }
+  if (rows === null) return null
+
+  return (
+    <section className="mt-8">
+      <h2 className="mb-2 text-lg font-semibold tracking-tight">결제 내역</h2>
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">아직 결제한 적이 없어.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((p) => (
+            <li
+              key={p.order_id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-black/[0.07] bg-white px-4 py-3 text-sm dark:border-white/10 dark:bg-white/[0.06]"
+            >
+              <span className="font-medium">{p.amount.toLocaleString('ko-KR')}원</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {STATUS_LABEL[p.status] ?? p.status}
+              </span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {new Date(p.paid_at ?? p.created_at).toLocaleDateString('ko-KR')}
+              </span>
+              {p.receipt_url && (
+                <a
+                  href={p.receipt_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto text-xs font-medium text-accent underline"
+                >
+                  영수증
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
 
 function PaymentPage() {
   useDocumentTitle('유료 구독')
@@ -76,7 +152,18 @@ function PaymentPage() {
   }
 
   async function handleUnsubscribe() {
-    if (!window.confirm('정말 구독을 해지할까? 상위 AI 모델(Opus·Fable 5)이 다시 잠겨.')) return
+    // **남은 기간이 즉시 사라진다는 사실을 적는다** (09-04 검사 GAP-7).
+    // 환불이 없으므로 이 동작은 '다음 결제를 안 한다'가 아니라 '지금 산 것을 지금
+    // 버린다'에 가깝다. 그 차이를 안 적으면 사용자는 만료일까지는 쓸 수 있다고 믿는다.
+    const left =
+      user?.pro_until != null
+        ? Math.max(0, Math.ceil((new Date(user.pro_until).getTime() - now) / 86400000))
+        : null
+    const warning =
+      left != null
+        ? `정말 구독을 해지할까? 남은 ${left}일이 바로 사라지고 환불은 없어. 상위 AI 모델(Opus·Fable 5)도 다시 잠겨.`
+        : '정말 구독을 해지할까? 상위 AI 모델(Opus·Fable 5)이 다시 잠겨.'
+    if (!window.confirm(warning)) return
     setBusy(true)
     setError('')
     try {
@@ -175,6 +262,8 @@ function PaymentPage() {
           )}
         </div>
       </div>
+
+      <PaymentHistory />
 
       <p className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
         ※ 토스페이먼츠 테스트 모드라 실제 카드 승인은 나지만 <b>실제 돈은 청구되지 않아</b>.

@@ -19,10 +19,13 @@ from app.core.security import (
     hash_password,
     verify_password_or_dummy,
 )
+from app.models.comment import Comment
 from app.models.invite import Invite
+from app.models.post import Post
 from app.models.user import BANNED_ROLE, LoginFailure, User
 from app.schemas.invite import InvitePreview, InviteRedeem, InviteToken
 from app.schemas.user import (
+    AccountDelete,
     DisplayNameUpdate,
     ForgotPasswordRequest,
     HandleUpdate,
@@ -517,6 +520,93 @@ def update_me(
     db.commit()
     db.refresh(current)
     return current
+
+
+@router.get("/me/export")
+def export_my_data(db: Session = Depends(get_db), current: User = Depends(get_current_user)):
+    """내가 만든 것을 통째로 내려받는다 (2026-09-04 검사 GAP-6).
+
+    **왜 삭제와 한 쌍인가** — 아래 자진 삭제는 글과 계정을 되돌릴 수 없게 지운다.
+    가져갈 방법이 없는 삭제는 사용자에게 '전부 잃거나 전부 남기거나' 둘 중 하나만
+    남기는 셈이라, 실제로는 아무도 못 지운다. 그래서 내보내기를 먼저 둔다.
+
+    익명으로 단 댓글은 **여기 없다.** 그 댓글에는 user_id 가 없어서(그게 익명의 정의다)
+    누가 썼는지 서버도 모른다 — 넣으려면 IP 같은 걸로 짐작해야 하고, 그건 남의 댓글을
+    내 것으로 내보낼 수 있다는 뜻이다.
+    """
+    posts = db.scalars(
+        select(Post).where(Post.owner_id == current.id).order_by(Post.created_at)
+    ).all()
+    comments = db.scalars(
+        select(Comment).where(Comment.user_id == current.id).order_by(Comment.created_at)
+    ).all()
+    return {
+        "exported_at": datetime.now(UTC),
+        "account": {
+            "id": current.id,
+            "email": current.email,
+            "display_name": current.display_name,
+            "handle": current.handle,
+            "role": current.role,
+            "created_at": current.created_at,
+        },
+        "posts": [
+            {
+                "id": p.id,
+                "title": p.title,
+                "content": p.content,
+                "tags": p.tags,
+                "series": p.series,
+                "visibility": p.visibility,
+                "created_at": p.created_at,
+                "updated_at": p.updated_at,
+            }
+            for p in posts
+        ],
+        "comments": [
+            {
+                "id": c.id,
+                "post_id": c.post_id,
+                "content": c.content,
+                "created_at": c.created_at,
+            }
+            for c in comments
+        ],
+    }
+
+
+@router.post("/me/delete", status_code=204)
+def delete_my_account(
+    data: AccountDelete, db: Session = Depends(get_db), current: User = Depends(get_current_user)
+):
+    """내 계정을 지운다 — **글도 함께, 되돌릴 수 없이.**
+
+    **왜 필요한가 (2026-09-04 검사 GAP-6)** — 지금까지 계정을 지울 수 있는 사람은
+    관리자뿐이었다. 나가고 싶은 사람은 서버가 켜진 날 관리자에게 부탁해야 했고,
+    그 요청을 받을 창구도 없었다.
+
+    **왜 DELETE 가 아니라 POST 인가** — 비밀번호를 본문으로 받기 때문이다. DELETE 에
+    본문을 싣는 것은 규격상 허용은 되지만 중간 장비·클라이언트가 조용히 버리는 경우가
+    있고, 이 저장소는 자격증명을 쿼리스트링에 싣지 않기로 이미 정했다(SEC-07).
+
+    정리 범위는 관리자 삭제(routers/admin.py)와 같다 — 글은 지우고, 댓글은 익명으로
+    남는다(comments.user_id 가 SET NULL 이다). 남의 글에 남긴 대화까지 지우는 것은
+    '내 것을 지운다'의 범위를 넘는다.
+
+    관리자 계정은 못 지운다. 그 계정이 사라지면 남은 사람이 아무도 관리 화면에 못 들어가고
+    (`require_admin`), 새로 만들 경로는 서버에 직접 붙는 것뿐이다.
+    """
+    if current.role == "admin":
+        raise HTTPException(
+            status_code=400, detail="관리자 계정은 스스로 지울 수 없어 (다른 관리자에게 부탁해줘)"
+        )
+    if not verify_password_or_dummy(data.password, current.hashed_password):
+        raise HTTPException(status_code=401, detail="비밀번호가 맞지 않아")
+    # 글을 먼저 지운다(관리자 삭제와 같은 이유로 명시적으로 — FK CASCADE 가 이미 있지만
+    # '계정 삭제가 글을 지운다'는 부수효과가 아니라 이 함수의 의도다).
+    db.execute(delete(Post).where(Post.owner_id == current.id))
+    db.delete(current)
+    db.commit()
 
 
 @router.patch("/me/handle", response_model=UserRead)

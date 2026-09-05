@@ -220,3 +220,12 @@ class HandleUpdate(SafeModel):
         if v in _HANDLE_RESERVED:
             raise ValueError(f"'{v}'는 사이트가 쓰는 이름이라 못 써")
         return v
+
+
+# 계정 자진 삭제 요청 — **비밀번호를 다시 받는다.**
+#
+# 토큰만으로 지울 수 있게 하면, 잠깐 자리를 비운 사이 남의 브라우저에서 계정이 통째로
+# 사라진다(글·댓글까지). 되돌릴 수 없는 조치 앞에서 '지금 이 사람이 맞는가'를 한 번 더
+# 묻는 것은 이 저장소가 결제 해지·글 삭제에서 이미 쓰는 방식이다.
+class AccountDelete(SafeModel):
+    password: str = Field(min_length=1, max_length=PW_MAX)

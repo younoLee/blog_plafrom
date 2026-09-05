@@ -74,6 +74,21 @@ export async function releaseHandle(id: number): Promise<User> {
   return res.json()
 }
 
+// 이메일 주소 바꾸기. **관리자만 할 수 있다** — 본인이 바꾸려면 새 주소로 확인 링크를
+// 보내 소유를 증명받아야 하는데, 이 사이트의 SES 는 샌드박스라 검증된 주소로만 메일이
+// 나가서 그 링크가 새 주소에 영영 안 닿는다(09-04 검사 GAP-9). 바꾸면 그 계정의 기존
+// 로그인은 끊긴다(주소가 로그인 식별자다).
+export async function changeEmail(id: number, email: string): Promise<User> {
+  const res = await apiFetch(`${BASE}/admin/users/${id}/email`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ email }),
+  })
+  if (res.status === 422) throw new Error('이메일 형식을 확인해줘')
+  if (!res.ok) await failWith(res, '주소를 바꾸지 못했어')
+  return res.json()
+}
+
 // 영구 삭제: 계정 + 그 사람의 글·댓글까지 (되돌리기 불가)
 export async function deleteUser(id: number): Promise<void> {
   const res = await apiFetch(`${BASE}/admin/users/${id}`, {
@@ -84,6 +99,42 @@ export async function deleteUser(id: number): Promise<void> {
 }
 
 // --- 초대 (초대제 가입의 실제 절차) ---
+
+// 전체 결제 내역 (관리자). 사용자 쪽 fetchMyPayments 와 짝이다 — 한쪽만 보이면
+// 문의가 왔을 때 서로 다른 화면을 보고 이야기하게 된다(09-04 검사 GAP-7).
+export interface AdminPayment {
+  id: number
+  user_email: string
+  order_id: string
+  amount: number
+  status: string
+  receipt_url: string | null
+  created_at: string
+  paid_at: string | null
+}
+
+export async function listPayments(): Promise<AdminPayment[]> {
+  const res = await apiFetch(`${BASE}/admin/payments`, { headers: authHeaders() })
+  if (!res.ok) await failWith(res, '결제 내역을 불러오지 못했어')
+  return res.json()
+}
+
+// 관리자 조치 한 줄. '누구를 언제 내보냈나'의 답이다(09-04 검사 GAP-2).
+export interface AdminAction {
+  id: number
+  actor_email: string
+  target_id: number
+  target_email: string
+  action: string
+  detail: string
+  created_at: string
+}
+
+export async function listActions(): Promise<AdminAction[]> {
+  const res = await apiFetch(`${BASE}/admin/actions`, { headers: authHeaders() })
+  if (!res.ok) await failWith(res, '조치 기록을 불러오지 못했어')
+  return res.json()
+}
 
 export interface Invite {
   id: number

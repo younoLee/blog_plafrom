@@ -1,4 +1,4 @@
-import { QUICK_TIMEOUT_MS, apiFetch, fetchWithTimeout } from './http'
+import { QUICK_TIMEOUT_MS, apiFetch, failWith, fetchWithTimeout } from './http'
 import { authHeaders, clearToken, getToken, setToken } from './session'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
@@ -275,6 +275,35 @@ export async function updateDisplayName(displayName: string): Promise<User> {
   if (res.status === 422) throw new Error('이름은 50자까지야')
   if (!res.ok) throw new Error('표시명을 바꾸지 못했어')
   return res.json()
+}
+
+/**
+ * 내가 만든 것 전부(계정 정보·글·회원으로 단 댓글)를 JSON 으로 받는다.
+ *
+ * **왜 삭제와 한 쌍인가 (09-04 검사 GAP-6)** — 가져갈 방법이 없는 삭제는 사용자에게
+ * '전부 잃거나 전부 남기거나' 둘 중 하나만 남기는 셈이라, 실제로는 아무도 못 지운다.
+ * 익명으로 단 댓글은 서버도 누가 썼는지 모르므로 여기 없다.
+ */
+export async function exportMyData(): Promise<unknown> {
+  const res = await fetchWithTimeout(`${BASE}/auth/me/export`, { headers: authHeaders() })
+  if (!res.ok) await failWith(res, '내보내기에 실패했어')
+  return res.json()
+}
+
+/**
+ * 내 계정을 지운다 — **글도 함께, 되돌릴 수 없이.** 비밀번호를 다시 받는다.
+ *
+ * POST 인 이유: 비밀번호를 본문으로 보내야 하는데 DELETE 본문은 중간 장비가 조용히
+ * 버리는 경우가 있고, 이 저장소는 자격증명을 쿼리스트링에 싣지 않기로 이미 정했다.
+ */
+export async function deleteMyAccount(password: string): Promise<void> {
+  const res = await apiFetch(`${BASE}/auth/me/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ password }),
+  })
+  if (res.status === 401) throw new Error('비밀번호가 맞지 않아')
+  if (!res.ok) await failWith(res, '계정을 지우지 못했어')
 }
 
 /**

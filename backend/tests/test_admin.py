@@ -289,3 +289,139 @@ def test_주소가_없는_계정을_회수하면_400(client, make_user, auth_hea
     u = make_user(role="writer")
     r = client.post(f"/api/admin/users/{u.id}/release-handle", headers=auth_headers(admin))
     assert r.status_code == 400
+
+
+# ── 관리자 조치의 감사 기록 (09-04 검사 GAP-2) ──────────────────────────────
+#
+# 차단·승인취소·계정삭제·Pro 토글은 남의 글과 접근 권한을 되돌릴 수 없게 바꾸는데
+# 그 사실이 어디에도 안 남았다(admin 라우터에 로깅 0줄). 초대 목록이 '누구를 언제
+# 들였나'의 답인 것과 짝으로, 이 표가 '누구를 언제 내보냈나'의 답이다.
+
+
+def test_조치가_기록된다(client, make_user, auth_headers):
+    admin = make_user(role="admin", email="boss@test.com")
+    u = make_user(role="pending", email="member@test.com")
+    h = auth_headers(admin)
+    client.post(f"/api/admin/users/{u.id}/approve", headers=h)
+    client.post(f"/api/admin/users/{u.id}/ban", headers=h)
+
+    rows = client.get("/api/admin/actions", headers=h).json()
+    assert [r["action"] for r in rows] == ["ban", "approve"]  # 최신순
+    assert rows[0]["target_email"] == "member@test.com"
+    assert rows[0]["actor_email"] == "boss@test.com"
+    assert "banned" in rows[0]["detail"]
+
+
+def test_계정을_지워도_기록은_남는다(client, make_user, auth_headers):
+    """이 표가 존재하는 주된 이유다 — 계정과 함께 글·댓글이 사라지므로, 남는 게 없으면
+    사고 뒤에 무엇이 사라졌는지 재구성할 방법이 없다. target 에 FK 를 안 건 이유이기도 하다."""
+    admin = make_user(role="admin")
+    victim = make_user(role="writer", email="gone@test.com")
+    h = auth_headers(admin)
+    client.post("/api/posts", headers=auth_headers(victim), json={"title": "T", "content": "C"})
+
+    assert client.delete(f"/api/admin/users/{victim.id}", headers=h).status_code == 204
+
+    rows = client.get("/api/admin/actions", headers=h).json()
+    assert rows[0]["action"] == "delete"
+    assert rows[0]["target_email"] == "gone@test.com"
+    assert rows[0]["target_id"] == victim.id
+    assert "1편" in rows[0]["detail"]  # 함께 지워진 글 수
+
+
+def test_실패한_조치는_기록되지_않는다(client, make_user, auth_headers):
+    """400 으로 막힌 조치가 기록되면 표가 '일어나지 않은 일'을 말하게 된다.
+    같은 트랜잭션에 넣었으므로 예외가 나면 기록도 함께 롤백된다."""
+    admin = make_user(role="admin")
+    banned = make_user(role="banned")
+    h = auth_headers(admin)
+    assert client.post(f"/api/admin/users/{banned.id}/approve", headers=h).status_code == 400
+    assert client.get("/api/admin/actions", headers=h).json() == []
+
+
+def test_감사_기록은_관리자만_본다(client, make_user, auth_headers):
+    writer = make_user(role="writer")
+    assert client.get("/api/admin/actions").status_code == 401
+    assert client.get("/api/admin/actions", headers=auth_headers(writer)).status_code == 403
+
+
+def test_주소_회수와_pro_토글도_기록된다(client, make_user, auth_headers):
+    admin = make_user(role="admin")
+    u = make_user(role="writer")
+    h = auth_headers(admin)
+    client.patch("/api/auth/me/handle", json={"handle": "yuno"}, headers=auth_headers(u))
+    client.post(f"/api/admin/users/{u.id}/toggle-pro", headers=h)
+    client.post(f"/api/admin/users/{u.id}/release-handle", headers=h)
+
+    rows = client.get("/api/admin/actions", headers=h).json()
+    assert [r["action"] for r in rows] == ["release_handle", "toggle_pro"]
+    assert rows[0]["detail"] == "/@yuno"  # 무엇을 비웠는지가 남아야 회수의 기록이다
+    assert rows[1]["detail"] == "부여"
+
+
+# ── 이메일 주소 변경 (09-04 검사 GAP-9) ─────────────────────────────────────
+#
+# 그전까지 주소를 바꿀 방법이 아예 없었다. 오타로 초대된 계정은 그 오타로만 로그인되고
+# 알림 메일도 그 주소로 간다. 본인이 바꾸려면 새 주소로 확인 링크를 보내 소유를
+# 증명받아야 하는데, SES 샌드박스는 **검증된 주소로만** 보내므로 그 링크가 영영 안 닿는다.
+# 초대제가 '주소는 관리자가 고른다'로 설계된 것과 같은 제약이라 같은 답을 쓴다.
+
+
+def test_관리자가_주소를_바꾼다(client, make_user, auth_headers, db):
+    admin = make_user(role="admin")
+    u = make_user(role="writer", email="typo@test.com")
+    r = client.patch(
+        f"/api/admin/users/{u.id}/email", json={"email": "right@test.com"}, headers=auth_headers(admin)
+    )
+    assert r.status_code == 200
+    assert r.json()["email"] == "right@test.com"
+    assert client.post(
+        "/api/auth/login", json={"email": "right@test.com", "password": "password123"}
+    ).status_code == 200
+
+
+def test_주소를_바꾸면_기존_세션이_끊긴다(client, make_user, auth_headers):
+    """주소는 로그인 식별자다. 안 끊으면 옛 주소로 받은 토큰이 새 주소의 계정으로 산다."""
+    admin = make_user(role="admin")
+    u = make_user(role="writer", email="old@test.com")
+    old_token = auth_headers(u)
+    assert client.get("/api/auth/me", headers=old_token).status_code == 200
+
+    client.patch(
+        f"/api/admin/users/{u.id}/email", json={"email": "new@test.com"}, headers=auth_headers(admin)
+    )
+    assert client.get("/api/auth/me", headers=old_token).status_code == 401
+
+
+def test_이미_쓰는_주소면_409(client, make_user, auth_headers):
+    admin = make_user(role="admin")
+    a = make_user(role="writer", email="taken@test.com")
+    b = make_user(role="writer", email="mine@test.com")
+    assert a.id
+    r = client.patch(
+        f"/api/admin/users/{b.id}/email", json={"email": "taken@test.com"}, headers=auth_headers(admin)
+    )
+    assert r.status_code == 409
+
+
+def test_대소문자만_다른_주소도_막힌다(client, make_user, auth_headers):
+    """`uq_users_email_lower` 가 진짜 방어선이다 — 안 막으면 로그인이 어느 계정으로
+    갈지가 대소문자에 달리게 된다(08-09에 그 인덱스를 건 이유)."""
+    admin = make_user(role="admin")
+    make_user(role="writer", email="taken@test.com")
+    b = make_user(role="writer", email="mine@test.com")
+    r = client.patch(
+        f"/api/admin/users/{b.id}/email", json={"email": "TAKEN@test.com"}, headers=auth_headers(admin)
+    )
+    assert r.status_code == 409
+
+
+def test_주소_변경도_기록된다(client, make_user, auth_headers):
+    admin = make_user(role="admin")
+    u = make_user(role="writer", email="before@test.com")
+    client.patch(
+        f"/api/admin/users/{u.id}/email", json={"email": "after@test.com"}, headers=auth_headers(admin)
+    )
+    row = client.get("/api/admin/actions", headers=auth_headers(admin)).json()[0]
+    assert row["action"] == "change_email"
+    assert "before@test.com" in row["detail"] and "after@test.com" in row["detail"]

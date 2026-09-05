@@ -6,7 +6,8 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -28,6 +29,11 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 logger = logging.getLogger(__name__)
 
 PRO_ORDER_NAME = "블로그 Pro 구독 (1개월)"
+
+# 만료 며칠 전부터 연장 결제를 허용하는가. 창이 넓으면 같은 달에 두 번 낼 수 있고,
+# 0 이면 구독이 끊기는 날까지 기다렸다 결제해야 한다(그 사이 상위 모델이 잠긴다).
+# 연장은 `now + pro_days` 로 덮으므로 남은 기간이 잘린다 — 7일이면 잘려도 손해가 작다.
+RENEW_WINDOW_DAYS = 7
 TOSS_CONFIRM_URL = "https://api.tosspayments.com/v1/payments/confirm"
 # 주문번호로 결제 상태를 되묻는 조회 API. 중복 승인 요청 뒤 '토스는 승인했는데 우리는
 # 결과를 못 받은' 상태를 푸는 근거다(2026-09-02).
@@ -69,8 +75,23 @@ def checkout(
     # 관리자는 role상 이미 전 모델 사용 가능 → 결제 자체가 불필요(돈 안 나감)
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="관리자는 결제할 필요가 없어 (이미 모든 모델 사용 가능)")
+    # **만료가 임박하면 다시 결제할 수 있다** (09-04 검사 GAP-7).
+    # 그전에는 is_pro 이기만 하면 무조건 막아서, 구독이 끊기는 날까지 기다렸다가 결제해야
+    # 했다 — 그 사이 상위 모델이 잠기고, 하필 그날 서버가 꺼져 있으면 더 길어진다.
+    # 그렇다고 아무 때나 열면 같은 달에 두 번 낼 수 있으므로 창을 좁게 둔다.
+    # 연장은 confirm 이 `now + pro_days` 로 덮으므로 남은 기간이 잘린다 —
+    # 그래서 '임박'이 아니면 여전히 막는다(잘려도 손해가 작은 구간에서만 연다).
     if user.is_pro:
-        raise HTTPException(status_code=400, detail="이미 Pro 구독 중이야")
+        remaining = (user.pro_until - datetime.now(UTC)).days if user.pro_until else None
+        if remaining is None or remaining > RENEW_WINDOW_DAYS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "이미 Pro 구독 중이야"
+                    if remaining is None
+                    else f"이미 Pro 구독 중이야 (만료 {remaining}일 전부터 연장할 수 있어)"
+                ),
+            )
 
     order_id = "order_" + uuid.uuid4().hex
     p = Payment(
@@ -319,6 +340,14 @@ def confirm(
         # 동시 confirm 중 하나가 이미 확정했다면 여기 안 들어온다 = 기간을 두 번 연장하지 않는다.
         p.status = "paid"
         p.paid_at = now
+        # 영수증 주소를 저장한다(09-04 검사 GAP-7). 승인 응답에 실려 오는데 버리고 있었고,
+        # 그래서 '얼마를 언제 냈나'의 근거가 카드사 명세서뿐이었다. 모양이 다를 수 있으므로
+        # 없으면 그냥 NULL 로 둔다 — 여기서 KeyError 로 죽으면 **돈은 나갔는데 확정이 안 된다**.
+        receipt = payload.get("receipt") if payload else None
+        if isinstance(receipt, dict):
+            url = receipt.get("url")
+            if isinstance(url, str):
+                p.receipt_url = url[:500]
         u.is_pro = True
         u.pro_until = now + timedelta(days=settings.pro_days)
     db.commit()
@@ -333,9 +362,47 @@ def unsubscribe(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # 구독 해지: is_pro 끔 + 만료일 제거 (환불은 별도. 데모라 상태만 토글)
+    """구독 해지 — **남은 기간이 즉시 사라진다.**
+
+    환불은 없다(데모라 상태만 토글한다). 그래서 이 동작은 '다음 결제를 안 한다'가 아니라
+    '지금 산 것을 지금 버린다'에 가깝다 — 화면이 그 사실을 확인창에 적어야 하고,
+    2026-09-05에 그렇게 고쳤다(09-04 검사 GAP-7).
+    """
     user.is_pro = False
     user.pro_until = None
     db.commit()
     db.refresh(user)
     return user
+
+
+class PaymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    order_id: str
+    order_name: str
+    amount: int
+    status: str
+    receipt_url: str | None = None
+    created_at: datetime
+    paid_at: datetime | None = None
+
+
+@router.get("/me", response_model=list[PaymentOut])
+def my_payments(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """내 결제 내역 (09-04 검사 GAP-7).
+
+    **왜 필요한가** — 그전까지 '얼마를 언제 냈나'를 확인할 방법이 카드사 명세서뿐이었다.
+    결제는 이 사이트에서 돈이 오가는 유일한 자리이고, 그 기록을 사용자가 못 보면
+    문의가 와도 서로 볼 수 있는 근거가 없다.
+
+    **실패·대기 주문도 보여준다.** 성공만 보여주면 '결제가 안 됐는데 돈이 빠져나간 것
+    같다'는 상황에서 화면이 아무 말도 안 하게 된다. status 를 그대로 싣고 화면이 문장을
+    만든다(confirming = '확인 중'이지 실패가 아니다 — models/payment.py 참고).
+    """
+    rows = db.scalars(
+        select(Payment)
+        .where(Payment.user_id == user.id)
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .limit(50)
+    ).all()
+    return rows
