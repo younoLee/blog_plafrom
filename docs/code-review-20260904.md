@@ -763,6 +763,12 @@ LoginPage가 주석까지 달아 세운 '오류는 낭독기에도 읽혀야 한
 
 #### BQ-1 · 태그 기능 전체가 테스트 0건 — 정규화·필터·집계 어디도 안 덮인다
 
+> ✅ **2026-09-05에 고쳤다.** 시험 일곱 — 필터·공백/중복 정규화·길이 초과 폐기·10개 상한·
+> meta 집계 개수·**비공개 글 태그가 남에게 안 세어지는지**·조회 상한. 함께 `?tag=` 의
+> max_length 를 50 → TAG_MAX_LEN(30)으로 맞췄다. 31~50자 태그는 저장될 수 없으니
+> 그 길이의 조회는 언제나 빈 목록이었다 — '되는 것처럼 보이는데 결과가 없는' 자리다.
+> 기존 시험(`test_tag_has_length_limit_like_q`)의 경계값도 그에 맞춰 고치고 이유를 적었다.
+
 `backend/app/schemas/post.py:80` — 백엔드 품질·테스트 · test-gap
 
 글 생성 테스트가 단 한 번도 비어있지 않은 tags를 보내지 않아, 태그 정규화·태그 필터·사이드바 태그 집계가 전부 미검증이다.
@@ -805,6 +811,11 @@ role=admin 중 최소 id를 고르는 같은 쿼리가 세 곳에 손으로 적�
 
 #### BQ-3 · AI 업스트림 5xx→503 갈래가 테스트 0건 — 쌍둥이 함수만 테스트가 있다
 
+> ✅ **2026-09-05에 고쳤다.** 시험 여덟 — 500·502·503·408·429 각각, `.status_code` 형과
+> `.response.status_code` 형(벤더 SDK 넷이 다른 예외를 쓴다), 원인 사슬에 묶인 경우,
+> 그리고 **410 은 여전히 502** 라는 반대 케이스. 마지막 것이 `_VENDOR_SICK_CODES` 에
+> 410 을 안 넣은 결정을 지킨다.
+
 `backend/app/routers/ai.py:95` — 백엔드 품질·테스트 · test-gap
 
 _upstream_sick()이 True를 반환하는 경로와 그로 인한 503 응답이 한 번도 실행되지 않아, 2026-08-27 훈련이 고친 안내 문구가 회귀해도 초록이다.
@@ -816,6 +827,11 @@ _upstream_sick()이 True를 반환하는 경로와 그로 인한 503 응답이 �
 **검증** (high) test_ai.py 의 예외 주입은 fixture(:10-30)가 `.fail(exc)` 로 넣는 `ValueError("upstream 500")`(:104)뿐이라 status_code 가 없어 ai.py:95 의 _upstream_sick 이 True 를 낼 경로가 없고, 짝인 _upstream_unreachable 만 test_degradation.py:100-128 에 단위테스트가 있다.
 
 #### BQ-5 · 커넥션 풀 고갈(503) 예외 핸들러가 테스트 0건
+
+> ✅ **2026-09-05에 고쳤다.** `pool_exhausted` 픽스처(get_db 가 sqlalchemy TimeoutError 를
+> 던진다)를 db_down 옆에 두고 셋을 잠갔다 — 503 JSON · `Retry-After: 5`(DB 정지의 30과
+> 다르다) · **문구가 db_unavailable 과 다른지**. 마지막 것이 핸들러 병합 회귀를 잡는다
+> (합치면 `exc.orig` AttributeError 로 다시 500 text/plain 이 된다).
 
 `backend/app/main.py:209` — 백엔드 품질·테스트 · test-gap
 
@@ -844,6 +860,9 @@ posts.list_posts가 NUL을 막는 파라미터는 q·tag·author·series 넷인�
 
 #### BQ-7 · GET /api/admin/ai-usage 전체가 테스트 0건
 
+> ✅ **2026-09-05에 고쳤다.** 시험 다섯 — 인가(401/403) · 오늘 합계 · 14일 창 경계
+> (13일 전 포함, 14일 전 제외) · 상위 사용자가 이메일을 안 흘리는지 · 이번 달 1일 경계.
+
 `backend/app/routers/admin.py:111` — 백엔드 품질·테스트 · test-gap
 
 AI 비용을 사람이 볼 수 있는 유일한 화면의 백엔드가 통째로 미검증이다 — 집계 쿼리 셋과 캡 표기가 전부 미실행.
@@ -855,6 +874,11 @@ AI 비용을 사람이 볼 수 있는 유일한 화면의 백엔드가 통째로
 **검증** (high) admin.py:97-180 의 ai_usage_summary 를 부르는 테스트가 tests/ 에 0건이고(형제인 /api/admin/ai-guard 는 test_admin_observability.py 에 5건), 14일 추이·이번 달 top_users 집계가 통째로 미검증인 것이 맞다 — 다만 비관리자 차단은 admin.py:24 의 라우터 레벨 require_admin 이 이미 잡고 다른 테스트가 그 경로를 덮으므로 fix 의 (a)는 불필요하다.
 
 #### BQ-8 · services/ses_status.py는 커버리지 13% — 전 스위트가 함수째 대체한다
+
+> ✅ **2026-09-05에 고쳤다.** `tests/test_ses_status.py` 를 새로 만들어 boto3.client 를
+> 가짜 sesv2 로 갈아끼웠다(라우터를 안 거치므로 no_ses 와 충돌하지 않는다). 여덟 갈래를
+> 잠갔고 **커버리지가 13% → 100%** 가 됐다. 핵심은 '모른다'와 '아니다'를 안 섞는 것 —
+> NotFoundException 만 verified=False 이고 권한 오류·네트워크 실패는 None 이다.
 
 `backend/app/services/ses_status.py:29` — 백엔드 품질·테스트 · test-gap
 

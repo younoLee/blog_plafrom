@@ -228,9 +228,13 @@ def test_tag_has_length_limit_like_q(client):
 
     6,000자 태그가 200으로 인덱스 조회까지 갔다(2026-08-12 실측).
     '고친 자리 옆의 안 쓸린 입구'라 같은 검사에 함께 둔다.
+
+    2026-09-05 정정: 상한이 50 이었는데 **태그 자체의 최대 길이는 30**(TAG_MAX_LEN)이다.
+    31~50자 태그는 저장될 수 없으니 그 길이의 조회는 언제나 빈 목록이었다 — 되는 것처럼
+    보이는데 결과가 없는 자리라 두 상한을 맞췄다(09-04 검사 BQ-1).
     """
     assert client.get("/api/posts", params={"tag": "x" * 6000}).status_code == 422
-    assert client.get("/api/posts", params={"tag": "x" * 50}).status_code == 200
+    assert client.get("/api/posts", params={"tag": "x" * 30}).status_code == 200
 
 
 # ── 2026-08-12 검사: 무인증으로 500을 만들 수 있던 다섯 갈래 ───────────────────
@@ -396,3 +400,78 @@ def test_앞뒤_공백은_털고_검색한다(client, make_user, auth_headers):
     r = client.get("/api/posts?q=%20AWS%20")
     assert r.status_code == 200
     assert r.json()["total"] == 1
+
+
+# ── 태그: 정규화·필터·집계 (09-04 검사 BQ-1) ─────────────────────────────────
+#
+# 태그는 목록 필터·사이드바 집계·정적 태그 허브 23장이 모두 기대는 값인데 시험이 0건이었다.
+# 정규화 규칙(공백 제거·중복 제거·길이 상한·개수 상한)이 스키마 검증기 안에만 있어서,
+# 한 줄만 바뀌어도 화면 세 곳이 조용히 갈린다.
+
+
+def test_태그로_거르면_그_글만_온다(client, make_user, auth_headers):
+    h = auth_headers(make_user(role="writer"))
+    client.post("/api/posts", headers=h, json={"title": "AWS", "content": "본문", "tags": ["AWS", "비용"]})
+    client.post("/api/posts", headers=h, json={"title": "리액트", "content": "본문", "tags": ["React"]})
+
+    r = client.get("/api/posts?tag=AWS")
+    assert r.status_code == 200
+    assert [p["title"] for p in r.json()["items"]] == ["AWS"]
+
+
+def test_태그는_공백과_중복과_빈_값을_턴다(client, make_user, auth_headers):
+    h = auth_headers(make_user(role="writer"))
+    r = client.post(
+        "/api/posts",
+        headers=h,
+        json={"title": "T", "content": "C", "tags": ["  a  ", "a", "", "   ", "b"]},
+    )
+    assert r.status_code == 201
+    assert r.json()["tags"] == ["a", "b"]
+
+
+def test_너무_긴_태그는_버린다(client, make_user, auth_headers):
+    """30자를 넘는 태그는 조용히 빠진다. 422 가 아니라 버리는 쪽인 이유는 나머지 태그와
+    글 자체는 멀쩡히 저장돼야 하기 때문이다 — 그 결정을 여기서 못박는다."""
+    h = auth_headers(make_user(role="writer"))
+    r = client.post(
+        "/api/posts", headers=h, json={"title": "T", "content": "C", "tags": ["x" * 31, "짧은거"]}
+    )
+    assert r.json()["tags"] == ["짧은거"]
+
+
+def test_태그는_열_개까지다(client, make_user, auth_headers):
+    h = auth_headers(make_user(role="writer"))
+    r = client.post(
+        "/api/posts",
+        headers=h,
+        json={"title": "T", "content": "C", "tags": [f"t{i}" for i in range(15)]},
+    )
+    assert r.json()["tags"] == [f"t{i}" for i in range(10)]
+
+
+def test_meta의_태그_집계가_개수를_센다(client, make_user, auth_headers):
+    h = auth_headers(make_user(role="writer"))
+    client.post("/api/posts", headers=h, json={"title": "1", "content": "C", "tags": ["AWS", "비용"]})
+    client.post("/api/posts", headers=h, json={"title": "2", "content": "C", "tags": ["AWS"]})
+
+    counts = {t["tag"]: t["count"] for t in client.get("/api/posts/meta").json()["tags"]}
+    assert counts["AWS"] == 2
+    assert counts["비용"] == 1
+
+
+def test_비공개_글의_태그는_남에게_안_세어진다(client, make_user, auth_headers):
+    """집계가 가시성을 안 보면 **제목은 안 보이는데 태그 이름은 새는** 상태가 된다."""
+    owner = auth_headers(make_user(role="writer"))
+    client.post(
+        "/api/posts", headers=owner, json={"title": "비밀", "content": "C", "tags": ["비밀태그"], "visibility": "private"}
+    )
+    names = {t["tag"] for t in client.get("/api/posts/meta").json()["tags"]}
+    assert "비밀태그" not in names
+
+
+def test_태그_조회_상한은_태그_길이와_같다(client):
+    """31자짜리 태그는 저장될 수 없으므로 그 길이의 조회는 언제나 빈 목록이다 —
+    입구 상한이 서로 다르면 '되는 것처럼 보이는데 결과가 없는' 자리가 생긴다."""
+    assert client.get("/api/posts?tag=" + "x" * 30).status_code == 200
+    assert client.get("/api/posts?tag=" + "x" * 31).status_code == 422

@@ -16,6 +16,7 @@ import pytest
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.core.database import get_db
 from app.main import app
@@ -33,6 +34,53 @@ def db_down(client):
     yield client
     # conftest의 client 픽스처가 정리하지만, 다른 테스트로 새지 않게 여기서도 되돌린다
     app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def pool_exhausted(client):
+    """커넥션 풀이 다 찬 상태(get_db 가 sqlalchemy TimeoutError 를 던진다).
+
+    **DB 는 멀쩡하고 우리 쪽 커넥션이 없는 것**이라 위 db_down 과 다른 사건이다.
+    main.py 가 두 핸들러를 따로 두는 이유가 거기 적혀 있는데(그 문서가 실측 함정 셋까지
+    남겼다) 정작 이쪽은 시험이 0건이었다 — 핸들러를 하나로 합치는 리팩터가 오면
+    `exc.orig` AttributeError 로 **다시 500 text/plain** 이 되는데 아무도 못 잡는다
+    (09-04 검사 BQ-5).
+    """
+
+    def boom():
+        raise PoolTimeoutError("QueuePool limit of size 10 overflow 10 reached")
+
+    app.dependency_overrides[get_db] = boom
+    yield client
+    app.dependency_overrides.pop(get_db, None)
+
+
+def test_풀_고갈도_503_json이다(pool_exhausted):
+    r = pool_exhausted.get("/api/posts")
+    assert r.status_code == 503
+    assert r.headers["content-type"].startswith("application/json")
+
+
+def test_풀_고갈은_더_빨리_다시_시도하라고_한다(pool_exhausted):
+    """풀은 몇 초면 빈다. DB 정지(30초)와 같은 값을 주면 '언제 다시'가 뜻을 잃는다."""
+    assert pool_exhausted.get("/api/posts").headers.get("retry-after") == "5"
+
+
+def test_풀_고갈과_DB_정지는_다른_문장을_준다(pool_exhausted, client):
+    """문구가 같아지면 사고 때 사람을 엉뚱한 곳으로 보낸다 — 하나는 DB 를 보라는 말이고
+    다른 하나는 커넥션을 오래 쥔 요청을 보라는 말이다. 핸들러 병합 회귀를 여기서 잡는다."""
+    pool_msg = pool_exhausted.get("/api/posts").json()["detail"]
+
+    def boom():
+        raise OperationalError("SELECT 1", {}, Exception("could not connect"))
+
+    app.dependency_overrides[get_db] = boom
+    try:
+        db_msg = client.get("/api/posts").json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    assert pool_msg != db_msg
+    assert "몰려" in pool_msg
 
 
 def test_db_outage_returns_503_json_not_500_text(db_down):

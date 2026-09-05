@@ -15,6 +15,7 @@ from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import PUBLIC_BLOG_ROLES, User
 from app.schemas.post import (
+    TAG_MAX_LEN,
     PostCreate,
     PostList,
     PostMeta,
@@ -207,7 +208,10 @@ def list_posts(
     # `q`엔 상한이 있는데 **바로 옆 `tag`엔 아무 제약이 없었다**(2026-08-12 동적 분석:
     # 6,000자 태그가 200으로 인덱스 조회까지 갔다). 고친 자리 옆의 안 쓸린 입구다.
     # 태그는 작성 시 스키마가 이미 짧게 제한하므로 조회 쪽도 같은 크기로 맞춘다.
-    tag: str | None = Query(None, max_length=50),
+    # 상한을 태그 자체의 최대 길이(TAG_MAX_LEN=30)에 맞춘다. 50 은 '작성 시 스키마가
+    # 이미 짧게 제한하므로 조회도 같은 크기로 맞춘다'고 적어둔 값인데 **실제로는 안 맞았다**
+    # — 31~50자 태그는 저장될 수 없으므로 그 길이의 조회는 언제나 빈 목록이다(09-04 검사 BQ-1).
+    tag: str | None = Query(None, max_length=TAG_MAX_LEN),
     # 글쓴이로 거르기 — `/@handle` 화면이 쓴다. 값은 **핸들**이지 id가 아니다.
     # id를 받으면 화면이 주소(handle)를 id로 바꾸려고 조회를 한 번 더 해야 하고,
     # 그 조회가 실패하는 경우(없는 사람)를 두 곳에서 처리하게 된다.

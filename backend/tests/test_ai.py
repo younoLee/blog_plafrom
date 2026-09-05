@@ -885,3 +885,66 @@ def test_router_passes_reserved_day_to_add_tokens(client, make_user, auth_header
     r = client.post("/api/ai/draft", headers=auth_headers(user), json={"memo": "메모" * 20})
     assert r.status_code == 200, r.text
     assert seen.get("day") == ai_usage.today(), "라우터가 예약 시점의 day를 안 넘겼다"
+
+
+# ── 벤더가 '자기가 아프다'고 응답한 경우 (09-04 검사 BQ-3) ───────────────────
+#
+# `_upstream_sick` 은 08-27 훈련이 만든 갈래다 — BYOK 3종에 503을 주입했더니 전부
+# 502 + "키/모델명 확인"이 나갔다(벤더가 아픈데 자기 키를 의심하게 만드는 안내).
+# 그 고침에 시험이 0건이라, 쌍둥이인 `_upstream_unreachable` 만 시험이 있었다.
+# 08-26이 결제에서 세운 원칙("5xx 는 거절이 아니라 모름")의 AI 판이라 되돌아가면 비싸다.
+
+
+class _VendorError(Exception):
+    """벤더 SDK 흉내 — 예외가 status_code 를 직접 들고 있는 모양."""
+
+    def __init__(self, status_code: int):
+        super().__init__(f"vendor {status_code}")
+        self.status_code = status_code
+
+
+class _HttpxLike(Exception):
+    """httpx.HTTPStatusError 모양 — 코드가 `.response.status_code` 에 있다."""
+
+    def __init__(self, status_code: int):
+        super().__init__("http error")
+        self.response = type("R", (), {"status_code": status_code})()
+
+
+@pytest.mark.parametrize("code", [500, 502, 503, 408, 429])
+def test_벤더가_아프면_503으로_모름을_말한다(client, make_user, auth_headers, fake_generate, code):
+    user = make_user(role="writer")
+    fake_generate.fail(_VendorError(code))
+    r = _draft(client, auth_headers(user))
+    assert r.status_code == 503
+    assert "일시적으로 응답하지" in r.json()["detail"]
+    assert "키" not in r.json()["detail"]  # 사용자가 고칠 게 없다
+
+
+def test_httpx_모양의_5xx도_같게_읽는다(client, make_user, auth_headers, fake_generate):
+    """타입으로는 못 가른다 — 벤더 SDK 넷이 각자 다른 예외를 쓴다. 그래서 사슬에서
+    status_code 를 훑는데, `.response.status_code` 쪽 경로도 같이 잠근다."""
+    user = make_user(role="writer")
+    fake_generate.fail(_HttpxLike(503))
+    assert _draft(client, auth_headers(user)).status_code == 503
+
+
+def test_원인_사슬에_묶여_있어도_찾아낸다(client, make_user, auth_headers, fake_generate):
+    user = make_user(role="writer")
+    try:
+        raise _VendorError(503)
+    except _VendorError as inner:
+        wrapped = RuntimeError("초안 생성 실패")
+        wrapped.__cause__ = inner
+    fake_generate.fail(wrapped)
+    assert _draft(client, auth_headers(user)).status_code == 503
+
+
+def test_410은_여전히_502다(client, make_user, auth_headers, fake_generate):
+    """410(gone)은 '이 자원은 영영 없다'라 **사용자가 모델명을 고쳐야 하는** 쪽이다.
+    _VENDOR_SICK_CODES 에 안 넣은 결정을 지킨다 — 넓히면 고칠 수 있는 것까지
+    '잠시 후 다시'로 안내하게 된다."""
+    user = make_user(role="writer")
+    fake_generate.fail(_VendorError(410))
+    r = _draft(client, auth_headers(user))
+    assert r.status_code == 502

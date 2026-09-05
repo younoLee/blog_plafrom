@@ -114,3 +114,90 @@ def test_last_delivery_records_tried_and_ok(monkeypatch):
     assert last["ok"] == 2  # 하나는 실패 — tried 와 다르다
     assert last["budget_hit"] is False
     assert last["title"] == "본문"
+
+
+# ── AI 사용량 (09-04 검사 BQ-7) ──────────────────────────────────────────────
+#
+# `GET /api/admin/ai-usage` 는 라우트 전체가 시험 0건이었다. 이 화면이 하는 일은
+# Anthropic 청구를 보는 **유일한 창**이다 — 그 청구는 AWS 밖이라 watch.sh 가 보는
+# AWS Budgets 가 원리적으로 못 본다. 여기가 조용히 틀리면 다음 명세서까지 아무도 모른다.
+
+
+def _seed_usage(db, user_id: int, *, days_ago: int = 0, calls: int = 1, tin: int = 0, tout: int = 0):
+    from datetime import timedelta
+
+    from app.models.ai_usage import AiUsage
+    from app.services.ai_usage import today
+
+    db.add(
+        AiUsage(
+            user_id=user_id,
+            day=today() - timedelta(days=days_ago),
+            count=calls,
+            input_tokens=tin,
+            output_tokens=tout,
+        )
+    )
+    db.commit()
+
+
+def test_ai_usage_requires_admin(client, make_user, auth_headers):
+    writer = make_user(role="writer")
+    assert client.get("/api/admin/ai-usage").status_code == 401
+    assert client.get("/api/admin/ai-usage", headers=auth_headers(writer)).status_code == 403
+
+
+def test_오늘_숫자는_시드_합과_같다(client, make_user, auth_headers, db):
+    admin = make_user(role="admin")
+    a = make_user(role="writer")
+    b = make_user(role="writer")
+    _seed_usage(db, a.id, calls=3, tin=100, tout=50)
+    _seed_usage(db, b.id, calls=2, tin=10, tout=5)
+
+    today_block = client.get("/api/admin/ai-usage", headers=auth_headers(admin)).json()["today"]
+    assert today_block["calls"] == 5
+    assert today_block["tokens"] == 165
+    assert today_block["calls_cap"] >= 1  # 상한 없이 숫자만 보면 많은지 적은지 모른다
+
+
+def test_추이는_14일_창_밖을_뺀다(client, make_user, auth_headers, db):
+    """창이 없으면 이 표는 계정이 살아 있는 내내 길어진다. 경계(13일 전은 포함,
+    14일 전은 제외)를 못박아 둔다 — '평소 대비 튀었는가'가 이 표의 용도다."""
+    admin = make_user(role="admin")
+    u = make_user(role="writer")
+    _seed_usage(db, u.id, days_ago=13, calls=7)
+    _seed_usage(db, u.id, days_ago=14, calls=99)
+
+    daily = client.get("/api/admin/ai-usage", headers=auth_headers(admin)).json()["daily"]
+    assert sum(d["calls"] for d in daily) == 7
+
+
+def test_상위_사용자는_이메일을_안_흘린다(client, make_user, auth_headers, db):
+    """가드 목록과 같은 규칙이다 — 표시명 폴백(`회원 #id`)을 쓰고 이메일은 안 내보낸다.
+    관리자 화면이라도 이메일을 실어 보내면 그게 다시 다른 응답으로 새는 경로가 된다."""
+    admin = make_user(role="admin")
+    u = make_user(role="writer", email="secret@test.com")
+    _seed_usage(db, u.id, calls=1, tin=1, tout=1)
+
+    body = client.get("/api/admin/ai-usage", headers=auth_headers(admin)).text
+    assert "secret@test.com" not in body
+    top = client.get("/api/admin/ai-usage", headers=auth_headers(admin)).json()["top_users_month"]
+    assert top[0]["user_id"] == u.id
+    assert top[0]["name"] == f"회원 #{u.id}"
+
+
+def test_이번_달_1일_경계를_지킨다(client, make_user, auth_headers, db):
+    """지난달 사용량이 이번 달 표에 섞이면 '이번 달 얼마 썼나'가 뜻을 잃는다."""
+    from datetime import timedelta
+
+    from app.services.ai_usage import today
+
+    admin = make_user(role="admin")
+    u = make_user(role="writer")
+    day = today()
+    last_month = day.replace(day=1) - timedelta(days=1)
+    _seed_usage(db, u.id, days_ago=(day - last_month).days, calls=50, tin=1000, tout=1000)
+    _seed_usage(db, u.id, calls=1, tin=1, tout=1)
+
+    top = client.get("/api/admin/ai-usage", headers=auth_headers(admin)).json()["top_users_month"]
+    assert top[0]["tokens"] == 2  # 지난달 2000 토큰이 안 섞인다
