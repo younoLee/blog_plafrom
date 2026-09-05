@@ -746,7 +746,7 @@ def test_vendor_rejection_is_not_counted_as_success(monkeypatch):
 
 
 def test_delivery_record_counts_failures_separately(
-    client, make_user, auth_headers, db, monkeypatch
+    client, make_user, auth_headers, db, push_on, monkeypatch
 ):
     """관리자 화면이 읽는 기록에 실패 대수가 남는다.
 
