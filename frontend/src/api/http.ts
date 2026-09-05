@@ -59,6 +59,44 @@ export function isAsleepStatus(status: number): boolean {
  */
 export const ASLEEP_MEMORY_MS = 60000
 
+/**
+ * 5xx 를 '오리진이 안 떴다'로 볼 수 있는 시간 상한 (2026-09-05).
+ *
+ * **주차된 오리진은 빨리 실패한다.** CloudFront 의 오리진 연결이 시도 1회 · 상한 1초라
+ * (`terraform/cloudfront.tf`) 서버가 꺼져 있으면 504 가 1초 남짓에 온다(09-04 실측 1.38초).
+ * 반대로 오리진이 살아서 붙잡고 있다가 `origin_read_timeout`(60초)을 다 쓰고 온 504 는
+ * **서버가 깨어 있다는 증거**다. 그걸 절전으로 기억하면 그때부터 60초 동안 쓰기까지
+ * 막히는데, AI 초안은 1분 넘게 걸리는 것이 예정된 경로라 정확히 그 자리에서 터진다
+ * (09-04 검사 FE-2). 5초는 두 경우 사이가 비어 있어서 고른 값이다.
+ *
+ * 틀렸을 때의 손해가 한쪽으로만 크다. 늦은 504 를 절전으로 안 세면 다음 요청이 한 번 더
+ * 나갈 뿐이지만, 반대로 세면 멀쩡한 서버에 글을 못 올린다.
+ */
+export const ASLEEP_FAST_MS = 5000
+
+/**
+ * 이 5xx 가 정말 '오리진이 안 떴다'인가. 아니면 절전으로 기억하지 않는다.
+ *
+ * `isAsleepStatus` 는 상태코드만 본다. 그것만으로는 두 가지를 못 가른다(09-04 검사):
+ *
+ *   · **앱이 스스로 낸 503.** 백엔드는 서로 다른 503 을 셋 낸다(서버 키 없음 ·
+ *     BYOK 복호화 실패 · 업스트림 도달 실패). `ai.ts` 가 그 셋을 구분해 안내하는 코드를
+ *     08-11 에 넣었는데 09-02 이후 도달 불가가 됐다. 응답이 JSON 이면 그건 CloudFront 가
+ *     아니라 **앱이 대답한 것**이고, 대답했다는 건 살아 있다는 뜻이다.
+ *   · **늦게 온 504.** 위 ASLEEP_FAST_MS 주석 참고.
+ *
+ * 넓히면 진짜 장애가 "잠시 후 다시"로 안내된다는 것은 이 파일의 테스트가 처음부터
+ * 잠가둔 불변식인데, 상태코드만 보던 동안 그 불변식이 5xx 안쪽에서 새고 있었다.
+ */
+function originLooksDown(res: Response, elapsedMs: number): boolean {
+  // 헤더를 못 읽으면 판단 근거가 없으므로 예전 동작(빠른 5xx = 절전)으로 물러난다.
+  // 실제 Response 에는 headers 가 항상 있지만, 여기서 던지면 그 TypeError 가 아래
+  // catch 로 흘러 원인이 엉뚱하게 보인다.
+  const type = res.headers?.get('content-type') ?? ''
+  if (type.includes('json')) return false
+  return elapsedMs < ASLEEP_FAST_MS
+}
+
 /** 마지막으로 절전을 확인한 시각. null 이면 '자고 있다고 알고 있는 바 없음'. */
 let asleepAt: number | null = null
 
@@ -116,10 +154,33 @@ async function request(
   // 되돌아간다")가 여기엔 해당하지 않는다.
   if (knownAsleep()) throw new ServerAsleepError()
   const ac = new AbortController()
-  const timer = timeoutMs === null ? null : setTimeout(() => ac.abort(), timeoutMs)
+  // **우리가 끊은 것과 호출부가 끊은 것을 가른다.** 아래 catch 가 AbortError 를 절전으로
+  // 바꾸는데, 호출부의 abort 는 서버 상태를 말해 주는 신호가 아니다(사용자가 취소했거나
+  // 호출부가 자기 상한을 건 것이다). 섞으면 멀쩡한 서버를 60초 동안 잠근다.
+  let timedOut = false
+  const timer =
+    timeoutMs === null
+      ? null
+      : setTimeout(() => {
+          timedOut = true
+          ac.abort()
+        }, timeoutMs)
+
+  // 호출부가 준 signal 을 우리 것과 **함께 듣는다**.
+  // 예전에는 `{ ...init, signal: ac.signal }` 이 스프레드 뒤라 호출부 signal 을 통째로
+  // 덮어썼다. 그래서 `ai.ts` 의 90초 안전장치가 fetch 에 연결되지 않아 죽어 있었고,
+  // 그 주석이 약속한 동작과 실제가 달랐다(09-04 검사 FE-1).
+  const outer = init.signal
+  const relay = () => ac.abort()
+  if (outer) {
+    if (outer.aborted) ac.abort()
+    else outer.addEventListener('abort', relay, { once: true })
+  }
+
+  const started = Date.now()
   try {
     const res = await fetch(url, { ...init, signal: ac.signal })
-    if (isAsleepStatus(res.status)) {
+    if (isAsleepStatus(res.status) && originLooksDown(res, Date.now() - started)) {
       asleepAt = Date.now()
       throw new ServerAsleepError()
     }
@@ -131,16 +192,21 @@ async function request(
     if (res.status === 401 && hasAuthHeader(init)) sessionExpired()
     return res
   } catch (e) {
-    // abort = 시간 안에 응답이 없음 → 켜지는 중이거나 꺼져 있음
-    if (e instanceof DOMException && e.name === 'AbortError') {
+    // **우리 상한이 끊었을 때만** 절전이다. 시간 안에 응답이 없었다는 뜻이므로
+    // 켜지는 중이거나 꺼져 있다.
+    if (timedOut && e instanceof DOMException && e.name === 'AbortError') {
       asleepAt = Date.now()
       throw new ServerAsleepError()
     }
+    // 호출부가 끊은 abort 는 그대로 올려보낸다. 절전으로 바꾸면 두 가지가 어긋난다:
+    // 호출부의 AbortError 분기가 도달 불가가 되고(`ai.ts` 의 '너무 오래 걸려서 멈췄어'가
+    // 그랬다), 서버가 멀쩡한데 60초 동안 잠긴다.
     // 네트워크 오류(끊긴 와이파이 등)는 기억하지 않는다. 서버 상태를 말해 주는
     // 신호가 아니라서, 이걸 절전으로 접으면 원인 진단이 어긋난다(http.test.ts 가 잠근다).
     throw e
   } finally {
     if (timer !== null) clearTimeout(timer)
+    outer?.removeEventListener('abort', relay)
   }
 }
 

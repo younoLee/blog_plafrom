@@ -92,6 +92,11 @@ subscribe가 만든 Notification(post_id NULL, actor_id=신청자)은 author_sub
 
 ### FE-1 · http.ts가 호출부의 AbortSignal을 덮어써 AI 초안 90초 안전장치가 죽어 있다
 
+> ✅ **2026-09-05에 고쳤다.** `request()` 가 호출부 signal 을 함께 듣게 하고, **우리 상한이
+> 끊은 것과 호출부가 끊은 것을 갈랐다**. 호출부의 abort 는 그대로 올려보내므로 `ai.ts` 의
+> AbortError 분기가 살아났고, `ServerAsleepError` 는 '네트워크 문제' 문구로 덮지 않고
+> 그대로 던진다. 테스트 3개로 잠갔다.
+
 `frontend/src/api/http.ts:121` — 프론트 정확성 · correctness
 
 request()가 `{ ...init, signal: ac.signal }`로 caller의 signal을 자기 것으로 바꾼다. apiFetch는 timeoutMs=null이라 그 signal은 영영 abort되지 않는다. ai.ts generateDraft가 넘기는 90초 타이머(ai.ts:79,86)는 연결되지 않은 컨트롤러를 abort할 뿐이다.
@@ -103,6 +108,15 @@ request()가 `{ ...init, signal: ac.signal }`로 caller의 signal을 자기 것�
 **검증** (high) http.ts:121 `fetch(url, { ...init, signal: ac.signal })`가 호출부 signal을 실제로 덮어쓰는 것을 확인했고, ai.ts:78-86의 90초 컨트롤러는 fetch에 연결되지 않아 주석이 약속한 안전장치가 죽어 있으며 :90의 AbortError 분기도 도달 불가다.
 
 ### FE-2 · AI 초안이 60초를 넘겨 504가 오면 앱 전체가 60초간 '절전'으로 잠긴다
+
+> ✅ **2026-09-05에 고쳤다.** 5xx 를 상태코드만으로 절전이라 하지 않는다. 응답이 JSON 이면
+> 앱이 대답한 것이라 절전이 아니고, 5초를 넘겨 온 5xx 는 오리진이 살아서 붙잡고 있었다는
+> 뜻이라 기억하지 않는다(주차된 오리진은 1초 남짓에 실패한다). 테스트 4개로 잠갔다.
+>
+> 이 자리를 고치다 **보고서에 없던 것**을 하나 더 찾았다. `isAsleepStatus` 가 503 도 접는
+> 바람에, 백엔드가 내는 서로 다른 503 셋을 구분해 안내하려고 08-11 에 넣은 `ai.ts` 의
+> 코드가 09-02 이후 **도달 불가**였다. 사용자는 'BYOK 키를 다시 등록해줘' 대신 '서버가
+> 절전 중이야'를 보고 있었다. 같은 고침으로 살아났다.
 
 `frontend/src/api/http.ts:122` — 프론트 정확성 · correctness
 

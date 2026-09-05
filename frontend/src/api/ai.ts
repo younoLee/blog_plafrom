@@ -1,5 +1,5 @@
 import { authHeaders } from './auth'
-import { apiFetch, fetchWithTimeout } from './http'
+import { ServerAsleepError, apiFetch, fetchWithTimeout } from './http'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api'
 
@@ -86,6 +86,10 @@ export async function generateDraft(memo: string, model?: string, provider?: str
       signal: ctrl.signal,
     })
   } catch (e) {
+    // 절전은 절전이라고 말한다. 예전엔 이 줄이 없어서 "네트워크 문제로 초안 생성에
+    // 실패했어"로 덮였는데, 사용자가 할 일이 '와이파이 확인'이 아니라 '서버 켜기'라
+    // 안내가 엉뚱한 곳을 가리켰다(09-04 검사 FE-1).
+    if (e instanceof ServerAsleepError) throw e
     // 원본 에러를 cause로 보존해 디버깅 단서를 잃지 않게
     if (e instanceof DOMException && e.name === 'AbortError')
       throw new Error('생성이 너무 오래 걸려서 멈췄어. 더 짧은 메모로 다시 하거나 빠른 모델(Haiku)로 해줘', { cause: e })
@@ -120,6 +124,11 @@ export async function generateDraft(memo: string, model?: string, provider?: str
     const d = await res.json().catch(() => null)
     throw new Error(typeof d?.detail === 'string' ? d.detail : '메모를 다시 확인해줘')
   }
+  // 504 는 오리진이 60초(`origin_read_timeout`)를 다 쓰고도 답을 못 낸 것이다. 서버는
+  // 살아 있으므로 절전 안내가 아니라 '너무 오래 걸렸다'가 맞는 말이다. http.ts 가
+  // 늦은 504 를 절전으로 접지 않게 되면서 이 자리가 도달 가능해졌다(09-04 검사 FE-2).
+  if (res.status === 504)
+    throw new Error('생성이 서버 상한(1분)을 넘겨서 끊겼어. 더 짧은 메모로 다시 하거나 빠른 모델(Haiku)로 해줘')
   if (!res.ok) throw new Error('AI 초안 생성에 실패했어')
   const data = await res.json()
   return data.markdown as string

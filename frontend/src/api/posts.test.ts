@@ -26,7 +26,12 @@ beforeEach(() => {
 })
 
 /** fetch를 가로채 호출 URL을 기록하고 지정한 응답을 돌려준다. */
-function stubFetch(res: { status?: number; ok?: boolean; json?: unknown }) {
+function stubFetch(res: {
+  status?: number
+  ok?: boolean
+  json?: unknown
+  headers?: Record<string, string>
+}) {
   const calls: string[] = []
   const status = res.status ?? 200
   vi.stubGlobal(
@@ -37,6 +42,10 @@ function stubFetch(res: { status?: number; ok?: boolean; json?: unknown }) {
         status,
         ok: res.ok ?? (status >= 200 && status < 300),
         json: async () => res.json,
+        // 실제 Response 에는 항상 있다. http.ts 가 5xx 의 content-type 을 보고
+        // '앱이 낸 답'과 'CloudFront 의 오리진 실패'를 가르므로(2026-09-05),
+        // 빠뜨리면 진짜 코드가 안 타는 경로를 시험하게 된다.
+        headers: new Headers(res.headers ?? {}),
       }
     }),
   )
