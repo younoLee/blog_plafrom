@@ -322,7 +322,18 @@ fi
 say "4-C/6 보안 패치 — dnf -y upgrade --security"
 # 커널이 올라갔는지를 **출력에 남긴다.** 안 남기면 "정지했으니 다음 기동에 새 커널"인지
 # "받을 게 없었다"인지 구분이 안 되고, 그 구분이 없으면 패치했다는 사실만 믿게 된다.
-# 지금 도는 커널(uname -r)과 설치된 것 중 가장 높은 커널(rpm -q kernel)을 나란히 본다.
+# 지금 도는 커널(uname -r)과 설치된 것 중 가장 높은 커널을 나란히 본다.
+#
+# ⚠️ 2026-09-06: 설치된 커널을 **패키지 이름이 아니라 /boot 의 vmlinuz 파일에서 읽는다.**
+# 그전에는 `rpm -q kernel` 이었는데 Amazon Linux 2023 은 커널 패키지가 버전별로 쪼개져
+# 있어(`kernel6.12` 같은 이름) 그 이름은 **영원히 없다**. 2026-09-04 실행 로그:
+#     KERNEL_LATEST=package kernel is not installed
+# 그래서 이 줄은 만들어진 뒤 한 번도 판정한 적이 없다 — 늘 아래 '못 읽었습니다' 가지로
+# 떨어졌고, 경고는 종료코드에 안 들어가니 조용했다. 같은 날 고친 watch.sh 5-B와 같은
+# 모양이다(검사가 있는데 자기 대상을 못 본다). 이름을 `kernel6.12`로 바꿔 적는 것은
+# 다음 메이저 커널에서 똑같이 깨지므로, **이름에 안 기대는 자리**에서 읽는다.
+# /boot/vmlinuz-<릴리스> 는 커널 패키지가 깔면 생기고 지우면 사라지며, 그 <릴리스> 가
+# `uname -r` 과 **같은 문자열**이라 비교에 변환이 필요 없다.
 #
 # ⚠️ dnf의 종료코드를 **원격에서 따로 찍어 보낸다.** 원격 셸에는 이 스크립트의 `set -e`가
 # 안 걸리므로 ssh의 종료코드는 마지막 echo의 0이 된다. 즉 dnf가 실패해도 아래 if는
@@ -336,8 +347,8 @@ if patch_out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
                    sudo dnf -y upgrade --security 2>&1 | tail -25 || rc=$?
                    echo "DNF_RC=$rc"
                    echo "KERNEL_RUNNING=$(uname -r)"
-                   echo "KERNEL_LATEST=$(rpm -q --queryformat "%{VERSION}-%{RELEASE}.%{ARCH}\n" kernel \
-                                          2>/dev/null | sort -V | tail -1)"
+                   echo "KERNEL_LATEST=$(ls -1 /boot/vmlinuz-* 2>/dev/null \
+                                          | sed "s|.*/vmlinuz-||" | sort -V | tail -1)"
                  ' 2>&1); then
   printf '%s\n' "$patch_out" | sed 's/^/   /'
   dnf_rc=$(sed -n 's/^DNF_RC=//p' <<< "$patch_out" | tail -1)
@@ -351,7 +362,8 @@ if patch_out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
   fi
 
   # 값을 못 읽었으면 **조용히 '커널 그대로'라고 말하지 않는다.** 커널 이름은
-  # `6.1.x-y.amzn2023.x86_64` 처럼 공백이 없다 — 공백이 섞였으면 rpm의 오류 문구다.
+  # `6.1.x-y.amzn2023.x86_64` 처럼 공백이 없다 — 공백이 섞였으면 오류 문구가 값 자리에
+  # 들어온 것이다(예전 `rpm -q kernel` 의 "package kernel is not installed"가 그랬다).
   if [ -z "$running" ] || [ -z "$latest" ] || [ "$latest" != "${latest// /}" ]; then
     echo "   ⚠️  커널 버전을 못 읽었습니다(실행 '$running' / 설치 '$latest') — 커널 변경 여부는 확인 못 했습니다."
   elif [ "$running" = "$latest" ]; then
