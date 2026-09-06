@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- 아티팩트로 발행한 것과 같은 내용을 혼자서도 열리게 감싼 파일이다.
+     발행본: https://claude.ai/code/artifact/3c09c6cc-ba0a-4131-94c3-38b383d7e242
+     만든 날: 2026-09-06 -->
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; padding: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<title>블로그 플랫폼 설명 대본</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #f4f6f4;
+    --surface: #ffffff;
+    --surface-2: #eaeeec;
+    --ink: #16211f;
+    --muted: #55625e;
+    --faint: #8b9a95;
+    --rule: #d8e0dc;
+    --accent: #0f6b63;
+    --accent-soft: #e2efec;
+    --warn: #b45309;
+    --warn-soft: #fbf0e0;
+    --shadow: 0 1px 2px rgba(22, 33, 31, .05);
+
+    --sans: "IBM Plex Sans KR", system-ui, -apple-system, "Malgun Gothic", sans-serif;
+    --serif: "Gowun Batang", "Nanum Myeongjo", Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1413;
+      --surface: #131c1a;
+      --surface-2: #1a2523;
+      --ink: #e4ece9;
+      --muted: #9db0aa;
+      --faint: #71847e;
+      --rule: #24322f;
+      --accent: #57cfbe;
+      --accent-soft: #16302c;
+      --warn: #e8a33d;
+      --warn-soft: #2a2113;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0d1413;
+    --surface: #131c1a;
+    --surface-2: #1a2523;
+    --ink: #e4ece9;
+    --muted: #9db0aa;
+    --faint: #71847e;
+    --rule: #24322f;
+    --accent: #57cfbe;
+    --accent-soft: #16302c;
+    --warn: #e8a33d;
+    --warn-soft: #2a2113;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 56px;
+    align-items: start;
+  }
+
+  /* ── 머리 ─────────────────────────────────────────── */
+  header.masthead {
+    grid-column: 1 / -1;
+    padding: 72px 0 40px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 48px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: clamp(34px, 5vw, 50px);
+    line-height: 1.2;
+    letter-spacing: -.01em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .lede {
+    max-width: 62ch;
+    color: var(--muted);
+    font-size: 17px;
+    margin: 0;
+  }
+  .legend {
+    margin: 28px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .legend b { color: var(--ink); font-weight: 600; }
+
+  /* ── 목차 ─────────────────────────────────────────── */
+  nav.toc {
+    position: sticky;
+    top: 28px;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+  nav.toc p {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 12px;
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+  nav.toc a {
+    color: var(--muted);
+    text-decoration: none;
+    display: block;
+    padding-left: 12px;
+    border-left: 2px solid var(--rule);
+    transition: color .15s, border-color .15s;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+  nav.toc .num { font-family: var(--mono); color: var(--faint); margin-right: 7px; font-size: 12px; }
+
+  main { min-width: 0; display: grid; gap: 76px; }
+
+  section > h2 {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.35;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  section > .kicker {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+  p { max-width: 64ch; margin: 0 0 18px; }
+  section > p:last-child { margin-bottom: 0; }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: .875em;
+    background: var(--surface-2);
+    padding: .12em .38em;
+    border-radius: 3px;
+  }
+
+  /* ── 대본: 소리 내어 읽는 문장 ───────────────────────── */
+  .say {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 2px;
+    padding: 22px 26px 24px;
+    margin: 0 0 20px;
+    box-shadow: var(--shadow);
+  }
+  .say .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 12px;
+  }
+  .say p {
+    font-family: var(--serif);
+    font-size: 20px;
+    line-height: 1.95;
+    color: var(--ink);
+    margin: 0 0 14px;
+    max-width: 60ch;
+  }
+  .say p:last-child { margin-bottom: 0; }
+
+  /* ── 코드 (2026-09-06 추가) ───────────────────────── */
+  .codes { display: grid; gap: 10px; margin: 0 0 18px; }
+  .codeblk { border: 1px solid var(--rule); background: var(--surface); overflow: hidden; }
+  .codeblk > .lbl {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 9px 14px; border-bottom: 1px solid var(--rule); font-weight: 500;
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .codeblk > .lbl > span { color: var(--faint); text-transform: none; letter-spacing: .02em; font-size: 11px; }
+  .codeblk > pre {
+    margin: 0; padding: 14px 16px; overflow-x: auto;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.75; color: var(--ink);
+  }
+  .codeblk.was > .lbl { background: var(--warn-soft); color: var(--warn); }
+  .codeblk.was { border-left: 3px solid var(--warn); }
+  .codeblk.now > .lbl { background: var(--accent-soft); color: var(--accent); }
+  .codeblk.now { border-left: 3px solid var(--accent); }
+  .codenote { font-size: 15px; color: var(--muted); max-width: 64ch; margin: 0 0 20px; }
+  .codenote b { color: var(--ink); font-weight: 600; }
+
+  /* ── 말하기 전에 이해할 것 (2026-09-06 추가) ───────── */
+  .what {
+    background: var(--surface-2);
+    border-left: 3px solid var(--faint);
+    padding: 18px 22px 20px;
+    margin: 0 0 20px;
+    font-size: 15.5px;
+    line-height: 1.82;
+    color: var(--ink);
+  }
+  .what > .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--faint);
+    display: block;
+    margin-bottom: 9px;
+    font-weight: 500;
+  }
+  .what p { margin: 0 0 11px; max-width: 64ch; }
+  .what p:last-child { margin-bottom: 0; }
+  .what b { font-weight: 600; }
+  .what i { font-style: normal; color: var(--accent); font-weight: 500; }
+
+  /* ── 사례 단계 ───────────────────────────────────── */
+  .steps { display: grid; gap: 22px; margin: 0 0 24px; }
+  .step { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 20px; align-items: baseline; }
+  .step > dt {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .06em;
+    color: var(--faint);
+    text-transform: uppercase;
+    padding-top: 4px;
+  }
+  .step > dd { margin: 0; }
+  .step > dd > p:last-child { margin-bottom: 0; }
+
+  /* ── 되물어 올 것 ───────────────────────────────── */
+  .asks { display: grid; gap: 14px; margin: 22px 0 0; }
+  .ask {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 16px 20px;
+  }
+  .ask .q {
+    font-weight: 600;
+    color: var(--accent);
+    margin: 0 0 6px;
+    font-size: 15px;
+  }
+  .ask p:last-child { margin: 0; color: var(--muted); font-size: 15.5px; line-height: 1.8; }
+
+  /* ── 짧은 답 / 깊은 답 ──────────────────────────── */
+  .qa { border-top: 1px solid var(--rule); padding: 22px 0 0; margin: 0 0 22px; }
+  .qa > h3 { font-size: 17px; font-weight: 600; margin: 0 0 12px; max-width: 62ch; }
+  .qa .depth { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 16px; margin-bottom: 10px; }
+  .qa .depth > span {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding-top: 5px;
+  }
+  .qa .depth > div > p { margin: 0; }
+  .qa .depth.short > div > p { color: var(--ink); }
+  .qa .depth.deep > div > p { color: var(--muted); font-size: 15.5px; }
+
+  /* ── 표 ─────────────────────────────────────────── */
+  .table-scroll { overflow-x: auto; margin: 0 0 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15.5px; min-width: 480px; }
+  th, td { text-align: left; padding: 13px 18px 13px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 500;
+    border-bottom: 1px solid var(--ink);
+  }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
+  td.mean { color: var(--muted); font-size: 14.5px; }
+
+  /* ── 그림 ───────────────────────────────────────── */
+  figure { margin: 0 0 22px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-size: 13.5px; color: var(--faint); margin-top: 10px; }
+  .flow-box { fill: var(--surface); stroke: var(--rule); }
+  .flow-box-accent { fill: var(--accent-soft); stroke: var(--accent); }
+  .flow-label { font-family: var(--sans); font-size: 13px; fill: var(--ink); }
+  .flow-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--faint); }
+  .flow-line { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+
+  ol.attack { counter-reset: atk; list-style: none; margin: 0 0 22px; padding: 0; display: grid; gap: 10px; }
+  ol.attack li {
+    counter-increment: atk;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 14px;
+    font-size: 15.5px;
+    align-items: baseline;
+  }
+  ol.attack li::before {
+    content: counter(atk);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    border: 1px solid var(--rule);
+    border-radius: 50%;
+    width: 22px; height: 22px;
+    display: grid; place-items: center;
+  }
+  ol.attack li:last-child { color: var(--warn); font-weight: 500; }
+
+  /* ── 주의 ───────────────────────────────────────── */
+  .caution { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 18px 22px; margin: 0; border-radius: 2px; }
+  .caution ul { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+  .caution li { max-width: 62ch; }
+  .caution li b { color: var(--warn); font-weight: 600; }
+
+  .plain { display: grid; gap: 11px; margin: 0 0 18px; padding-left: 18px; }
+  .plain li { max-width: 64ch; }
+
+  .terms { display: grid; gap: 20px; margin: 0; }
+  .term { border-top: 1px solid var(--rule); padding-top: 16px; }
+  .term > h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+  .term > p { margin: 0; color: var(--muted); font-size: 15.5px; }
+  .term > p.said { font-family: var(--serif); font-size: 17px; color: var(--ink); }
+
+  footer {
+    grid-column: 1 / -1;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-size: 13.5px;
+    color: var(--faint);
+  }
+  footer code { background: none; color: var(--muted); }
+
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  @media (max-width: 860px) {
+    .wrap { grid-template-columns: 1fr; gap: 0; }
+    nav.toc { position: static; margin-bottom: 44px; }
+    nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); display: grid; }
+    .step { grid-template-columns: 1fr; gap: 4px; }
+    .step > dt { padding-top: 0; }
+    .qa .depth { grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">말하는 글 · 2026-09-06</p>
+    <h1>블로그 플랫폼 설명 대본</h1>
+    <p class="lede">
+      개발일지 43편이 읽는 글이라면 이건 말하는 글이다. 상대 앞에서 위에서 아래로 읽으면 그대로 설명이 된다.
+      하루치로는 만들지 않는다. 그날 무엇을 했는지는 설명이 되지만 이 프로젝트가 무엇인지는 설명이 안 되기 때문이다.
+    </p>
+    <p class="lede" style="margin-top:16px;">
+      사례마다 <b style="color:var(--ink); font-weight:600;">회색 블록이 먼저</b> 온다.
+      그건 읽는 문장이 아니라 <b style="color:var(--ink); font-weight:600;">말하기 전에 알고 있어야 하는 것</b>이다 —
+      무슨 일이었고, 왜 그렇게 됐고, 왜 오래 안 보였는지. 대본만 외우면 상대가 한 번만 되물어도 막히니까,
+      아래에서 무슨 말을 하고 있는 건지를 먼저 이해하고 간다.
+    </p>
+    <p class="legend">
+      <span><b>회색 블록</b> 말하기 전에 이해할 것. 읽는 게 아니다</span>
+      <span><b>초록 세로줄</b> 그대로 소리 내어 읽는 대본</span>
+      <span><b>숫자</b> 고정폭으로 적힌 값만 말한다</span>
+    </p>
+  </header>
+
+  <nav class="toc" aria-label="목차">
+    <p>차례</p>
+    <ol>
+      <li><a href="#audience"><span class="num">00</span>누구에게 어디까지</a></li>
+      <li><a href="#terms"><span class="num">01</span>쓰기 전에 푸는 말</a></li>
+      <li><a href="#thirty"><span class="num">02</span>30초</a></li>
+      <li><a href="#shape"><span class="num">03</span>구조를 말로</a></li>
+      <li><a href="#cases"><span class="num">04</span>대표 사례 열하나</a></li>
+      <li><a href="#pattern"><span class="num">05</span>반복된 병 셋</a></li>
+      <li><a href="#code"><span class="num">06</span>코드를 보자고 하면</a></li>
+      <li><a href="#questions"><span class="num">07</span>예상 질문</a></li>
+      <li><a href="#numbers"><span class="num">08</span>숫자 카드</a></li>
+      <li><a href="#care"><span class="num">09</span>말할 때 주의</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="audience">
+      <p class="kicker">읽는 법</p>
+      <h2>누구에게 어디까지 말할지가 먼저다</h2>
+      <p>상대가 정해지면 어디서 멈출지도 정해진다. 모르는 단어가 나올 것 같으면 그 단어를 쓰기 <strong>전에</strong> 한 문장으로 풀어준다. 멈칫하는 걸 보고 푸는 것보다 훨씬 매끄럽다.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>상대</th><th>어디까지</th><th>시간</th></tr></thead>
+          <tbody>
+            <tr><td>비개발자, 처음 듣는 사람</td><td>30초 대본 + 구조 그림 + 사례 하나(백업)</td><td class="num">3분</td></tr>
+            <tr><td>개발자지만 이 분야는 아닌 사람</td><td>30초 · 구조 · 사례 둘(백업 · 재해복구)</td><td class="num">7분</td></tr>
+            <tr><td>면접관, 같은 분야 사람</td><td>전체. 특히 사례 I·J·H와 반복된 병 셋</td><td class="num">15분</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="terms">
+      <p class="kicker">용어</p>
+      <h2>단어를 아는 게 아니라, 그 단어 없이 설명할 수 있게</h2>
+      <div class="terms">
+        <div class="term">
+          <h3>서버 · EC2</h3>
+          <p class="said">“인터넷 어딘가에 항상 켜져 있는 컴퓨터를 한 대 빌려 쓰는 겁니다. 제 노트북에서 돌리면 노트북을 끄는 순간 사이트가 죽으니까요.”</p>
+        </div>
+        <div class="term">
+          <h3>S3 — 보관함</h3>
+          <p class="said">“아마존의 파일 보관함입니다. 사진이나 백업 파일을 넣어두는 곳이고 계산은 안 합니다. 그래서 훨씬 싸고, 켜고 끈다는 개념이 없습니다.”</p>
+        </div>
+        <div class="term">
+          <h3>CloudFront — 안내 데스크</h3>
+          <p class="said">“사이트 앞에 서 있는 안내 데스크라고 보시면 됩니다. 방문자는 데스크하고만 이야기하고, 데스크가 ‘이건 보관함에서 꺼내드리고 저건 서버에 물어봐야겠네요’를 대신 판단합니다.”</p>
+          <p>이 비유는 이 문서 전체에서 계속 쓰인다. 초반에 한 번 깔아두면 뒤 설명이 전부 쉬워진다.</p>
+        </div>
+        <div class="term">
+          <h3>백업 · RPO · RTO</h3>
+          <p class="said">“백업은 데이터 사본이고, RPO는 사고가 나면 얼마 전 시점으로 돌아가는지, RTO는 되살리는 데 얼마나 걸리는지입니다. 둘은 다른 질문이라 따로 답할 수 있어야 합니다.”</p>
+        </div>
+        <div class="term">
+          <h3>감시 · 경보</h3>
+          <p class="said">“감시는 지금 정상인지 주기적으로 확인하는 것이고, 경보는 이상하면 사람을 부르는 겁니다. 확인만 하고 안 부르면 아무 일도 안 일어납니다. 저도 그걸 한 번 겪었습니다.”</p>
+        </div>
+        <div class="term">
+          <h3>훈련 — 재해 복구 · 카오스</h3>
+          <p class="said">“평소에 일부러 고장을 내보는 겁니다. 서버를 진짜로 지워버리고 문서만 보고 되살리는 거고요. 사고는 어차피 나니까, 처음 겪는 시점을 제가 고르는 셈입니다.”</p>
+        </div>
+        <div class="term">
+          <h3>말하지 않는 편이 나은 단어</h3>
+          <p>오케스트레이션 → “컨테이너를 여러 개 띄우고 죽으면 알아서 살려주는 구조”. 페일오버 → “죽으면 다른 쪽이 받는 것”. 관측 가능성 → “밖에서 상태를 볼 수 있게 하는 것”. 프로비저닝 → “인프라를 만들어 두는 것”.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="thirty">
+      <p class="kicker">첫 30초</p>
+      <h2>정보를 주는 시간이 아니라 그림 하나를 만드는 시간</h2>
+      <div class="say">
+        <span class="tag">개발자에게</span>
+        <p>“FastAPI랑 React로 블로그 플랫폼을 만들어서 AWS에 올려두고 직접 운영하고 있습니다. 기능 만드는 것보다 운영하는 쪽에 시간을 더 썼는데, 백업이랑 복구, 감시, 재해 복구 훈련을 직접 만들고 실제로 서버를 지웠다가 다시 세우는 것까지 해봤습니다. 개인 프로젝트라 돈 제약이 컸는데, 그 제약 덕분에 오히려 ‘값이 안 들어오는 것’과 ‘고장난 것’을 구분하는 설계를 하게 됐습니다.”</p>
+      </div>
+      <div class="say">
+        <span class="tag">비개발자에게</span>
+        <p>“여러 사람이 글을 쓸 수 있는 블로그 사이트를 만들어서 인터넷에 올려두고 1년 가까이 직접 관리하고 있습니다. 만드는 것보다 고장났을 때 되살리는 연습에 시간을 더 썼습니다. 실제로 서버를 통째로 지워버리고 설명서만 보면서 처음부터 다시 세우는 훈련을 두 번 했는데, 첫 번째는 42분 걸렸고 두 번째는 3분 30초 걸렸습니다.”</p>
+      </div>
+      <p>비개발자용은 숫자로 끝내는 게 좋다. 42분과 3분 30초는 설명이 없어도 무슨 뜻인지 안다.</p>
+      <div class="say">
+        <span class="tag">“그게 왜 중요한가요”가 오면</span>
+        <p>“사고는 결국 나거든요. 그때 처음 겪으면 문서가 틀린 자리에서 시간을 다 씁니다. 실제로 첫 훈련에서 42분 중 20분을 서버 이름 끝에 붙은 공백 한 칸 때문에 헤맸습니다. 그런 걸 사고 나기 전에 미리 만나두는 게 훈련의 값이라고 생각합니다.”</p>
+      </div>
+    </section>
+
+    <section id="shape">
+      <p class="kicker">구조</p>
+      <h2>상자 넷과 화살표면 30초 만에 그린다</h2>
+      <figure>
+        <svg viewBox="0 0 640 210" role="img" aria-label="방문자에서 안내 데스크를 거쳐 보관함과 서버로 갈라지고, 서버 아래에 데이터베이스가 붙은 구조도">
+          <rect class="flow-box" x="256" y="6" width="128" height="34" rx="2"/>
+          <text class="flow-label" x="320" y="28" text-anchor="middle">방문자</text>
+          <path class="flow-line" d="M320 40 L320 66"/>
+          <rect class="flow-box-accent" x="232" y="66" width="176" height="42" rx="2"/>
+          <text class="flow-label" x="320" y="84" text-anchor="middle">안내 데스크</text>
+          <text class="flow-sub" x="320" y="99" text-anchor="middle">CloudFront</text>
+          <path class="flow-line" d="M290 108 L290 126 L150 126 L150 144"/>
+          <path class="flow-line" d="M350 108 L350 126 L490 126 L490 144"/>
+          <rect class="flow-box" x="70" y="144" width="160" height="42" rx="2"/>
+          <text class="flow-label" x="150" y="162" text-anchor="middle">보관함</text>
+          <text class="flow-sub" x="150" y="177" text-anchor="middle">S3 · 화면 · 이미지</text>
+          <rect class="flow-box" x="410" y="144" width="160" height="42" rx="2"/>
+          <text class="flow-label" x="490" y="162" text-anchor="middle">서버</text>
+          <text class="flow-sub" x="490" y="177" text-anchor="middle">EC2 · API</text>
+          <path class="flow-line" d="M570 165 L604 165"/>
+          <text class="flow-sub" x="608" y="169">DB</text>
+        </svg>
+        <figcaption>화면 파일은 보관함에서 바로, “글 목록 주세요”만 서버로. 그래서 서버가 꺼져 있어도 화면은 뜬다.</figcaption>
+      </figure>
+      <div class="say">
+        <span class="tag">그리면서</span>
+        <p>“주소를 치면 제일 먼저 안내 데스크에 도착합니다. 데스크가 두 갈래로 나눠요. 화면을 그리는 데 필요한 파일은 보관함에서 바로 꺼내주고, 진짜 데이터 요청만 서버로 넘깁니다. 그래서 지금 제 사이트에 들어가시면 서버가 꺼져 있어서 ‘절전 중’이라고 뜨는데, 글 아카이브는 그대로 읽히실 겁니다.”</p>
+      </div>
+      <h3 style="font-family:var(--serif); font-size:20px; margin:32px 0 12px;">특이한 선택 하나 — 서버를 껐다 켠다</h3>
+      <p>이 이야기는 거의 항상 관심을 끈다. 제약에서 설계가 나온 사례이기 때문이다.</p>
+      <dl class="steps">
+        <div class="step"><dt>끌 때</dt><dd><p>백업을 뜨고, 안내 데스크가 서버 대신 보관함을 보게 바꾼 다음, 끈다.</p></dd></div>
+        <div class="step"><dt>바뀐 것 ①</dt><dd><p>백업을 매일 새벽 예약으로 걸었더니 <strong>그 시각에 서버가 꺼져 있어서 한 번도 안 돌았다.</strong> 그래서 백업을 ‘끄는 절차’ 안으로 옮겼다.</p></dd></div>
+        <div class="step"><dt>바뀐 것 ②</dt><dd><p>“서버가 응답이 없다”를 바로 사고로 취급하면 끌 때마다 경보가 운다. 진짜 이상을 <strong>“켜져 있는데 응답이 없다”</strong>는 조합으로 다시 정의했다.</p></dd></div>
+        <div class="step"><dt>바뀐 것 ③</dt><dd><p>감시 값이 안 들어올 때 정상으로 볼지 이상으로 볼지를 항목마다 다르게 정했다. 서버 상태는 침묵을 정상으로, 감시 자체의 생존 신호는 침묵을 고장으로 본다. 같은 침묵인데 의미가 반대다.</p></dd></div>
+      </dl>
+    </section>
+
+    <section id="cases">
+      <p class="kicker">사례</p>
+      <h2>하나만 말할 시간이면 백업이나 재해 복구를 고른다</h2>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:26px 0 4px;">A. 백업이 넉 달 동안 한 번도 안 돌았다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">설정은 켜져 있었고 실행은 0건이었다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>이 사이트는 데이터베이스를 <b>매일 새벽에 복사해 보관함에 올리도록</b> 예약을 걸어뒀다. 그런데 이 서버는 필요할 때만 켜고 평소에는 꺼져 있다.</p>
+        <p><i>꺼진 컴퓨터에서는 예약 작업도 안 돈다.</i> 예약 시각에 서버가 거의 항상 꺼져 있었으니 실행 기록이 넉 달 동안 0건이었다. 그런데 설정 화면에는 '켜짐'으로 보인다.</p>
+        <p>그래서 백업을 <b>'끄는 절차' 안으로 옮겼다.</b> 시각에 걸지 않고 사람이 끄는 행동에 붙이면, 서버가 꺼져 있어서 못 도는 일이 구조적으로 없어진다.</p>
+      </div>
+<div class="say">
+        <p>“데이터베이스를 매일 새벽에 복사해 보관함에 올리도록 예약을 걸어뒀습니다. 그런데 이 서버는 필요할 때만 켜거든요. 예약 시각에는 거의 항상 꺼져 있었습니다. 꺼진 컴퓨터에서는 예약 작업도 안 돕니다. 넉 달 동안 실행 기록이 0건이었어요.</p>
+        <p>무서운 건 화면상으로는 백업이 ‘켜져 있다’는 겁니다. 사고가 나기 전까지 아무도 모릅니다. 백업이 없는 것보다 있다고 믿는 상태가 더 나쁘다고 생각합니다.”</p>
+      </div>
+      <div class="asks">
+        <div class="ask"><p class="q">그건 어떻게 발견했나요?</p><p>우연이었다. 그래서 그 뒤로 뭘 설정하면 결과를 세어보는 습관을 들였고, 보관함 정리 규칙이 대상 0개로 헛돌던 것도 그 습관으로 잡았다.</p></div>
+        <div class="ask"><p class="q">지금은 백업이 확실한가요?</p><p>복원 훈련을 따로 돌린다. 되살린 뒤 개수만 세지 않고 표 목록·인덱스·마이그레이션 버전·암호화된 값의 복호화까지 본다. 그 훈련을 만들며 예전 방식이 통과시키던 구멍 열세 개를 찾았다.</p></div>
+      </div>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">B. 남의 계정을 미리 선점할 수 있었다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">인증 안 된 계정에 재가입하면 비밀번호가 안 바뀌었다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>가입하면 인증 메일이 가고, 링크를 눌러야 계정이 확정된다. 문제는 <b>아직 인증 안 된 계정에 다른 사람이 같은 주소로 또 가입할 때</b> 무슨 일이 생기느냐였다.</p>
+        <p>원래 코드는 '이미 있는 주소네' 하고 비밀번호를 <i>안 바꿨다.</i> 그러면 먼저 가입한 사람의 비밀번호가 그대로 남는다. 공격자가 먼저 가입해두면 진짜 주인이 나중에 인증을 마쳐도 들어가는 사람은 공격자다.</p>
+        <p>코드를 한 줄씩 읽어서는 안 보인다. <b>"이미 있는 주소로 또 가입하면?"을 끝까지 따라가야</b> 나오는 문제라, 함수가 아니라 흐름이 잘못된 경우다.</p>
+      </div>
+<ol class="attack">
+        <li>공격자가 피해자 이메일로 먼저 가입한다. 계정이 생기고 비밀번호는 공격자 것이다.</li>
+        <li>피해자가 같은 주소로 가입한다. 인증 메일은 피해자에게 가고 비밀번호는 그대로 공격자 것이다.</li>
+        <li>피해자가 인증 링크를 누른다. 계정이 ‘인증 완료’로 바뀐다.</li>
+        <li>인증까지 끝난 멀쩡한 계정에 공격자만 로그인할 수 있다.</li>
+      </ol>
+      <p>코드를 한 줄씩 읽어서는 안 보였고 “이미 있는 주소로 또 가입하면 어떻게 되지”를 끝까지 따라가다 나왔다. 함수 하나가 아니라 <strong>흐름</strong>이 잘못된 경우다.</p>
+      <div class="asks">
+        <div class="ask"><p class="q">다시 안 생긴다고 어떻게 보장하나요?</p><p>회귀 테스트를 붙였다. 수정을 되돌리면 실패하고 수정본에서는 통과하는 것까지 확인했다. 나중에 누가 이 코드를 건드려도 같은 구멍이 열리면 자동으로 잡힌다.</p></div>
+      </div>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">C. 상태 점검이 자기 자신을 무조건 정상이라고 답했다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">실패 0건이었는데, 안 죽은 게 아니라 죽은 순간을 셀 수 없는 구조였다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>상태 페이지에 '서버 정상'이라고 표시하는 항목이 있었는데, 그 값이 <b>코드에 고정</b>돼 있었다. 논리는 "이 코드가 지금 돌고 있다는 것 자체가 서버가 살아 있다는 뜻"이었다.</p>
+        <p>말이 되는 것 같지만 뒤집으면 이렇다. <i>서버가 죽으면 그 코드도 안 돈다.</i> 안 도니까 기록이 안 남고, 기록이 없으니 실패가 영원히 0건이다. 2만 7천 번 넘게 확인하는 동안 실패 0건이었던 게 그 증거다.</p>
+        <p>그래서 감시를 <b>서버 밖으로 옮겼다.</b> 매시간 도는 작업이 "서버가 켜져 있나"와 "밖에서 사이트가 응답하나"를 함께 보고 조합으로 판정한다.</p>
+      </div>
+<dl class="steps">
+        <div class="step"><dt>무슨 일</dt><dd><p>상태 페이지의 ‘서버 정상’ 항목이 코드에 고정돼 있었다. 논리는 “이 코드가 돌고 있다는 것 자체가 서버가 살아 있다는 뜻”이었다.</p></dd></div>
+        <div class="step"><dt>왜 문제</dt><dd><p>서버가 죽으면 그 코드도 안 돈다. 기록이 안 남으니 실패가 영원히 0건이다. 누적 <span class="num" style="font-family:var(--mono)">27,506</span>번 중 실패 0건이 그 증거였다.</p></dd></div>
+        <div class="step"><dt>무엇을 했나</dt><dd><p>감시를 서버 밖으로 옮겼다. 매시간 도는 작업이 “서버가 켜져 있나”와 “바깥에서 사이트가 응답하나”를 함께 보고 <strong>조합</strong>으로 판정한다. 첫 실행에서 실제 문제 두 개를 바로 잡았다.</p></dd></div>
+        <div class="step"><dt>그 뒤에</dt><dd><p>경고를 만들어놓고 알림으로 안 이어지면 아무 일도 안 일어난다는 것도 겪었다. 발견했다와 닿았다는 다르다.</p></dd></div>
+      </dl>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">D. 서버를 진짜로 지우고 다시 세웠다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">복구 시간을 지배한 건 작업량이 아니라 문서가 틀린 자리였다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>재해 복구 훈련은 문서를 읽어보는 게 아니라 <b>운영 서버를 진짜로 삭제하고 설명서만 보면서 처음부터 다시 세우는 것</b>이다. 사고는 어차피 나니까 처음 겪는 시점을 내가 고르는 셈이다.</p>
+        <p>1회차에서 42분이 걸렸는데 그중 20분이 <i>서버 이름표 끝에 붙은 공백 한 칸</i> 때문이었다. 이름으로 서버를 찾는 명령이 아무것도 못 찾는데, 화면에는 그냥 '결과 없음'이라고만 나온다.</p>
+        <p>그래서 스크립트 다섯 개에 서버 번호가 직접 적혀 있던 것을 전부 이름표로 찾는 방식으로 바꿨다. 2회차는 같은 절차로 3분 30초가 나왔다.</p>
+      </div>
+<div class="say">
+        <p>“재해 복구 훈련은 문서를 읽어보는 게 아니라 운영 서버를 실제로 삭제하고 문서만 보고 처음부터 다시 세우는 겁니다. 1회차에 42분 걸렸는데, 그중 20분은 서버 이름표 끝에 붙은 공백 한 칸 때문에 날렸어요. 이름으로 찾는 명령이 아무것도 못 찾는데 화면에는 그냥 ‘결과 없음’이라고만 나옵니다.</p>
+        <p>그래서 스크립트 다섯 개에 서버 번호가 직접 적혀 있던 걸 전부 이름표로 찾는 방식으로 바꿨습니다. 2회차는 같은 절차로 3분 30초 나왔습니다.”</p>
+      </div>
+      <div class="asks">
+        <div class="ask"><p class="q">진짜 운영 서버를 지우나요? 위험하지 않나요?</p><p>안전한지 먼저 재고 한다. 서버가 꺼져 있는 시간대에 하고, 마지막 백업 시각을 확인하고, 파괴 직전에 디스크 사본을 하나 더 뜬다. 이 사이트는 서버가 꺼져 있어도 글이 읽히니 사용자 영향이 없다.</p></div>
+        <div class="ask"><p class="q">얼마나 자주 하나요?</p><p>훈련 다섯 종의 마지막 실행일을 관리한다. 재해 복구는 넉 주 반 만에 돌았고 그 사이 마이그레이션이 열두 개 쌓여 있었다. <strong>훈련이 낡으면 새로 생긴 것을 검사하지 않고 통과시킨다.</strong></p></div>
+      </div>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">E. 오케스트레이션을 세워 증명하고 다시 걷어냈다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">배운 것은 남기고 요금은 안 남기는 방식으로 했다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>실무에서 많이 쓰는 방식(컨테이너를 여러 개 띄우고 죽으면 알아서 살려주는 구조)으로 옮겨보고 싶었는데, <b>앞단 장비 하나만으로 월 16달러</b>가 나간다. 개인 프로젝트에 상시로 쓸 금액이 아니다.</p>
+        <p>그래서 <i>세우고, 증명하고, 걷어냈다.</i> 하루 안에 다 구축해서 실제 트래픽을 넘긴 다음, 그 구조가 해준다고 알려진 것 세 가지를 직접 측정하고 지웠다. 배운 것은 남고 요금은 안 남는다.</p>
+      </div>
+<div class="table-scroll">
+        <table>
+          <thead><tr><th>무엇을 증명했나</th><th>실측</th></tr></thead>
+          <tbody>
+            <tr><td>컨테이너를 강제로 죽였을 때 자동 복구</td><td class="num">400여 요청 중 서버 오류 0건</td></tr>
+            <tr><td>새 버전 배포 중 무중단</td><td class="num">229 / 229 정상</td></tr>
+            <tr><td>부하 증가 시 자동 증설</td><td class="num">컨테이너 2 → 4</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:14px;">정직하게 덧붙일 것: 세 번째는 노트북 한 대로 기준치까지 부하를 못 올려서 <strong>기준을 1%로 낮춰</strong> 경보에서 정책, 증설로 이어지는 사슬을 증명했다. 이 사정까지 말하는 게 낫다. 숫자만 말하면 “실제 부하를 만들었냐”에서 무너진다. 전체 비용은 1달러 미만이었다.</p>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">F. 배포가 지운 파일을 서버에서 안 지웠다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">검사가 잡았지만, 그 검사는 이미 도는 것을 보는 자리에 있었다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>배포는 코드를 압축해서 서버에서 푸는 방식이다. 그건 <b>덮어쓰기</b>라서 새 파일과 바뀐 파일은 반영되는데 <i>지운 파일은 서버에 그대로 남는다.</i></p>
+        <p>파일을 지운 배포가 그날 처음이라 그때 드러났다. 하필 같은 배포에 어떤 표를 없애는 변경이 있어서, 표는 없는데 그 표를 쓰는 코드가 살아 있는 상태가 잠깐 있었다. 사고가 안 난 건 부르는 경로가 없어서였고, <b>그건 운이지 설계가 아니다.</b></p>
+        <p>고침은 압축을 풀기 전에 그 압축 파일이 담은 항목을 먼저 지우는 것인데, 지울 목록을 <b>압축 파일 자신에게서 뽑는다.</b> 목록을 따로 관리하면 그 목록이 낡는다.</p>
+      </div>
+<dl class="steps">
+        <div class="step"><dt>무슨 일</dt><dd><p>코드를 압축해 서버에서 푸는데 그건 덮어쓰기다. 새 파일과 바뀐 파일은 반영되지만 <strong>지운 파일은 그대로 남는다.</strong> 파일을 지운 배포가 그날 처음이라 그때 드러났다.</p></dd></div>
+        <div class="step"><dt>왜 문제</dt><dd><p>같은 배포에 그 표를 없애는 변경이 있었다. 표는 없는데 그 표를 쓰는 코드가 살아 있는 상태가 잠깐 있었다. 부르는 경로가 없어 사고는 안 났는데, 안 난 건 운이지 설계가 아니다.</p></dd></div>
+        <div class="step"><dt>어떻게 알았나</dt><dd><p>배포 검증 스크립트가 로컬과 서버의 코드 파일 목록을 각각 하나의 값으로 요약해 맞춰본다. 파일이 하나만 달라도 값이 달라진다.</p></dd></div>
+        <div class="step"><dt>무엇을 했나</dt><dd><p>압축을 풀기 전에 그 압축 파일이 담은 항목을 먼저 지우고, 지울 목록은 <strong>압축 파일 자신에게서 뽑는다.</strong> 그리고 판정을 새 버전 만들기 <strong>전으로</strong> 옮겼다. 같은 판정이라도 앞으로 옮기면 잘못된 버전이 도는 그 한 번이 사라진다.</p></dd></div>
+      </dl>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">G. 값 하나가 비어서 열흘치 기능이 아무에게도 안 닿았다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">코드는 멀쩡했고 테스트도 통과했는데, 그 화면으로 가는 조건이 조용히 거짓이었다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>이 사이트는 사람마다 개인 블로그 주소를 가질 수 있는데, <b>그 주소를 정하지 않으면 글 목록에도 글 아래에도 링크가 안 그려진다.</b> 화면으로 가는 입구가 데이터에 달려 있는 구조다.</p>
+        <p>그런데 글 서른아홉 편을 전부 쓴 계정이 그 주소를 정한 적이 없었다. 그래서 <i>열흘 동안 만든 것들이 전부 아무에게도 안 보이는 상태</i>였다 — 태그 필터도, 연재별 보기도, 검색창도, 화면 색 고르기도.</p>
+        <p>주소를 하나 넣자 서른아홉 편 전부에 링크가 생겼다. <b>코드는 열흘 전부터 멀쩡했고 값 하나가 비어 있었을 뿐이다.</b></p>
+      </div>
+<div class="say">
+        <p>“이 사이트는 사람마다 개인 블로그 주소를 가질 수 있는데, 그 주소를 정하지 않으면 글 목록에도 글 아래에도 링크가 안 그려집니다. 그런데 글 서른아홉 편을 전부 쓴 계정이 그 주소를 정한 적이 없었어요. 그래서 열흘 동안 만든 것들이 전부 아무에게도 안 보이는 상태였습니다. 태그로 좁혀 보는 것도, 연재로 거르는 것도, 검색창도, 사람마다 다른 화면 색을 고르는 것도요.</p>
+        <p>주소를 하나 넣자 서른아홉 편 전부에 링크가 생겼습니다. 코드는 열흘 전부터 멀쩡했고 값 하나가 비어 있었을 뿐입니다.”</p>
+      </div>
+      <div class="asks">
+        <div class="ask"><p class="q">테스트는 통과했다면서요?</p><p>통과했다. 테스트는 그 화면이 주어진 데이터로 잘 그려지는지 보는데 운영에는 그 데이터가 없었다. 화면으로 가는 입구를 코드가 아니라 <strong>데이터가 정한다면 그 데이터도 검사 대상</strong>이어야 한다는 게 여기서 얻은 결론이다.</p></div>
+        <div class="ask"><p class="q">어떻게 발견했나요?</p><p>코드만 읽는 검사로는 안 나왔다. 서버를 켜고 실제 응답을 받아보는 갈래를 같이 돌렸더니 목록 응답의 글쓴이 항목이 전부 비어 있는 게 보였다.</p></div>
+      </div>
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">H. 내가 만든 검사가 그날 안에 세 번 스스로 틀렸다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">셋 다 실패하는 방식이 조용했다. 검사는 돌고 통과까지 하는데 봐야 할 것을 안 봤다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>하루 동안 검사를 여러 개 만들었는데 그날 안에 그중 셋이 스스로 틀렸다. <b>셋 다 실패하는 방식이 조용했다는 게 공통점</b>이다.</p>
+        <p>첫째는 사이트 생존 확인인데, '실패하면 000을 찍어라'라고 적어뒀더니 그 명령은 실패해도 이미 000을 찍어서 출력이 000000이 됐다. 판정이 영원히 거짓이다. 둘째는 문서 숫자 검사인데 내 컴퓨터에서만 통과했다 — 자동 검사 서버는 코드 이력을 마지막 하나만 받아온다. 셋째는 결과를 거르는 필터인데 <i>마흔세 건 중 마흔두 건이 짝을 못 찾고 조용히 걸러졌다.</i></p>
+        <p>셋 다 <b>결과를 세어보는 것</b>으로 드러났다. 판정이 몇 갈래로 떨어지는지, 필터가 몇 건을 짝지었는지를 찍게 하면 조용한 실패가 시끄러워진다.</p>
+      </div>
+<div class="say">
+        <p>“하루 동안 검사를 여러 개 만들었는데, 그날 안에 그중 셋이 스스로 틀렸습니다.</p>
+        <p>첫째는 사이트가 살아 있는지 보는 검사였어요. 실패했을 때를 대비해 ‘실패하면 000을 찍어라’라고 적어뒀는데, 그 명령은 실패해도 이미 000을 찍습니다. 그래서 출력이 000000이 되고 000인지 보는 판정이 영원히 거짓이 됐습니다. 네트워크가 잠깐 끊긴 것을 ‘사이트가 깨졌다’고 말하는 상태였죠.</p>
+        <p>둘째는 문서의 숫자가 맞는지 재는 검사였는데, 제 컴퓨터에서는 통과하고 자동 검사 서버에서만 틀렸습니다. 거기서는 코드 이력을 마지막 하나만 받아오거든요.</p>
+        <p>셋째는 검사 결과를 거르는 필터였습니다. 제목 글자로 짝을 맞추게 짜뒀는데 마흔세 건 중 마흔두 건이 짝을 못 찾고 조용히 걸러졌습니다. 제 필터가 사실상 아무것도 안 거르고 있었던 겁니다.”</p>
+      </div>
+      <div class="say">
+        <span class="tag">여기서 할 말</span>
+        <p>“셋의 공통점이 실패가 조용하다는 겁니다. 그래서 검사를 만들 때 <strong>잡아야 할 것과 잡으면 안 되는 것을 같이 넣어서</strong> 돌려봅니다. 잡는 것만 확인하면 무엇이든 잡는 고장 난 검사와 구분이 안 되니까요. 그리고 고칠 때는 되돌리면 실패하는지까지 봅니다.”</p>
+      </div>
+      <div class="asks">
+        <div class="ask"><p class="q">그럼 검사를 믿을 수 없다는 건가요?</p><p>반대다. 믿을 수 있게 만드는 방법이 따로 있다는 뜻이다. 세 건 다 <strong>결과를 세어보는 것</strong>으로 드러났다. 판정이 몇 갈래로 떨어지는지, 필터가 몇 건을 짝지었는지, 실제 환경에서 그 값이 무엇인지를 찍게 하면 조용한 실패가 시끄러워진다.</p></div>
+        <div class="ask"><p class="q">그런 걸 왜 이야기하나요?</p><p>검사를 만들었다는 사실보다 그게 실제로 무엇을 잡았는지가 중요하다고 보기 때문이다. 이 셋은 내가 만든 것이 나를 안심시키던 자리다.</p></div>
+      </div>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">I. 고쳤다고 기록해둔 보안 수정이 절반만 되어 있었다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">사례 B의 후속이다. 문서는 “무효화했다”고 적었는데 그 무효화가 어디에도 배선돼 있지 않았다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>사례 B를 7월에 고치면서 방어를 두 겹으로 설계했다. 앞 겹은 재가입 때 비밀번호를 덮어쓰는 것, 뒤 겹은 <b>그전에 이미 나간 인증 링크를 못 쓰게 만드는 것</b>이다.</p>
+        <p>뒤 겹은 계정마다 세대 번호를 두고 세 군데를 함께 고쳐야 한다 — 가입할 때 번호를 올리고, 메일 링크에 그 번호를 싣고, 누를 때 대조한다. 그런데 <i>번호를 올리는 코드만 들어갔다.</i> 링크에 싣는 코드가 없었고 받는 쪽은 값을 읽어놓고 비교를 안 했다.</p>
+        <p>왜 아무 데서도 안 터졌냐면, 링크를 만드는 함수에서 그 번호를 받는 <b>인자에 기본값 0이 있었기 때문</b>이다. 안 넘겨도 오류가 안 나고 조용히 0이 실려 나갔다. <i>필수 인자였으면 그 순간 터졌다.</i></p>
+      </div>
+<div class="say">
+        <p>“칠월에 계정 선점 문제를 고치면서 두 가지를 했다고 기록해뒀습니다. 비밀번호를 덮어쓰게 한 것과, 그전에 나간 인증 링크를 못 쓰게 만든 것입니다.</p>
+        <p>이번에 그 자리를 다시 확인해보니 뒤쪽이 없었습니다. 링크를 무효화하려면 계정마다 있는 세대 번호를 링크에 실어 보내고 누를 때 대조해야 하는데, 번호를 올리기만 하고 링크에는 안 실었으며 받는 쪽은 실려온 값을 읽고도 버리고 있었습니다. 두 달 동안 아무도 안 보는 숫자를 올리고 있었던 겁니다.</p>
+        <p>그래서 순서만 바꾸면 같은 공격이 그대로 성립합니다. 피해자가 먼저 가입해서 링크를 받아두고, 공격자가 뒤에 같은 주소로 가입하면 비밀번호가 공격자 것으로 덮입니다. 피해자가 자기 메일함의 링크를 누르는 순간 인증까지 끝난 계정이 되는데 들어갈 수 있는 사람은 공격자뿐입니다.”</p>
+      </div>
+      <div class="codes">
+        <div class="codeblk was">
+          <div class="lbl">여기가 조용했던 이유 <span>backend/app/core/security.py</span></div>
+          <pre>def create_email_token(
+    user_id: int, purpose: str, expire_hours: int = 24, ver: int = 0
+) -&gt; str:                                        # ← ver 에 기본값 0 이 있다</pre>
+        </div>
+        <div class="codeblk was">
+          <div class="lbl">그래서 부르는 쪽이 안 넘겨도 안 터진다 <span>routers/auth.py · 고치기 전</span></div>
+          <pre>token = create_email_token(user.id, purpose="verify")
+#                                          ↑ ver 이 없다. 조용히 0 이 실려 나간다</pre>
+        </div>
+        <div class="codeblk now">
+          <div class="lbl">고친 뒤 — 싣고, 대조한다 <span>routers/auth.py</span></div>
+          <pre>token = create_email_token(user.id, purpose="verify", ver=user.token_version)
+
+# /auth/verify 쪽
+if user.token_version != tok_ver:
+    raise HTTPException(status_code=400, detail=_LINK_INVALID)</pre>
+        </div>
+      </div>
+      <p class="codenote">
+        <b>세 줄이 전부다.</b> 인자가 필수였다면 배선을 빠뜨린 그 순간 오류가 났을 텐데,
+        기본값이 있어서 두 달 동안 아무 일도 안 일어났다. 면접에서 이 대목을 보여주면
+        "왜 몰랐냐"에 대한 답이 코드 한 줄로 끝난다.
+      </p>
+      <div class="asks">
+        <div class="ask"><p class="q">그럼 칠월 수정은 의미가 없었나요?</p><p>아니다. 절반은 실제로 동작했고 정면 경로는 막혔다. 남아 있던 건 <strong>순서를 뒤집은 변형</strong>이고, 그건 주석이 이미 막았다고 말하고 있어서 아무도 다시 안 본 자리다.</p></div>
+        <div class="ask"><p class="q">어떻게 찾았나요?</p><p>검사가 낸 게 아니라 검사 결과를 고치다 나왔다. 보고서는 “그 자리 주석이 사실과 다르다”까지만 미검증 후보로 올렸는데, 확인해보니 <strong>틀린 쪽이 문서가 아니라 코드</strong>였다. 그 지적을 문서 문제로 넘기지 않은 게 갈림길이었다.</p></div>
+      </div>
+
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">J. 훈련용으로 만든 사본이 엿새 동안 살아 있었다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">지우는 데 몇 초, 다시 안 생기게 만드는 데 훨씬 오래 걸렸고 그 비율이 맞다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>서버를 지우고 다시 세우는 훈련을 하면서 만약을 대비해 <b>서버 디스크를 통째로 복사</b>해뒀다. 훈련은 성공했고 그 복사본은 쓰지 않았다.</p>
+        <p>엿새 뒤에 계정을 조회해보니 그게 그대로 있었다. 위험한 이유는 파일 몇 개가 아니라 <i>디스크 전체</i>이기 때문이다. 데이터베이스가 통째로 들어 있고 비밀값 스물한 개도 그대로인데 암호화가 안 걸려 있었다.</p>
+        <p>지우는 건 명령 한 줄이었고, 진짜 문제는 절차였다. 훈련 기록 문서가 <b>'떠 뒀다, 쓰지 않았다'에서 끝나고 언제 지우는지가 없었다.</b> 결국 이 일이 사람 기억에 걸려 있었다는 뜻이다.</p>
+      </div>
+<div class="say">
+        <p>“지난주에 서버를 진짜로 지우고 다시 세우는 훈련을 하면서, 만약을 대비해 서버 디스크를 통째로 복사해뒀습니다. 훈련은 성공했고 그 복사본은 쓰지 않았습니다. 그런데 엿새 뒤에 계정을 조회해보니 그게 그대로 있었어요.</p>
+        <p>그게 위험한 건 파일 몇 개가 아니라 디스크 전체이기 때문입니다. 데이터베이스가 통째로 들어 있고 서버가 쓰는 비밀값 스물한 개도 그대로 있는데 암호화가 안 걸려 있었습니다. 그 복사본을 디스크로 붙일 권한만 있으면 관리자가 아니어도 전부 읽힙니다.</p>
+        <p>지우는 건 명령 한 줄이었는데, 진짜 문제는 복사본이 아니라 절차였습니다. 훈련 기록 문서가 ‘떠 뒀다, 쓰지 않았다’에서 끝나고 언제 지우는지가 없었습니다. 결국 이 일이 순전히 사람 기억에 걸려 있었다는 뜻입니다.”</p>
+      </div>
+      <div class="say">
+        <span class="tag">여기서 할 말</span>
+        <p>“그래서 지운 것보다 다시 안 생기게 하는 데 시간을 더 썼습니다. 매시간 도는 감시에 검사를 하나 넣어서, 계정에 그런 복사본이 하나라도 있으면 실패하게 했습니다. 다음 훈련에서 또 만들면 그날부터 빨간불이 되고 지우면 꺼집니다. <strong>문서에 적힌 문장이 실제로 돌아가는 검사가 된 겁니다.</strong>”</p>
+      </div>
+      <div class="asks">
+        <div class="ask"><p class="q">조회가 실패하면요?</p><p>없다는 결과와 <strong>구분해서 따로 실패로</strong> 다룬다. 권한이 사라져서 못 본 것을 볼 게 없다고 읽으면 감시가 눈먼 채로 초록불이 된다. 칠월에 정확히 그 사고를 겪었다.</p></div>
+        <div class="ask"><p class="q">훈련 때 사본을 안 뜨면 되지 않나요?</p><p>그건 훈련을 위험하게 만든다. 뜨는 게 맞고 <strong>지우는 절차가 없던 것</strong>이 문제였다. 만드는 쪽만 적고 치우는 쪽을 안 적는 건 흔한 모양이다.</p></div>
+      </div>
+      <h3 style="font-family:var(--serif); font-size:21px; margin:40px 0 4px;">K. 고침과 실증 사이의 간격을 정하는 건 내가 아니었다</h3>
+      <p style="color:var(--muted); margin-bottom:18px;">그 간격이 여섯 시간일 수도 나흘일 수도 있는데, 정하는 건 서버를 켜는 일정이다.</p>
+            <div class="what"><span class="tag">말하기 전에 · 무슨 일이었나</span>
+        <p>서버를 끌 때마다 <b>운영체제의 핵심 부분이 새 버전으로 바뀌었는지</b> 확인하는 단계가 있다. 그런데 이 검사가 만들어진 뒤로 한 번도 판정을 내린 적이 없었다.</p>
+        <p>설치된 버전을 <b>고정된 이름 하나로</b> 물어보는데, 이 운영체제는 그 부분을 버전마다 다른 이름으로 쪼개서 관리한다. <i>그 이름은 이 시스템에 영원히 없다.</i> 답은 늘 '없다'였고 '못 읽었습니다' 경고로 떨어졌는데, 그 경고가 종료 코드에 안 들어가서 아무도 못 봤다.</p>
+        <p>여기서 핵심은 <b>고친 것과 그게 실제로 도는 걸 본 것이 다른 사건</b>이라는 점이다. 고친 날에는 가짜 폴더로 흐름만 재봤을 뿐이라 진짜 서버에서 뭐가 나올지는 몰랐다.</p>
+      </div>
+<div class="say">
+        <p>“서버를 끌 때마다 보안 패치를 적용하고, 그 과정에서 운영체제의 핵심 부분이 새 버전으로 바뀌었는지 확인하는 단계를 만들어뒀습니다. 그런데 그 검사가 만들어진 뒤로 <strong>한 번도 판정을 내린 적이 없었습니다.</strong></p>
+        <p>설치된 버전을 읽는 방법이 문제였어요. 이 운영체제는 그 핵심 부분을 버전마다 다른 이름으로 나눠서 관리하는데, 검사는 고정된 이름 하나를 물어보고 있었습니다. 그 이름은 이 시스템에 영원히 없으니까 답은 늘 ‘없다’였고, ‘값을 못 읽었습니다’라는 경고로 떨어졌는데 그 경고가 종료 코드에 안 들어가서 아무도 빨간불을 못 봤습니다.</p>
+        <p>고치는 건 어렵지 않았습니다. 이름을 물어보는 대신 부팅에 쓰이는 파일이 실제로 놓인 자리를 보게 했어요. 그런데 고친 그날은 가짜 폴더로 흐름만 재봤을 뿐이라 <strong>진짜 서버에서 무엇이 나올지는 몰랐습니다.</strong> 마침 그날 배포할 게 있어 오후에 서버를 켰고, 밤에 끄면서 그 단계가 처음으로 ‘커널 변경 없음’이라고 말했습니다. 고친 지 여섯 시간 만이었는데 <strong>그게 짧았던 건 우연입니다.</strong> 그날 켤 일이 없었으면 다음 회차까지 몇 주였을 수도 있어요.”</p>
+      </div>
+      <div class="say">
+        <span class="tag">여기서 할 말</span>
+        <p>“그래서 이런 항목은 고친 시점에 끝난 걸로 적으면 안 된다고 결론을 냈습니다. 기록에도 ‘고쳤다’와 ‘실제로 판정하는 걸 봤다’를 따로 남기고, 아직 못 본 건 못 봤다고 적어뒀어요. 우연이 아니었을 때가 어떤지는 바로 옆에서 봤습니다. 서버 열쇠를 보관하는 장치는 <strong>나흘 전에 고쳐뒀는데 그날 처음 돌렸어요.</strong> 그 나흘 동안 서버로 들어가는 열쇠는 제 노트북 한 대에만 있었습니다.”</p>
+      </div>
+      <div class="codes">
+        <div class="codeblk was">
+          <div class="lbl">고치기 전 <span>정지 스크립트 4-C</span></div>
+          <pre>echo "KERNEL_LATEST=$(rpm -q --queryformat "%{VERSION}-%{RELEASE}.%{ARCH}\n" kernel …
+#                      ↑ 'kernel' 이라는 이름의 패키지는 이 OS 에 영원히 없다
+#                        → 출력: KERNEL_LATEST=package kernel is not installed</pre>
+        </div>
+        <div class="codeblk now">
+          <div class="lbl">고친 뒤 <span>같은 자리</span></div>
+          <pre>echo "KERNEL_LATEST=$(ls -1 /boot/vmlinuz-* 2>/dev/null \
+                       | sed "s|.*/vmlinuz-||" | sort -V | tail -1)"
+#     파일이 곧 사실이다. 그 &lt;릴리스&gt; 문자열이 uname -r 과 글자 그대로 같다</pre>
+        </div>
+      </div>
+      <p class="codenote">
+        <b>왜 이름을 새 규칙(<code>kernel6.12</code>)으로 고쳐 적지 않았나</b>를 같이 말한다.
+        그러면 지금은 맞지만 다음 메이저 버전에서 똑같이 깨진다. 값을 갱신하는 것과
+        구조를 바꾸는 것은 다르고, 이 프로젝트는 그 구분으로 같은 병을 여러 번 막았다.
+      </p>
+      <div class="asks">
+        <div class="ask"><p class="q">흐름만 재본 게 잘못인가요?</p><p>아니다. 그게 그 시점에 할 수 있는 최선이었다. 잘못은 그걸 <strong>‘고쳤다’로 닫은 것</strong>이다. 조건이 갖춰진 회차가 와야 사실이 되는 항목이라 그때까지는 미확인으로 들고 있어야 한다.</p></div>
+        <div class="ask"><p class="q">왜 나흘이나 안 돌렸나요?</p><p>서버를 켜는 일 자체가 드물기 때문이다. 그래서 이제 <strong>서버를 켜는 회차마다 같이 도는 목록</strong>으로 묶었다. 따로 잡아두면 또 며칠이 지나간다.</p></div>
+        <div class="ask"><p class="q">그날 새 커널이 있었으면요?</p><p>‘갱신됐습니다’ 쪽으로 갔을 것이고 그것도 정답이다. <strong>어느 쪽이든 판정을 하는 것</strong>이 이 고침의 목적이었다.</p></div>
+      </div>
+    </section>
+
+    <section id="pattern">
+      <p class="kicker">관점</p>
+      <h2>사례를 나열하는 대신 이 셋으로 묶는다</h2>
+      <p>면접에서는 이 절이 사례보다 더 잘 먹힌다. 개별 사건이 하나의 관점으로 들리기 때문이다.</p>
+      <dl class="steps">
+        <div class="step">
+          <dt>병 ①</dt>
+          <dd><p><strong>설정은 있는데 대상이 0개다.</strong> 규칙은 화면에 보이니 사람은 돌고 있다고 믿는다. 보관함 정리 규칙이 아무것도 안 지우고 있었고, 경고가 알림으로 안 이어져 발송이 0건이었고, 글투 검사 규칙 하나는 만들어진 뒤 한 번도 측정된 적이 없었다. 그래서 규칙을 만들면 몇 개가 걸리는지 반드시 센다.</p></dd>
+        </div>
+        <div class="step">
+          <dt>병 ②</dt>
+          <dd><p><strong>검사가 자기 대상을 안 본다.</strong> 스크립트 검사가 대상 파일 0개로 돌아 통과했고, 서버 경보가 이미 삭제된 서버를 가리킨 채 초록이었다. 이때 초록은 ‘문제가 없다’가 아니라 <strong>‘안 봤다’</strong>인데 화면에서는 둘이 똑같이 보인다.</p></dd>
+        </div>
+        <div class="step">
+          <dt>병 ③</dt>
+          <dd><p><strong>만든 것과 닿은 것이 다르다.</strong> 개인 블로그 화면을 다 만들어놓고 앱 안에서 거기로 가는 링크를 안 만들어서 주소를 아는 사람만 볼 수 있었다. 문서 파일도 사용자가 실제로 보는 폴더가 아닌 곳에 저장되고 있었다. 가장 큰 건 바로 앞 사례인데, <strong>값 하나가 비어서 열흘치가 통째로 안 닿고 있었다.</strong></p></dd>
+        </div>
+      </dl>
+      <div class="say">
+        <span class="tag">한 문장으로 묶으면</span>
+        <p>“돌이켜보면 제가 만난 문제 대부분이 화면은 초록인데 실제로는 아무 일도 안 하고 있는 상태였습니다. 그래서 뭘 만들면 ‘만들었다’가 아니라 ‘실제로 몇 개가 걸렸나’를 확인하는 습관이 생겼습니다.”</p>
+      </div>
+    </section>
+
+    <section id="code">
+      <p class="kicker">코드</p>
+      <h2>“코드로 보여줄 수 있어요?”가 오면 이 셋을 연다</h2>
+      <p>
+        전부 <strong>고치기 전과 후가 몇 줄 차이</strong>인 것만 골랐다. 길면 상대가 읽다 만다.
+        각각 <em>무엇이 잘못이었는지가 코드 자체에 보이는</em> 자리다.
+      </p>
+
+      <h3 style="font-family:var(--serif); font-size:19px; margin:30px 0 6px;">① 회수 스위치가 세 갈래 중 하나에서만 돌았다</h3>
+      <p style="color:var(--muted); margin-bottom:14px; font-size:15px;">확인을 어디에 두느냐가 전부였던 경우.</p>
+      <div class="codes">
+        <div class="codeblk now">
+          <div class="lbl">지금 <span>frontend/public/sw.js</span></div>
+          <pre>self.addEventListener('fetch', (event) =&gt; {
+  const req = event.request
+  if (req.method !== 'GET') return
+
+  maybeCheckKillSwitch()          // ← 갈래를 나누기 **전에** 부른다
+
+  const route = routeFor(req.url)
+  if (route === 'network-only') return          // 여기서 끝나던 기기
+  if (route === 'cache-first') { …; return }    // 여기서 끝나던 기기
+  // network-first … ← 예전에는 이 안에 스위치 확인이 있었다
+})</pre>
+        </div>
+      </div>
+      <p class="codenote">
+        저 두 <code>return</code>이 이야기의 전부다. 스위치 확인이 아래에 있으면
+        <b>거기까지 오는 요청에서만</b> 확인된다. 파일 상단은 “모든 기기가 10분 안에
+        돌아온다”고 약속하고 있었다.
+      </p>
+
+      <h3 style="font-family:var(--serif); font-size:19px; margin:34px 0 6px;">② 크기는 막았는데 개수는 안 막았다</h3>
+      <p style="color:var(--muted); margin-bottom:14px; font-size:15px;">고침이 새 함정을 만들 뻔한 경우.</p>
+      <div class="codes">
+        <div class="codeblk was">
+          <div class="lbl">고치기 전 <span>backend/app/main.py</span></div>
+          <pre>buffered: list[dict] = []      # 본문 전체가 프로세스 메모리에 쌓인다(최대 6MB)</pre>
+        </div>
+        <div class="codeblk now">
+          <div class="lbl">고친 뒤 <span>같은 파일</span></div>
+          <pre>MAX_TRACKED_CHUNKS = 256       # 경계를 그대로 살려주는 최대 조각 수
+
+buffer = SpooledTemporaryFile(max_size=self.spool_max_bytes)
+…
+if len(sizes) &lt; MAX_TRACKED_CHUNKS:
+    sizes.append(len(body))    # 그 위로는 경계를 버리고 64KB 로 다시 자른다</pre>
+        </div>
+      </div>
+      <p class="codenote">
+        <b><code>MAX_TRACKED_CHUNKS</code> 가 왜 필요한지</b>를 설명하는 게 이 대목의 값이다.
+        본문을 디스크로 옮겨 메모리를 아꼈는데, 조각 경계를 기록하는 목록은
+        <b>본문 크기가 아니라 조각 개수</b>에 비례한다. 1바이트 조각으로 6MB를 보내면
+        그 목록이 본문보다 커진다 — 같은 공격이 축만 바꿔 다시 성립한다.
+      </p>
+
+      <h3 style="font-family:var(--serif); font-size:19px; margin:34px 0 6px;">③ 검사가 무엇을 보는지는 옵션에 적혀 있다</h3>
+      <p style="color:var(--muted); margin-bottom:14px; font-size:15px;">한 줄을 켰더니 실제 어긋난 곳이 둘 나온 경우.</p>
+      <div class="codes">
+        <div class="codeblk now">
+          <div class="lbl">지금 <span>backend/alembic/env.py</span></div>
+          <pre>context.configure(
+    connection=connection,
+    target_metadata=target_metadata,
+    compare_server_default=True,   # ← alembic 기본값은 False 다
+)</pre>
+        </div>
+      </div>
+      <p class="codenote">
+        기본값이 <code>False</code>인 데에는 이유가 있다(DB 종류마다 기본값 표기가 달라 오탐이 잦다).
+        문제는 <b>다른 파일의 주석이 “CI 의 그 검사가 본다”고 적어둔 것</b>이었다.
+        켜자마자 실제 드리프트가 둘 나왔다. <b>검사가 있다는 사실이 확인을 대신하면 안 된다</b>는
+        이야기를 여기서 한다.
+      </p>
+    </section>
+
+    <section id="questions">
+      <p class="kicker">예상 질문</p>
+      <h2>짧게 답하고 반응을 본 다음 들어간다</h2>
+
+      <div class="qa">
+        <h3>왜 관리형 데이터베이스(RDS)를 안 쓰나요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>비용 때문이다. 처음엔 썼고 서버 안 컨테이너로 옮겼다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>관리형이 해주던 걸 직접 해야 해서 복원 훈련을 만들었다. 되살린 뒤 개수만 세지 않고 표 목록, 인덱스와 제약 개수, 마이그레이션 버전, 확장 기능, 쓰기 가능 여부, 암호화된 값의 복호화까지 본다. 그 훈련을 만들며 예전 방식이 통과시키던 구멍 열세 개를 찾았다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>서버를 껐다 켜는 게 실무적인가요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>상시 가동이 아닌 건 개인 프로젝트의 제약이 맞다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>다만 그 제약이 만든 설계는 실무에서도 그대로 필요하다. “데이터가 안 들어올 때 정상으로 볼 것인가 이상으로 볼 것인가”는 상시 가동 환경에서도 똑같이 정해야 한다. 서버 상태는 침묵을 정상으로, 감시의 생존 신호는 침묵을 고장으로 정했다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>배포를 왜 자동화하지 않았나요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>자동 배포가 있었는데 일부러 폐지했다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>화면 쪽만 자동이면 서버 쪽이 안 나간 상태에서 화면이 먼저 나갈 수 있다. 막는 장치가 있었지만 그 한 번의 변경만 봐서 다음 변경은 그냥 통과했다. 제대로 막으려면 “지금 서버에 떠 있는 게 어느 버전인가”를 알아야 하는데 그 기록이 없었다. 장치를 더 만드는 대신 순서를 지키는 주체를 사람 하나로 모으고, 감시가 매시간 “화면이 몇 버전 뒤처졌는지”를 보게 했다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>테스트와 검사는 어떻게 하나요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>백엔드 테스트가 561개고 커버리지 70% 아래로 내려가면 통과 못 한다. 자동 검사 묶음은 일곱 개다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>백엔드·프론트·스크립트·복구 문서 드리프트·시크릿 스캔·의존성 취약점·인프라 코드. 이 중 <strong>복구 문서 드리프트</strong>가 특이한데, 사고 대응 문서에 적힌 명령이 실제 코드와 어긋났는지를 기계가 본다. 재해 훈련에서 “문서가 틀린 자리에서 시간을 다 쓴다”를 겪고 만든 검사다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>보안은 어떻게 확인했나요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>정기적으로 점검하고 결과를 문서로 남긴다. 실제로 공격이 가능했던 것 두 건을 찾아 닫았다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>점검을 갈래로 나눈다. 인증과 권한을 읽는 갈래, 실제로 요청을 쏘아보는 갈래, 비밀값이 코드 이력에 섞였는지 훑는 갈래, 클라우드 권한을 실제 계정에서 조회해 코드와 대조하는 갈래다. 공개 저장소라 고친 뒤에 기록한다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>비용은 얼마나 드나요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>월 순지출이 2달러 안쪽이다. 예산 알림을 걸어두고 감시가 매시간 확인한다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>최근에 고정 IP를 붙일지 검토했다가 안 사기로 했다. 붙여두기만 해도 월 3.6달러가 나가는데 서버가 대부분 꺼져 있어 거의 전액이 노는 값이다. 중요한 건 <strong>안 사기로 한 이유와 다시 검토할 조건을 문서에 적었다</strong>는 것이다. 안 적으면 다음 훈련에서 같은 안건이 또 올라온다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>검사를 자동으로 돌린다고 하셨는데, 그 결과를 믿나요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>안 믿는다. <strong>검사 결과를 다시 검사하는 단계</strong>를 따로 둔다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>여섯 갈래로 검사를 돌리고 그 발견을 회의적인 쪽이 재확인하게 했는데, 재확인 결과를 제목 글자로 짝지어 거르게 짜뒀다가 마흔세 건 중 마흔두 건이 짝을 못 찾은 적이 있다. 짝을 못 찾은 것은 조용히 ‘걸러짐’으로 떨어졌으니 내가 만든 필터가 사실상 아무것도 안 거르고 있었다. 번호로 짝짓게 고치고 짝 못 찾은 개수를 찍게 하자 확인된 발견이 한 건에서 서른세 건이 됐다. 그날 하루 종일 고치던 병을 내 도구가 그대로 가지고 있었던 셈이라, 그 뒤로는 검사 도구에도 ‘몇 건이 짝을 찾았나’를 반드시 찍게 한다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>가장 어려웠던 건 뭔가요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>기능이 아니라 <strong>내가 만든 검사를 믿을 수 있게 만드는 것</strong>이었다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>검사가 통과했다는 게 검사가 봤다는 뜻이 아닌 경우를 여러 번 겪었다. 그래서 검사를 만들 때 잡아야 할 것과 잡으면 안 되는 것을 같이 넣어 본다. 잡는 것만 확인하면 무엇이든 잡는 고장 난 검사와 구분할 수 없다.</p></div></div>
+      </div>
+
+      <div class="qa">
+        <h3>실패한 경험이 있나요?</h3>
+        <div class="depth short"><span>짧게</span><div><p>같은 실수를 다른 모습으로 반복한 것이다.</p></div></div>
+        <div class="depth deep"><span>더</span><div><p>“설정했는데 대상이 0개”를 세 번 겪고 나서야 규칙으로 만들었다. 최근에는 하루 전에 결론으로 적어둔 실수를 다음 날 똑같이 밟은 적도 있다. 긴 명령을 붙여넣다 잘린 경우다. 결론을 적는 것과 절차를 그 결론대로 바꾸는 건 다른 일이라는 걸 그때 배웠다.</p></div></div>
+      </div>
+    </section>
+
+    <section id="numbers">
+      <p class="kicker">실측</p>
+      <h2>이 표에 있는 값만 말한다</h2>
+      <p>숫자만 있으면 설명이 안 되니 뜻을 붙였다. 기억으로 말하면 반드시 어긋나고, 그 자리에서 신뢰가 깎인다.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>항목</th><th>값</th><th>무슨 뜻인가</th></tr></thead>
+          <tbody>
+            <tr><td>커밋</td><td class="num">424</td><td class="mean">코드 변경을 저장한 횟수. 작업의 총량</td></tr>
+            <tr><td>개발일지</td><td class="num">43편</td><td class="mean">결정과 이유의 기록. 면접에서 근거로 쓰는 자산</td></tr>
+            <tr><td>백엔드 테스트</td><td class="num">561개</td><td class="mean">커버리지 70% 게이트. 기준 아래로 내려가면 막힌다</td></tr>
+            <tr><td>DB 마이그레이션</td><td class="num">46</td><td class="mean">데이터 구조를 바꾼 횟수. 스키마가 계속 진화했다</td></tr>
+            <tr><td>API · 화면</td><td class="num">11 · 19</td><td class="mean">라우터와 프론트 화면. 기능의 폭</td></tr>
+            <tr><td>자동 검사 묶음</td><td class="num">7</td><td class="mean">코드를 올릴 때마다 도는 검사의 종류</td></tr>
+            <tr><td>훈련</td><td class="num">5종</td><td class="mean">재해복구 · 복원 · 카오스 · 비용 · 사고대응</td></tr>
+            <tr><td>재해 복구</td><td class="num">42분 → 3분 30초</td><td class="mean">1·2회차 실측. 줄어든 이유는 1회차에서 고친 것들</td></tr>
+            <tr><td>오케스트레이션 증명</td><td class="num">5xx 0건 · 229/229</td><td class="mean">컨테이너를 죽여도, 배포 중에도 안 끊긴 실측</td></tr>
+            <tr><td>비용</td><td class="num">총지출 2.18 · 순지출 0</td><td class="mean">월 단위. 크레딧이 덮고 있고 예산 10달러에 경보 둘</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="care">
+      <p class="kicker">태도</p>
+      <h2>말할 때 지키는 것</h2>
+      <div class="caution">
+        <ul>
+          <li><b>“고쳤다”와 “동작한다”를 구분한다.</b> 확인한 것은 확인했다고, 아직 안 밟아본 경로는 그렇다고 말한다. 이 프로젝트가 가장 여러 번 배운 게 그것이라 이 태도 자체가 할 이야기가 된다.</li>
+          <li><b>훈련을 “만들었다”로 자랑하지 않는다.</b> “훈련을 다섯 개 만들었습니다”보다 “훈련이 통과시키고 있던 구멍 열세 개를 찾았습니다”가 훨씬 낫다.</li>
+          <li><b>남이 해준 것과 내가 한 것을 섞지 않는다.</b> 관리형 서비스가 대신 해준 부분은 그렇게 말한다. 이 구분을 스스로 하면 오히려 신뢰를 얻는다.</li>
+          <li><b>모르면 모른다고 하고 어디를 보면 되는지 말한다.</b> 거의 모든 결정에 근거 문서가 있으니 “그건 개발일지 며칟날 편에 이유를 적어뒀습니다”가 가능하다.</li>
+          <li><b>비유를 먼저 깔고 단어를 나중에 쓴다.</b> 안내 데스크와 보관함을 한 번 말해두면 뒤 설명이 전부 쉬워진다. 반대로 단어를 먼저 던지면 상대는 그 단어를 붙잡느라 내용을 놓친다.</li>
+          <li><b>재보지 않은 최적화는 “고쳤다”고 말하지 않는다.</b> 같은 변경이 50건짜리 조회에서는 49밀리초를 27로 줄였는데 5건짜리에서는 12를 18로 늘렸다. 재본 덕분에 한쪽은 되돌렸다.</li>
+          <li><b>숫자는 하나씩만 던진다.</b> 42분과 3분 30초처럼 대비가 되는 한 쌍이 열 개의 수치보다 오래 남는다.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    원본은 저장소의 <code>docs/talk-track-project.md</code>이고 이 페이지는 그것을 눈으로 읽기 좋게 옮긴 것이다.
+    숫자는 <code>scripts/check_counts.py</code>가 CI에서 실측과 대조한다. 표의 값은 2026-09-06에, 사례 I·J는 2026-09-02에 갱신했다. 커밋 수는 실측 대비 30 이내면 통과다.
+  </footer>
+</div>
+
+</body>
+</html>

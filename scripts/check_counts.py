@@ -124,6 +124,19 @@ CLAIMS = [
     ("docs/talk-track-project.md", r"라우터 \d+ · 페이지 (\d+)", "pages"),
     ("docs/talk-track-project.md", r"\| 자동 검사 묶음 \| (\d+) \|", "ci_jobs"),
     ("docs/talk-track-project.md", r"백엔드 테스트가 (\d+)개", "backend_tests"),
+    # ── 웹 판(아티팩트로 발행하는 원본). 2026-09-06 추가.
+    #
+    # **왜 여기 넣었나.** 설명 자료는 세 벌(md · 웹 · 바탕화면 docx)로 사는데, 이 검사가
+    # md 만 보고 있었다. docx 는 md 에서 생성되니 따라오지만 **웹 판은 HTML 을 따로 쓴다**
+    # — 대본·단계·숫자를 시각적으로 가르는 판이라 구조가 달라서, md 를 고치고 재발행해도
+    # 반영이 안 된다. 즉 md 만 갱신하면 웹 판의 숫자가 조용히 낡고 **CI 는 초록**이었다.
+    # 이 저장소가 "검사가 자기 대상을 반만 본다"고 이름 붙인 바로 그 모양이라 대상을 넓힌다.
+    ("docs/talk-track-project.html", r"개발일지 (\d+)편이 읽는 글", "devlog"),
+    ("docs/talk-track-project.html", r'<td>개발일지</td><td class="num">(\d+)편', "devlog"),
+    ("docs/talk-track-project.html", r'<td>커밋</td><td class="num">(\d+)<', "commits"),
+    ("docs/talk-track-project.html", r'<td>백엔드 테스트</td><td class="num">(\d+)개', "backend_tests"),
+    ("docs/talk-track-project.html", r'<td>DB 마이그레이션</td><td class="num">(\d+)<', "migrations"),
+    ("docs/talk-track-project.html", r"백엔드 테스트가 (\d+)개", "backend_tests"),
 ]
 
 
