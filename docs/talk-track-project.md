@@ -506,6 +506,26 @@
 > 피해자가 자기 메일함의 링크를 누르는 순간 인증까지 끝난 계정이 되는데 들어갈 수 있는
 > 사람은 공격자뿐입니다. 칠월에 막았다고 적은 것과 결과가 똑같습니다."
 
+**코드로 보여줄 때 (세 줄이면 끝난다):**
+
+```python
+# backend/app/core/security.py — 여기가 조용했던 이유
+def create_email_token(
+    user_id: int, purpose: str, expire_hours: int = 24, ver: int = 0
+) -> str:                          # ← ver 에 기본값 0 이 있다
+
+# routers/auth.py — 고치기 전. 안 넘겨도 오류가 안 난다
+token = create_email_token(user.id, purpose="verify")
+
+# 고친 뒤 — 싣고, 대조한다
+token = create_email_token(user.id, purpose="verify", ver=user.token_version)
+if user.token_version != tok_ver:          # /auth/verify
+    raise HTTPException(status_code=400, detail=_LINK_INVALID)
+```
+
+**인자가 필수였다면 배선을 빠뜨린 그 순간 터졌다.** 기본값이 있어서 두 달 동안 아무 일도
+안 일어났다. "왜 몰랐냐"에 대한 답이 코드 한 줄로 끝나는 자리다.
+
 **되물어 올 것:**
 
 - *"그럼 칠월 수정은 의미가 없었나요?"* → 아니다. 절반은 실제로 동작했고 정면 경로는 막혔다.
@@ -597,6 +617,21 @@
 > 그리고 서버를 켜는 회차에 **같이 도는 목록**을 만들었습니다. 따로 잡아두면 또 며칠이
 > 지나가더라고요."
 
+**코드로 보여줄 때:**
+
+```bash
+# 고치기 전 — 'kernel' 이라는 이름의 패키지는 이 OS 에 영원히 없다
+echo "KERNEL_LATEST=$(rpm -q --queryformat "%{VERSION}-%{RELEASE}.%{ARCH}\n" kernel …
+# 출력: KERNEL_LATEST=package kernel is not installed
+
+# 고친 뒤 — 파일이 곧 사실이다. <릴리스> 가 uname -r 과 글자 그대로 같다
+echo "KERNEL_LATEST=$(ls -1 /boot/vmlinuz-* 2>/dev/null \
+                       | sed "s|.*/vmlinuz-||" | sort -V | tail -1)"
+```
+
+**왜 이름을 새 규칙(`kernel6.12`)으로 고쳐 적지 않았는지**를 같이 말한다. 그러면 지금은
+맞지만 다음 메이저 버전에서 똑같이 깨진다. 값을 갱신하는 것과 구조를 바꾸는 것은 다르다.
+
 **되물어 올 것:**
 
 - *"흐름만 재본 게 잘못인가요?"* → 아니다. 그게 그 시점에 할 수 있는 최선이었다. 잘못은
@@ -609,6 +644,67 @@
   **어느 쪽이든 판정을 하는 것**이 이 고침의 목적이었다.
 
 ---
+
+---
+
+## 3-B. "코드로 보여줄 수 있어요?"가 오면 이 셋을 연다
+
+전부 **고치기 전과 후가 몇 줄 차이**인 것만 골랐다. 길면 상대가 읽다 만다.
+각각 무엇이 잘못이었는지가 **코드 자체에 보이는** 자리다.
+
+### ① 회수 스위치가 세 갈래 중 하나에서만 돌았다
+
+```js
+// frontend/public/sw.js
+self.addEventListener('fetch', (event) => {
+  const req = event.request
+  if (req.method !== 'GET') return
+
+  maybeCheckKillSwitch()          // ← 갈래를 나누기 **전에** 부른다
+
+  const route = routeFor(req.url)
+  if (route === 'network-only') return          // 여기서 끝나던 기기
+  if (route === 'cache-first') { …; return }    // 여기서 끝나던 기기
+  // network-first … ← 예전에는 이 안에 스위치 확인이 있었다
+})
+```
+
+저 두 `return` 이 이야기의 전부다. 확인이 아래에 있으면 **거기까지 오는 요청에서만**
+확인된다. 파일 상단은 "모든 기기가 10분 안에 돌아온다"고 약속하고 있었다.
+
+### ② 크기는 막았는데 개수는 안 막았다
+
+```python
+# backend/app/main.py — 고치기 전. 본문 전체가 메모리에 쌓인다(최대 6MB)
+buffered: list[dict] = []
+
+# 고친 뒤
+MAX_TRACKED_CHUNKS = 256       # 경계를 그대로 살려주는 최대 조각 수
+buffer = SpooledTemporaryFile(max_size=self.spool_max_bytes)
+...
+if len(sizes) < MAX_TRACKED_CHUNKS:
+    sizes.append(len(body))    # 그 위로는 경계를 버리고 64KB 로 다시 자른다
+```
+
+**`MAX_TRACKED_CHUNKS` 가 왜 필요한지**를 설명하는 게 이 대목의 값이다. 본문을 디스크로
+옮겨 메모리를 아꼈는데, 조각 경계를 기록하는 목록은 **본문 크기가 아니라 조각 개수**에
+비례한다. 1바이트 조각으로 6MB를 보내면 그 목록이 본문보다 커진다 — 같은 공격이 축만
+바꿔 다시 성립한다.
+
+### ③ 검사가 무엇을 보는지는 옵션에 적혀 있다
+
+```python
+# backend/alembic/env.py
+context.configure(
+    connection=connection,
+    target_metadata=target_metadata,
+    compare_server_default=True,   # ← alembic 기본값은 False 다
+)
+```
+
+기본값이 `False` 인 데에는 이유가 있다(DB 종류마다 기본값 표기가 달라 오탐이 잦다).
+문제는 **다른 파일의 주석이 "CI 의 그 검사가 본다"고 적어둔 것**이었다. 켜자마자 실제
+드리프트가 둘 나왔다. **검사가 있다는 사실이 확인을 대신하면 안 된다**는 이야기를 여기서 한다.
 
 ---
 
