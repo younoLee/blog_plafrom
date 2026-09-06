@@ -34,7 +34,7 @@ API(`POST /api/auth/invite`)를 호출한다 — 2026-07-11에 실제로 겪은 
 |---|---|
 | 라이브 번들의 토스 키 | `test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq` → 리포 Variables 미설정. **로컬 빌드로 대체해도 결제가 테스트 모드로 조용히 되돌아가지 않는다** |
 | 현재 라이브 번들 | `index-DkEB2fQ4.js` · 626,524 B (2026-08-04 기록과 바이트 일치) |
-| 새 번들(워크플로와 같은 env로 빌드) | `index-DRcZWkAE.js` · 636,028 B · `index-BBzEbtlm.css` · 70,762 B |
+| 새 번들(워크플로와 같은 env로 빌드) | `index-DRcZWkAE.js` · 636,028 B · `index-BBzEbtlm.css` · 70,762 B ← **그 배포 기준 기록이다. 7-1에 그대로 쓰지 말 것** |
 | EC2 상태 | `stopped` |
 | 검증용 고유 문자열 | `가입하고 시작하기` — 미니파이된 번들에 남아 있는 것까지 확인함(grep 1건) |
 
@@ -247,23 +247,44 @@ aws cloudfront create-invalidation --distribution-id E1438IL9CSVBS4 --paths "/*"
 "설정했다"와 "동작한다"는 다르다(원칙 4). 초대를 진짜로 하나 발급해서 끝까지 돌린다.
 
 ```bash
-# 7-1. 새 번들이 나갔나 (고유 문자열)
-curl -s https://d2j66m9udyg9yq.cloudfront.net/ | grep -o '/index-[A-Za-z0-9_-]*\.js'
-curl -s https://d2j66m9udyg9yq.cloudfront.net/index-DRcZWkAE.js | grep -c '가입하고 시작하기'
-# 기대: 파일명이 index-DRcZWkAE.js, grep 결과 1 이상
+# 7-1. 새 번들이 나갔나 — **파일명을 여기 박지 않는다.** 라이브에서 읽어 그대로 쓴다.
+BUNDLE=$(curl -s https://d2j66m9udyg9yq.cloudfront.net/ \
+  | grep -o '/index-[A-Za-z0-9_-]*\.js' | head -1)
+echo "$BUNDLE"
+curl -s "https://d2j66m9udyg9yq.cloudfront.net$BUNDLE" | grep -c '가입하고 시작하기'
+# 기대: grep 결과 1 이상.
 ```
 
-> **경로 A를 골라서 생긴 공짜 검증 하나.** 위 파일명은 내가 로컬에서
-> *워크플로와 같은 env*로 빌드해 나온 해시다. Actions가 만든 것이 같은
-> `index-DRcZWkAE.js`면 두 빌드가 같은 물건이라는 뜻이고, 그건 곧
-> **`vars.TOSS_CLIENT_KEY`가 여전히 미설정**이라는 확인이기도 하다
-> (설정돼 있었다면 키 문자열이 바뀌어 해시가 달라진다).
+> ⚠️ **2026-09-06 정정 — 파일명을 박으면 프론트를 고칠 때마다 낡는다.** 여기엔
+> `index-DRcZWkAE.js`가 박혀 있었는데 그건 2026-08-07 그 배포의 해시다. 09-06 배포에서
+> 라이브는 `index-nfKvChx2.js`였고, 문서대로 따라가면 **박힌 이름으로 curl 해서 빈
+> 응답을 받고 grep 0**이 나온다 — 배포는 멀쩡한데 실패로 읽는다. 4절의 마이그레이션
+> head가 같은 병이었다(`e5434ac`).
+
+**파일명이 바뀐 것만으로는 '오늘 것이 나갔다'가 아니다.** 이름은 프론트가 조금만
+달라도 바뀐다. 이번에 나간 변경의 **고유 문자열**로 확인한다:
+
+```bash
+# 예 — 2026-09-06 배포(감사 기록·내 구독자·자진 삭제)에서 쓴 것
+curl -s "https://d2j66m9udyg9yq.cloudfront.net$BUNDLE" -o /tmp/bundle.js
+grep -c '조치 기록' /tmp/bundle.js
+grep -c '내 구독자' /tmp/bundle.js
+# 기대: 각각 1 이상. 0이면 파일명이 새것이어도 그 변경은 안 나간 것이다.
+```
+
+> **경로 A를 골라서 생긴 공짜 검증 하나.** 로컬에서 *워크플로와 같은 env*로 빌드해
+> 나온 파일명이 라이브와 같으면 두 빌드가 같은 물건이라는 뜻이고, 그건 곧
+> **`vars.TOSS_CLIENT_KEY`가 여전히 미설정**이라는 확인이기도 하다(설정돼 있었다면
+> 키 문자열이 바뀌어 해시가 달라진다). **비교 대상은 그때그때 빌드한 것이지 이 문서에
+> 적힌 값이 아니다.**
 >
-> 해시가 다르면 배포가 잘못된 게 아니라 **전제가 바뀐 것**이다. 멈추고 확인한다:
+> 해시 대조가 번거로우면 **키를 직접 본다** — 이쪽은 전제에 안 기댄다:
 > ```bash
-> curl -s https://d2j66m9udyg9yq.cloudfront.net/<나온파일명> | grep -o '\(live\|test\)_ck_[A-Za-z0-9]*'
+> curl -s "https://d2j66m9udyg9yq.cloudfront.net$BUNDLE" \
+>   | grep -o '\(live\|test\)_ck_[A-Za-z0-9]*' | sort -u
 > ```
-> `live_ck_`가 나오면 실결제 키가 들어간 것이고, 그건 이 배포와 무관한 별개 사건이다.
+> 출력이 **없으면** 미설정(기대값이다 — 09-06에 그랬다). `live_ck_`가 나오면 실결제
+> 키가 들어간 것이고, 그건 이 배포와 무관한 별개 사건이다.
 > (2026-08-04에도 로컬 재현과 워크플로 산출물이 바이트 단위로 같았다 — 등가성의 근거.)
 
 7-2. 브라우저에서 관리자로 로그인 → `/admin` → **초대** 섹션에서 자기 주소로 발급
