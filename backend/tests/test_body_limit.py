@@ -24,8 +24,10 @@ HTTP 레벨(TestClient)은 본문을 한 덩어리로 합쳐 넘기므로 조각
 import asyncio
 import json
 
+import app.main as main_module
 from app.main import (
     MAX_BODY_BYTES,
+    MAX_TRACKED_CHUNKS,
     MAX_UPLOAD_BODY_BYTES,
     UPLOAD_PATH,
     BodySizeLimitMiddleware,
@@ -195,6 +197,7 @@ def _run(
     upload_max_bytes: int | None = None,
     query_string: bytes = b"",
     authorized: bool = True,
+    spool_max_bytes: int | None = None,
 ):
     """Content-Length 없는 http scope로 미들웨어를 돌리고
     (하위앱, 나간 응답들, receive 호출 횟수)를 돌려준다.
@@ -204,10 +207,14 @@ def _run(
 
     authorized는 2026-09-05에 붙였다. 업로드 상한은 이제 인증 헤더가 붙은 요청에만
     주어지므로(SEC-01), 그 갈래를 시험하려면 헤더를 넣고 뺄 수 있어야 한다.
-    기본값을 True로 둔 이유는 기존 시험들이 전부 '정상적인 업로드'를 뜻하기 때문이다."""
+    기본값을 True로 둔 이유는 기존 시험들이 전부 '정상적인 업로드'를 뜻하기 때문이다.
+
+    spool_max_bytes는 2026-09-06에 붙였다. 큰 본문이 메모리가 아니라 디스크로 가는지를
+    보려면 문턱을 시험이 정할 수 있어야 한다(실제 값 512KB로는 시험이 512KB를 만든다)."""
     downstream = _Downstream()
+    kwargs = {} if spool_max_bytes is None else {"spool_max_bytes": spool_max_bytes}
     mw = BodySizeLimitMiddleware(
-        downstream, max_bytes=max_bytes, upload_max_bytes=upload_max_bytes
+        downstream, max_bytes=max_bytes, upload_max_bytes=upload_max_bytes, **kwargs
     )
     scope = {
         "type": "http",
@@ -364,3 +371,174 @@ def test_disconnect_before_body_is_passed_through():
     assert downstream.called
     assert downstream.chunks == []
     assert _status(sent) == 200
+
+
+# ── 큰 본문은 메모리가 아니라 디스크로 (2026-09-06, SEC-01 잔여) ────────────
+#
+# 09-05에 넣은 '인증 헤더가 없으면 업로드 상한을 안 준다'는 `Authorization: Bearer x`
+# 한 줄이면 도로 뚫린다 — 미들웨어는 라우팅 전이라 토큰을 검증할 수단이 없다.
+# 그래서 진짜 상한은 '받아두는 곳'에 있다. 상한만큼(6MB)을 파이썬 리스트에 담으면
+# 위조 헤더 하나로 6MB를 프로세스 메모리에 밀어넣을 수 있고, t2.micro 400m 컨테이너에서
+# 그런 연결 수십 개면 OOM이다(2026-09-04 검사 SEC-01의 남은 절반).
+#
+# 여기서 못박는 계약 셋:
+#   ④ 문턱을 넘는 본문은 **디스크로 넘어간다**(메모리에 남는 몫이 문턱으로 묶인다).
+#   ⑤ 그렇게 받아둔 본문도 앱에는 **온전히** 전달된다 — 디스크를 경유해도 내용이 같다.
+#   ⑥ 임시파일은 요청이 끝나면 **지워진다**(안 지우면 고장이 메모리에서 디스크로 옮겨간 것뿐).
+
+
+def _spy_buffers(monkeypatch) -> list:
+    """미들웨어가 만든 스풀 파일을 붙잡아 두는 감시자.
+
+    '디스크로 넘어갔는가'는 밖에서 볼 수 없는 사실이라 객체를 직접 봐야 한다.
+    SpooledTemporaryFile은 넘어간 뒤에 `_rolled`가 True가 된다(CPython 3.x 공통).
+    """
+    made = []
+    real = main_module.SpooledTemporaryFile
+
+    def spy(*args, **kwargs):
+        f = real(*args, **kwargs)
+        made.append(f)
+        return f
+
+    monkeypatch.setattr(main_module, "SpooledTemporaryFile", spy)
+    return made
+
+
+def test_body_over_the_spool_threshold_goes_to_disk(monkeypatch):
+    """문턱(여기선 64B)을 넘는 본문은 메모리에 계속 쌓이지 않는다.
+
+    ④와 ⑤를 한 번에 본다 — 디스크로 넘어갔고(rolled), 앱이 받은 내용은 그대로다.
+    """
+    made = _spy_buffers(monkeypatch)
+    downstream, sent, _ = _run(_chunks(200), max_bytes=256, spool_max_bytes=64)
+
+    assert made and made[0]._rolled  # 메모리에 200바이트를 들고 있지 않았다
+    assert downstream.body == b"a" * 200
+    assert _status(sent) == 200
+
+
+def test_body_under_the_spool_threshold_never_touches_disk(monkeypatch):
+    """문턱 아래 본문은 디스크에 안 간다.
+
+    실제 문턱은 무인증 JSON 경로의 상한과 같은 512KB다. 즉 로그인·댓글 같은 평범한
+    요청이 파일을 만들면 안 된다 — 여기가 회귀하면 요청마다 임시파일이 생긴다.
+    """
+    made = _spy_buffers(monkeypatch)
+    downstream, sent, _ = _run(_chunks(40), max_bytes=256, spool_max_bytes=1024)
+
+    assert made and not made[0]._rolled
+    assert downstream.body == b"a" * 40
+    assert _status(sent) == 200
+
+
+def test_spool_file_is_closed_when_the_request_ends(monkeypatch):
+    """임시파일은 요청이 끝나면 지워진다(close = 삭제).
+
+    이걸 빠뜨리면 고장이 사라진 게 아니라 메모리에서 디스크로 자리를 옮긴 것이 된다.
+    """
+    made = _spy_buffers(monkeypatch)
+    _run(_chunks(200), max_bytes=256, spool_max_bytes=64)
+
+    assert made[0].closed
+
+
+def test_spool_file_is_closed_even_if_the_app_raises(monkeypatch):
+    """앱이 터져도 임시파일은 남지 않는다."""
+    made = _spy_buffers(monkeypatch)
+
+    class _Boom:
+        async def __call__(self, scope, receive, send):
+            raise RuntimeError("boom")
+
+    mw = BodySizeLimitMiddleware(_Boom(), max_bytes=256, spool_max_bytes=64)
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/x",
+        "query_string": b"",
+        "headers": [],
+    }
+    queue = _chunks(200)
+
+    async def receive():
+        return queue.pop(0)
+
+    async def send(message):
+        pass
+
+    try:
+        asyncio.run(mw(scope, receive, send))
+    except RuntimeError:
+        pass
+    else:  # pragma: no cover - 예외가 안 나면 시험 전제가 깨진 것이다
+        raise AssertionError("하위 앱의 예외가 삼켜졌다")
+
+    assert made[0].closed
+
+
+def test_many_tiny_chunks_do_not_keep_a_boundary_per_chunk():
+    """1바이트짜리 조각 수천 개로 와도 경계 목록이 본문보다 커지지 않는다.
+
+    조각 경계를 전부 기억하면(리스트 원소 하나에 int 하나) 본문을 디스크로 옮긴 의미가
+    사라진다 — 6MB를 1바이트씩 보내면 int 600만 개가 메모리에 남기 때문이다.
+    MAX_TRACKED_CHUNKS를 넘으면 경계를 버리고 고정 크기로 되돌려주고, **내용은 같다**.
+    ASGI는 조각 경계를 약속하지 않으므로 받는 쪽은 이 차이를 못 느낀다.
+    """
+    n = MAX_TRACKED_CHUNKS + 50
+    messages = [
+        {"type": "http.request", "body": b"a", "more_body": i < n - 1} for i in range(n)
+    ]
+    downstream, sent, _ = _run(messages, max_bytes=n * 2)
+
+    assert downstream.body == b"a" * n  # 내용은 온전하다
+    assert len(downstream.chunks) < n  # 조각은 합쳐져서 나갔다
+    assert _status(sent) == 200
+
+
+def test_disconnect_after_partial_body_is_delivered_after_that_body():
+    """본문 일부만 오고 끊긴 경우, 앱은 받은 만큼을 먼저 받고 그 다음 disconnect를 본다.
+
+    되돌려줄 때 마지막 본문 조각의 more_body를 False로 만들어버리면 앱이 disconnect를
+    영영 못 보고 '정상적으로 끝난 짧은 본문'으로 오해한다.
+    """
+    messages = [
+        {"type": "http.request", "body": b"one", "more_body": True},
+        {"type": "http.request", "body": b"two", "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+    downstream, sent, _ = _run(messages, max_bytes=64)
+
+    assert downstream.chunks == [b"one", b"two"]
+    assert _status(sent) == 200
+
+
+def test_chunked_multipart_upload_survives_the_round_trip_through_disk(client):
+    """HTTP 레벨: 문턱을 넘는 chunked 업로드가 디스크를 거쳐도 그대로 파싱된다.
+
+    401이 나온다는 건 multipart가 **끝까지 파싱됐다**는 뜻이다 — FastAPI는 본문을
+    다 읽은 뒤에 의존성을 풀기 때문에(`await request.form()`이 먼저다) 되돌려주기가
+    한 바이트라도 어긋나면 401이 아니라 422가 난다.
+    """
+    boundary = "----blogtestboundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="big.png"\r\n'
+        "Content-Type: image/png\r\n\r\n"
+    ).encode()
+    body += PNG + b"0" * ONE_MB + f"\r\n--{boundary}--\r\n".encode()
+
+    def gen():
+        for i in range(0, len(body), 64 * 1024):
+            yield body[i : i + 64 * 1024]
+
+    r = client.post(
+        "/api/upload",
+        content=gen(),  # 제너레이터 → Content-Length 없이 chunked
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Authorization": "Bearer not-a-real-token",
+        },
+    )
+    assert r.status_code == 401

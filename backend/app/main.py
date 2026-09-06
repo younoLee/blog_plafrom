@@ -2,6 +2,7 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from tempfile import SpooledTemporaryFile
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -310,6 +311,21 @@ MAX_BODY_BYTES = 512 * 1024
 UPLOAD_PATH = "/api/upload"
 MAX_UPLOAD_BODY_BYTES = 6 * 1024 * 1024
 
+# Content-Length 없는(chunked) 요청을 받아둘 때 **메모리에 들고 있을 최대치**(2026-09-06).
+# 이걸 넘으면 그 뒤는 디스크로 흘린다 — 아래 BodySizeLimitMiddleware.__call__ 참고.
+# 값을 MAX_BODY_BYTES와 같게 잡은 이유: 무인증 JSON 경로는 상한 자체가 512KB라
+# **한 번도 디스크에 닿지 않는다**. 늘어나는 파일 I/O는 업로드 경로에만 생긴다.
+SPOOL_MAX_MEMORY_BYTES = MAX_BODY_BYTES
+
+# 디스크로 흘린 본문을 앱에 되돌려줄 때 한 번에 읽는 크기.
+REPLAY_CHUNK_BYTES = 64 * 1024
+
+# 되돌려줄 때 **조각 경계를 그대로 살려주는** 최대 조각 수. 이걸 넘으면 경계를 버린다 —
+# 1바이트짜리 조각으로 6MB를 보내면 경계 목록(파이썬 int 600만 개)이 본문보다 훨씬
+# 커져서, 본문을 디스크로 옮긴 의미가 사라지기 때문이다. ASGI는 조각 경계를 약속하지
+# 않으므로 받는 쪽은 이 차이를 못 느낀다.
+MAX_TRACKED_CHUNKS = 256
+
 
 def _mb(n: int) -> str:
     """413 문구에 쓸 MB 표기. 정수 나눗셈(`n // (1024*1024)`)을 그대로 두면 512KB가
@@ -344,12 +360,21 @@ class BodySizeLimitMiddleware:
     receive 채널을 우리가 쥐고 있어야 세면서 끊을 수 있다.
     """
 
-    def __init__(self, app, max_bytes: int, upload_max_bytes: int | None = None) -> None:
+    def __init__(
+        self,
+        app,
+        max_bytes: int,
+        upload_max_bytes: int | None = None,
+        spool_max_bytes: int = SPOOL_MAX_MEMORY_BYTES,
+    ) -> None:
         self.app = app
         self.max_bytes = max_bytes
         # 업로드 상한을 안 주면 예전처럼 전 경로 한 값으로 돈다. ASGI 레벨 테스트가
         # 그 모양(상한 하나)으로 스트림 동작을 검증하므로 기본값을 남겨둔다.
         self.upload_max_bytes = max_bytes if upload_max_bytes is None else upload_max_bytes
+        # 메모리에 들고 있을 최대치. 시험이 작은 값으로 갈아끼워 '디스크로 넘어갔는가'를
+        # 실제로 볼 수 있어야 해서 인자로 뺐다(상한 둘과 같은 이유다).
+        self.spool_max_bytes = spool_max_bytes
 
     @staticmethod
     def _has_authorization(scope) -> bool:
@@ -380,9 +405,11 @@ class BodySizeLimitMiddleware:
         즉 거절될 요청 하나가 6MB를 먼저 먹었다(2026-09-04 검사 SEC-01).
 
         ⚠️ **이건 헤더 위조까지 막지는 못한다.** `Authorization: Bearer x` 한 줄이면
-        다시 6MB 후보가 된다. 여기서 없어지는 것은 '아무것도 안 붙이고 던지는' 경로이고,
-        진짜 상한은 아래 chunked 갈래가 본문을 메모리 리스트가 아니라 디스크로 흘려보낼
-        때 생긴다. 그건 업로드 경로를 다시 쓰는 일이라 이번에 하지 않았다.
+        다시 6MB 후보가 된다. 여기서 없어지는 것은 '아무것도 안 붙이고 던지는' 경로다.
+        진짜 상한은 아래 chunked 갈래에 있다 — 2026-09-06에 그 갈래가 본문을 메모리
+        리스트가 아니라 스풀 파일로 받도록 고쳤으므로, 위조 헤더로 6MB를 밀어넣어도
+        메모리에 남는 것은 SPOOL_MAX_MEMORY_BYTES(512KB)뿐이다. 이 함수는 그 앞의
+        싼 관문으로 남는다(무인증 요청은 한 바이트도 안 받고 413).
         """
         path = scope.get("path", "")
         if path.rstrip("/") == UPLOAD_PATH and self._has_authorization(scope):
@@ -417,30 +444,94 @@ class BodySizeLimitMiddleware:
                     return await self._too_large(scope, send, limit)
                 return await self.app(scope, receive, send)
 
-        # CL이 없다(chunked) → 상한까지만 버퍼링하며 읽고, 넘는 순간 앱을 부르지 않고 끊는다.
-        # 버퍼가 그 경로의 상한(업로드 6MB, 그 외 512KB)으로 묶이므로 노출은 위 CL 경로와 같다.
-        buffered: list[dict] = []
-        total = 0
-        while True:
-            message = await receive()
-            if message["type"] != "http.request":
-                buffered.append(message)  # http.disconnect 등은 그대로 전달
-                break
-            total += len(message.get("body", b""))
-            if total > limit:
-                return await self._too_large(scope, send, limit)
-            buffered.append(message)
-            if not message.get("more_body", False):
-                break
+        # CL이 없다(chunked) → 상한까지만 받아두며 읽고, 넘는 순간 앱을 부르지 않고 끊는다.
+        #
+        # 2026-09-06(SEC-01 잔여): **받아두는 곳이 파이썬 리스트가 아니라 스풀 파일이다.**
+        # 예전엔 그 경로의 상한만큼(업로드 6MB) 통째로 프로세스 메모리에 쌓였다. 09-05에
+        # 넣은 '인증 헤더가 없으면 6MB를 안 준다'(_limit_for)는 `Authorization: Bearer x`
+        # 한 줄이면 도로 뚫린다 — 여기는 라우팅 전이라 토큰을 검증할 수단이 없다. 그래서
+        # 진짜 상한은 이 자리에서 세운다: spool_max_bytes(512KB)까지는 메모리, 그 위는
+        # 디스크다. 위조 헤더로 6MB를 밀어넣어도 프로세스가 지는 몫은 512KB다.
+        #
+        # 디스크를 쓰는 대가도 적어둔다. 512KB를 넘는 요청은 임시파일을 만들고 응답과
+        # 함께 지운다(아래 finally). 무인증 JSON 경로는 상한 자체가 512KB라 **한 번도
+        # 디스크에 닿지 않으므로** 늘어난 I/O는 업로드 경로뿐이고, 그 경로의 최대치는
+        # 요청당 6MB다. 메모리 고갈은 컨테이너를 죽이지만 임시파일은 요청이 끝나면 사라진다 —
+        # 두 고장 중 되돌릴 수 있는 쪽을 골랐다.
+        buffer = SpooledTemporaryFile(max_size=self.spool_max_bytes)
+        try:
+            sizes: list[int] = []  # 조각 경계. 되돌려줄 때 그대로 재현한다.
+            coalesced = False  # 조각이 너무 많아 경계 기록을 포기했는가
+            trailing: dict | None = None  # http.disconnect 등 본문이 아닌 메시지
+            final_seen = False  # more_body=False 를 봤는가
+            total = 0
 
-        queued = iter(buffered)
+            while True:
+                message = await receive()
+                if message["type"] != "http.request":
+                    trailing = message  # http.disconnect 등은 그대로 전달
+                    break
+                body = message.get("body", b"")
+                total += len(body)
+                if total > limit:
+                    return await self._too_large(scope, send, limit)
+                if body:
+                    buffer.write(body)
+                if len(sizes) < MAX_TRACKED_CHUNKS:
+                    sizes.append(len(body))
+                else:
+                    coalesced = True
+                if not message.get("more_body", False):
+                    final_seen = True
+                    break
 
-        async def replay():
-            # 먼저 우리가 읽어둔 것을 되돌려주고, 다 쓰면 원래 채널로 넘긴다.
-            message = next(queued, None)
-            return message if message is not None else await receive()
+            buffer.seek(0)
+            queued = self._replay(buffer, sizes, coalesced, total, final_seen, trailing)
 
-        await self.app(scope, replay, send)
+            async def replay():
+                # 먼저 우리가 받아둔 것을 되돌려주고, 다 쓰면 원래 채널로 넘긴다.
+                message = next(queued, None)
+                return message if message is not None else await receive()
+
+            await self.app(scope, replay, send)
+        finally:
+            # 임시파일을 지운다. 앱이 예외를 던져도 남으면 안 된다.
+            buffer.close()
+
+    @staticmethod
+    def _replay(buffer, sizes, coalesced, total, final_seen, trailing):
+        """받아둔 본문을 ASGI 메시지로 되돌려주는 제너레이터.
+
+        조각 경계는 기록해 둔 만큼(MAX_TRACKED_CHUNKS) 그대로 살린다 — 정상 트래픽은
+        전부 여기 들어오므로, 이 미들웨어가 조각을 재배치해 하위 앱을 놀라게 하는 일이
+        없다. 경계를 버린 경우에만 고정 크기로 잘라 돌려준다.
+
+        `more_body`는 마지막 조각에서만 False다. **단, 원래 스트림이 끝나기 전에
+        http.disconnect가 온 경우(final_seen=False)에는 마지막 본문 조각도 True여야
+        한다** — 그래야 하위 앱이 이어서 그 disconnect를 읽는다.
+        """
+        if coalesced:
+            remaining = total
+            while True:
+                chunk = buffer.read(REPLAY_CHUNK_BYTES)
+                remaining -= len(chunk)
+                yield {
+                    "type": "http.request",
+                    "body": chunk,
+                    "more_body": remaining > 0 or not final_seen,
+                }
+                if remaining <= 0:
+                    break
+        else:
+            last = len(sizes) - 1
+            for i, n in enumerate(sizes):
+                yield {
+                    "type": "http.request",
+                    "body": buffer.read(n),
+                    "more_body": i < last or not final_seen,
+                }
+        if trailing is not None:
+            yield trailing
 
 
 app.add_middleware(
