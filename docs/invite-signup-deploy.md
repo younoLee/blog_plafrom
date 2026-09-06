@@ -9,7 +9,8 @@
 > 공통 변수: EC2 = Name 태그 `blog-backend` (ID는 안 적는다 — 재건하면 바뀐다.
 > 스크립트는 `scripts/lib/ec2.sh`로 스스로 찾는다) · 키 `~/.ssh/blog-key.pem` · 버킷 `blogplafromops`
 > · 배포 `E1438IL9CSVBS4` · 프론트 `https://d2j66m9udyg9yq.cloudfront.net`
-> · 새 마이그레이션 head `e5f6a7b8c9d0`
+> · 새 마이그레이션 head `e5f6a7b8c9d0` — **그 배포 기준 값이다.** 지금 값은
+>   `cd backend && alembic heads` 로 읽는다(4절 참고).
 
 ---
 
@@ -143,10 +144,16 @@ ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> 'for i in $(seq 1 40); do
     s=$(sudo docker inspect -f "{{.State.Health.Status}}" blog-backend-1 2>/dev/null); echo "  $s";
     [ "$s" = healthy ] && exit 0; [ "$s" = unhealthy ] && exit 1; sleep 5; done; exit 1'
 
-# head가 e5f6a7b8c9d0 이어야 한다
+# 서버의 current 가 **저장소의 head 와 같아야 한다.** 값을 여기 박지 않는다 —
+# 이 문서 머리의 `e5f6a7b8c9d0` 은 2026-07-11 그 배포의 head 였고, 마이그레이션이
+# 늘 때마다 낡는다(2026-09-06 기준 46개, head 는 `d3e4f5a6b7c8`). 둘을 나란히 읽는다.
+(cd backend && alembic heads)                       # 저장소가 기대하는 값
 ssh -i ~/.ssh/blog-key.pem ec2-user@<DNS> \
   'cd ~/blog && sudo docker compose -f docker-compose.prod.yml exec -T backend alembic current'
 ```
+
+> ⚠️ 둘이 다르면 **재빌드가 안 됐거나 그 파일이 없는 이미지**다(바로 위 08-10 정정).
+> `alembic upgrade head` 를 손으로 부르기 전에 3절을 다시 밟는 게 맞다.
 
 ## 4-B. 오리진 주차 해제 — **빼먹으면 배포한 게 안 보인다**
 
