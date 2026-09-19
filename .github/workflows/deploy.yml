@@ -171,7 +171,7 @@ jobs:
           cat dist/deploy-stamp.txt
 
       - name: AWS 자격증명 (OIDC 역할 assume — 장기 키 없음)
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::181568979775:role/github-actions-blog-deploy
           aws-region: ap-northeast-2
