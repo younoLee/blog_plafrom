@@ -375,10 +375,30 @@ done
 # 그래서 목록만 내보내고, 판정은 자격증명이 있는 워크스테이션이 한다.
 # regexp_matches는 SETOF text[]라 FROM 절에서 LATERAL로 펼치고, 컬럼 이름을 명시적으로
 # 붙여야 한다(`as m(parts)`). 별칭만 주면 m이 '행 전체'를 가리켜 m[1] 첨자가 안 먹는다.
-IMG_SQL="from (select content as s from posts union all select cover_image from posts where cover_image is not null) x, lateral regexp_matches(x.s, '/uploads/([A-Za-z0-9._-]+)', 'g') as m(parts)"
-img_total=$(dst "select count(distinct parts[1]) $IMG_SQL")
+#
+# ⚠️ 2026-10-03 정정 — 예전엔 `content` 전체에서 `/uploads/...` 를 긁었다. 그래서
+# **본문이 인용한 터미널 한 줄이 '참조 이미지'로 잡혔다.** 개발일지 #28의
+# `touch /app/uploads/.wtest → Permission denied`(content/devlog/2026-08-10.md:308)가
+# 그것인데, 그 파일은 S3에 있을 이유가 없으니 훈련이 "그 글은 지금도 이미지가 깨져
+# 있습니다"라고 **없는 결함을 보고했다.** 이 저장소가 반복해 잡아온 "검사가 자기 대상을
+# 안 본다"의 거울상이다 — 대상을 보긴 하는데 잘못 읽으면 멀쩡한 것을 고치러 간다.
+# 그래서 **렌더되는 이미지 문법만** 센다: 마크다운 `![...](…/uploads/x)` 와 `<img … src=…>`.
+# (표지 이미지는 값 자체가 참조라 그대로 둔다. 코드블록 안의 경로는 둘 중 어느 모양도
+#  아니므로 자연히 빠진다 — 펜스를 따로 파싱할 필요가 없다.)
+IMG_FROM="from (
+  select m.parts[1] as name from posts p,
+    lateral regexp_matches(p.content, '!\[[^]]*\]\([^)]*/uploads/([A-Za-z0-9._-]+)', 'g') as m(parts)
+  union all
+  select m.parts[1] as name from posts p,
+    lateral regexp_matches(p.content, '<img[^>]*src[^>]*/uploads/([A-Za-z0-9._-]+)', 'g') as m(parts)
+  union all
+  select m.parts[1] as name from posts p,
+    lateral regexp_matches(p.cover_image, '/uploads/([A-Za-z0-9._-]+)', 'g') as m(parts)
+   where p.cover_image is not null
+) refs"
+img_total=$(dst "select count(distinct name) $IMG_FROM")
 echo "  --- 글이 참조하는 이미지: ${img_total}개 ---"
-dst "select distinct parts[1] $IMG_SQL order by 1" | sed -n 's/^\(..*\)$/  IMG \1/p'
+dst "select distinct name $IMG_FROM order by 1" | sed -n 's/^\(..*\)$/  IMG \1/p'
 
 $DC exec -T db psql -U postgres -d postgres -q -c "drop database restore_test;"
 rm -f /tmp/restore.sql.gz /tmp/restore.log /tmp/drill_tables /tmp/drill_serials
@@ -519,29 +539,66 @@ fi
 # 같은 판정을 watch.sh 가 그날 아침에 고쳤는데 이 쌍둥이가 안 쓸렸다 — 두 절 위(④-2)에
 # 이름까지 붙여둔 병("함수만 이식되고 분기는 수정 전 버전이 남았다")이 또 나온 것이다.
 #
-# 임계는 절대 나이가 아니라 **최신 덤프와의 선후**다. 이 서버는 몇 주씩 안 켜지는 게
+# 임계는 절대 나이가 아니라 **덤프와의 선후**다. 이 서버는 몇 주씩 안 켜지는 게
 # 정상이라 나이로 재면 정상 상태가 영구 빨간불이 된다. 정지 절차는 덤프를 뜬 직후 그것을
-# 승격하므로, 정상이면 keep 이 최신 덤프보다 새롭다.
+# 승격하므로, 정상이면 keep 이 '직전 정지가 뜬 덤프'와 같거나 그보다 새롭다.
+#
+# ⚠️ 2026-10-03 정정 — 비교 대상을 **무조건 최신 덤프**로 두면 이 훈련은 권장 시점에
+# **항상 실패한다.** 승격은 정지 절차 3/6 인데 이 스크립트의 선행조건은 'EC2 running'
+# 이다(위 59~65줄). 즉 훈련은 늘 회차 중간에 돌고, 그 사이 deploy_backend.sh 가 재빌드
+# 직전 백업을 하나 뜨므로 keep/ 은 그 덤프보다 **반드시** 뒤처져 있다.
+# 10-03에 실제로 FAIL 이 났는데 09-10 승격은 멀쩡했다 — keep/latest.sql.gz 가
+# 573,431 B 였고 그날 덤프가 같은 573,431 B 로 3초 차였다. '아직 안 됐다'를
+# '실패한 채 남아 있다'로 읽은 것이다.
+#
+# 그래서 **이번 기동 이후에 생긴 덤프는 비교에서 뺀다.** 남는 비교 대상이
+# '직전 정지가 승격했어야 할 덤프'다. 나이 임계로 바꾸지 않은 이유는 위 문단 그대로다
+# (회차를 한 달 쉬는 것은 정상이고, keep/ 은 만료 규칙 밖이라 그때도 한 벌은 남는다).
+boot=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+  --query 'Reservations[0].Instances[0].LaunchTime' --output text 2>/dev/null || true)
+boot_s=$(date -u -d "${boot:-}" +%s 2>/dev/null || true)
+# 기동 전 덤프 중 가장 새것. JMESPath 로는 시각 비교를 못 하므로 목록을 받아 고른다.
+prev_key=""; prev_mod=""
+while read -r mod key; do
+  [ -n "$key" ] || continue
+  mod_s=$(date -u -d "$mod" +%s 2>/dev/null || true)
+  [ -n "$mod_s" ] || continue
+  if [ -z "$boot_s" ] || [ "$mod_s" -lt "$boot_s" ]; then
+    prev_mod=$mod; prev_key=$key; break
+  fi
+done < <(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "blog-" \
+  --query 'reverse(sort_by(Contents,&LastModified))[].[LastModified,Key]' --output text 2>/dev/null || true)
+
 if keep=$(aws s3api head-object --bucket "$BUCKET" --key "keep/latest.sql.gz" \
             --query 'LastModified' --output text 2>/dev/null); then
-  latest_mod=$(aws s3api head-object --bucket "$BUCKET" --key "$KEY" \
-    --query 'LastModified' --output text 2>/dev/null || true)
   keep_s=$(date -u -d "$keep" +%s 2>/dev/null || true)
-  latest_s=$(date -u -d "${latest_mod:-}" +%s 2>/dev/null || true)
+  prev_s=$(date -u -d "${prev_mod:-}" +%s 2>/dev/null || true)
   if [ -z "$keep_s" ]; then
     echo "  FAIL keep/latest.sql.gz 의 시각을 해석하지 못했습니다(값: '$keep')."
     rc=1
-  elif [ -z "$latest_s" ]; then
-    # 비교 대상을 못 읽었다. '낡았다'고 단정하지 않는다 — 못 본 것과 낡은 것은 다르다.
-    echo "  --   만료 안 되는 사본 있음 — keep/latest.sql.gz ($keep). 최신 덤프와는 대조 못 함"
-  elif [ "$keep_s" -lt "$latest_s" ]; then
-    echo "  FAIL keep/latest.sql.gz 가 최신 덤프보다 오래됐습니다 — 정지 절차의 승격이 실패한 채 남아 있습니다."
+  elif [ -z "$prev_s" ]; then
+    # 비교 대상이 없다. '낡았다'고 단정하지 않는다 — 못 본 것과 낡은 것은 다르다.
+    # (재건 직후라 이번 기동보다 오래된 덤프가 아직 없는 경우가 여기로 온다.)
+    echo "  --   만료 안 되는 사본 있음 — keep/latest.sql.gz ($keep)."
+    echo "       이번 기동(${boot:-?}) 보다 오래된 덤프가 없어 선후를 대조하지 못했습니다"
+  elif [ "$keep_s" -lt "$prev_s" ]; then
+    echo "  FAIL keep/latest.sql.gz 가 직전 정지의 덤프보다 오래됐습니다 — 승격이 실패한 채 남아 있습니다."
     echo "       keep/latest.sql.gz : $keep"
-    echo "       최신 덤프          : $latest_mod ($KEY)"
-    echo "       조치: aws s3 cp s3://$BUCKET/$KEY s3://$BUCKET/keep/latest.sql.gz"
+    echo "       직전 정지의 덤프   : $prev_mod ($prev_key)"
+    echo "       조치: aws s3 cp s3://$BUCKET/$prev_key s3://$BUCKET/keep/latest.sql.gz"
     rc=1
   else
-    echo "  OK   만료 안 되는 사본 최신 — keep/latest.sql.gz ($keep, 최신 덤프 이후)"
+    echo "  OK   만료 안 되는 사본 최신 — keep/latest.sql.gz ($keep, 직전 정지의 덤프 이후)"
+    # 이번 회차에 뜬 덤프가 아직 승격 전이면 그렇다고만 적는다(정상이고, 정지 절차가 닫는다).
+    # ⚠️ 키 이름으로 비교하면 안 된다 — 정지 절차가 방금 승격한 직후에도 최신 덤프 키는
+    #    prev_key 와 다르므로, 멀쩡한 상태에 "아직 승격 전"이라는 **거짓 안내**가 붙는다.
+    #    (이 파일을 고치면서 그 모양을 한 번 더 만들었다. 시각으로 비교한다.)
+    latest_mod=$(aws s3api head-object --bucket "$BUCKET" --key "$KEY" \
+      --query 'LastModified' --output text 2>/dev/null || true)
+    latest_s=$(date -u -d "${latest_mod:-}" +%s 2>/dev/null || true)
+    if [ -n "$latest_s" ] && [ "$keep_s" -lt "$latest_s" ]; then
+      echo "  --   그 뒤에 생긴 덤프($KEY)는 아직 승격 전입니다 — 정지 절차 3/6 이 올립니다"
+    fi
   fi
 else
   echo "  WARN keep/latest.sql.gz 가 없습니다. 다음 정지 절차가 만들어 둡니다:"
