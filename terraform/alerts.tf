@@ -250,9 +250,25 @@ resource "aws_cloudwatch_metric_alarm" "watch_heartbeat" {
 # 값은 `FAIL + WARN` 이고 이는 watch.sh 종료코드와 **같은 식**이다. 경고만 있어도 울린다 —
 # 09-06 의 그 빨간불(프론트가 2커밋 뒤처짐)도 경고 1건이었고, 그건 알아야 하는 일이었다.
 #
-# `treat_missing_data = "missing"` — 데이터 없음은 '감시가 안 돎'이고 그건 위 하트비트
+# `treat_missing_data = "ignore"` — 데이터 없음은 '감시가 안 돎'이고 그건 위 하트비트
 # 알람의 몫이다. 그래서 여기서는 침묵이 알람을 **올리지도 내리지도** 않게 둔다.
+# `ignore` 의 정의가 정확히 그것이다: **현재 상태를 유지한다.**
 # (하트비트 알람과 정확히 반대로 설정하는 자리라 헷갈리기 쉬워 적어둔다.)
+#
+# ⚠️ **2026-10-05 2차 정정 — 처음엔 `missing` 으로 고쳤고 그게 또 틀렸다.**
+# `missing` 은 "없는 데이터를 평가에 넣지 않는다"는 뜻이라 상태 유지처럼 읽히는데,
+# 창 안이 **전부** 비면 평가할 게 없어 `INSUFFICIENT_DATA` 로 떨어진다. 그러면
+# 문제가 없어도 **침묵 → 복귀 주기마다 OK 전이가 한 번** 생기고, ok_actions 가
+# 붙어 있으니 그때마다 메일이 간다. 실측(적용 당일):
+#   11:03 ALARM → OK   (0.0 을 보고 — 진짜 복구)
+#   14:03 OK → INSUFFICIENT_DATA   (침묵 3시간. 메일 없음 — insufficient_data_actions 가 비어서)
+#   18:06 INSUFFICIENT_DATA → OK   (#792 가 0 을 찍자 전이 → **메일**)
+# 거짓 복구를 줄이려다 평상시 소음을 늘렸다. 빈도로는 더 나쁘다.
+# 네 값의 차이를 적어둔다 — 이 자리에서 두 번 틀렸다:
+#   notBreaching = 침묵을 '정상'으로 본다 → **켜진 알람을 끈다**(거짓 복구)
+#   breaching    = 침묵을 '고장'으로 본다 → 하트비트와 중복 발송
+#   missing      = 침묵을 평가에서 뺀다 → 창이 통째로 비면 INSUFFICIENT_DATA(소음)
+#   ignore       = **현재 상태를 유지한다** ← 이 알람이 원하는 것
 #
 # ⚠️ **2026-10-05 정정 — 여기가 `notBreaching` 이었고, 그게 거짓 복구를 만들었다.**
 # `notBreaching` 은 침묵이 알람을 안 울리게만 하는 게 아니라 **이미 켜진 알람을 끈다.**
@@ -285,7 +301,7 @@ resource "aws_cloudwatch_metric_alarm" "watch_problems" {
   statistic           = "Maximum"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   threshold           = 1
-  treat_missing_data  = "missing" # 위 주석 — 침묵은 올리지도 내리지도 않는다
+  treat_missing_data  = "ignore" # 위 주석 — 침묵은 현재 상태를 유지한다
 
   alarm_actions = [aws_sns_topic.alerts.arn]
 
@@ -295,9 +311,11 @@ resource "aws_cloudwatch_metric_alarm" "watch_problems" {
   # (EC2 상태검사 알람의 복구 전이와 다른 점이다). 닫혔다는 신호가 있어야 사람이
   # Actions 를 다시 안 열어본다.
   #
-  # ⚠️ 이 문장은 `treat_missing_data` 가 `missing` 일 때만 참이다. 10-05까지는
+  # ⚠️ 이 문장은 `treat_missing_data` 가 `ignore` 일 때만 참이다. 10-05까지는
   # `notBreaching` 이었고, 그동안 이 주석은 **사실이 아닌 것을 사실로 적고 있었다**
-  # (위 정정 참고). 둘은 한 벌이다 — notBreaching 으로 되돌리려면 ok_actions 를 같이 뗀다.
+  # (위 정정 참고). 둘은 한 벌이다 — 침묵이 상태를 움직이는 값(notBreaching·missing)으로
+  # 되돌리려면 ok_actions 를 같이 뗀다. 그러지 않으면 OK 메일이 거짓이 되거나(notBreaching)
+  # 아무 일 없이도 주기마다 나간다(missing).
   ok_actions = [aws_sns_topic.alerts.arn]
 }
 
