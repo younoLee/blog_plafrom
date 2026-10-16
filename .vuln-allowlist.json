@@ -25,6 +25,28 @@
     "`npm audit fix` 자체가 EACCES로 죽었다. 사용자가 chown 후 실행해 해소했다.",
     "교훈: '고칠 수 없다'와 '해당 없다'는 다르다. 예외 파일에 적히는 건 뒤쪽이어야 한다."
   ],
-  "npm": [],
+  "npm": [
+    {
+      "id": "GHSA-rj75-hqrm-r3gf",
+      "package": "postcss-selector-parser 6.0.10 (moderate)",
+      "why": [
+        "권고의 위협 모델은 '공격자가 준 선택자를 파싱할 때의 CPU 소진'이다(flat selector 파싱의 2차 복잡도).",
+        "이 저장소에서 이 파서가 보는 선택자는 **우리 소스와 설정뿐**이다 — @tailwindcss/typography 플러그인이",
+        "`npm run build` 때 자기 CSS와 우리 Tailwind 설정을 파싱하는 경로 하나다. 사용자 입력이 빌드",
+        "파이프라인에 닿는 길이 없고, 그래서 이 취약점으로 소진될 CPU는 '우리 빌드'뿐이다(그건 보안 사건이",
+        "아니라 즉시 눈에 보이는 고장이다). 패키지는 dev 전용이라(`dev: true`) 배포 번들에도 안 들어간다.",
+        "",
+        "덧붙여 — 업스트림에 수정이 없다. @tailwindcss/typography 는 **최신 0.5.20까지 모든 버전이**",
+        "postcss-selector-parser 를 정확히 `6.0.10` 으로 핀한다(2026-10-16 레지스트리 실측).",
+        "npm 이 제안하는 `fixAvailable` 은 typography **0.5.4 다운그레이드(isSemVerMajor)** 다.",
+        "overrides 로 7.1.6 을 강제할 수는 있으나 정확히 핀된 의존을 메이저로 바꿔치기하는 것이다.",
+        "⚠️ 이 단락은 **근거가 아니라 만료일의 이유다** — 이 파일의 규칙대로 '고칠 수 없다'는 근거가",
+        "아니고, 위 첫 단락이 근거다. 업스트림이 움직이면 고치고 이 줄을 지운다."
+      ],
+      "recheck": "@tailwindcss/typography 가 postcss-selector-parser 7.x 를 쓰는 버전을 냈는지 본다. 냈으면 올리고 이 항목을 지운다.",
+      "added": "2026-10-16",
+      "expires": "2027-01-16"
+    }
+  ],
   "pip": []
 }
