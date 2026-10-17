@@ -23,6 +23,17 @@ updates:
     groups:
       backend-deps:
         patterns: ["*"]
+    # SQLAlchemy 2.1 은 `postgresql://` 의 기본 드라이버를 psycopg2 → psycopg(3) 로
+    # 바꿨다(2026-10-17, PR #50 에서 발견). 우리는 psycopg2 만 설치하고 URL 은 앱·
+    # terraform(ecs.tf)·scripts/ecs-oneshot.sh 가 각자 `postgresql://` 로 조립하므로,
+    # 그대로 올리면 앱이 첫 DB 연결에서 `No module named 'psycopg'` 로 죽는다.
+    # 그 PR 에선 mypy 가 먼저 빨개져 pytest 가 안 돌았기 때문에 CI 로는 안 보였다.
+    # 2.1 로 가는 날 할 일: 드라이버를 정하고(psycopg3 로 바꾸거나 URL 에
+    # `+psycopg2` 를 명시) 그 세 곳을 같이 고친 뒤 이 ignore 를 지운다.
+    # 2.0.x 패치는 계속 받는다.
+    ignore:
+      - dependency-name: "sqlalchemy"
+        versions: [">=2.1"]
 
   - package-ecosystem: npm
     directory: /frontend
