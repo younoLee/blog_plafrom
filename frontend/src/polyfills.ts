@@ -24,14 +24,20 @@
 
 // `Object.hasOwn(o, k)` = `Object.prototype.hasOwnProperty.call(o, k)`.
 // 프로토타입 체인을 안 보는 게 요점이고, 옛 방식과 결과가 같다.
-if (typeof Object.hasOwn !== 'function') {
-  Object.defineProperty(Object, 'hasOwn', {
-    value: function hasOwn(target: object, key: PropertyKey): boolean {
+//
+// 메우는 일을 함수로 뺀 건 테스트 때문이다(2026-10-17). 예전 테스트는 진짜 전역
+// `Object.hasOwn`을 지운 뒤 이 모듈을 다시 import했는데, vitest 5의 모듈 로더가
+// import 도중에 `Object.hasOwn`을 직접 써서 **테스트 도구가 먼저 넘어졌다**.
+// 대상 객체를 받게 하면 전역을 안 건드리고 가짜 Object로 같은 상황을 만든다.
+export function installHasOwn(target: { hasOwn?: unknown }): void {
+  if (typeof target.hasOwn === 'function') return
+  Object.defineProperty(target, 'hasOwn', {
+    value: function hasOwn(obj: object, key: PropertyKey): boolean {
       // 명세대로 원시값도 객체로 감싸 처리한다(`Object.hasOwn('ab', 0)` → true).
-      if (target === null || target === undefined) {
+      if (obj === null || obj === undefined) {
         throw new TypeError('Cannot convert undefined or null to object')
       }
-      return Object.prototype.hasOwnProperty.call(Object(target), key)
+      return Object.prototype.hasOwnProperty.call(Object(obj), key)
     },
     // 원본 Object.hasOwn과 같은 속성 모양(열거되지 않고, 쓰기·설정 가능)
     writable: true,
@@ -40,4 +46,4 @@ if (typeof Object.hasOwn !== 'function') {
   })
 }
 
-export {}
+installHasOwn(Object)
