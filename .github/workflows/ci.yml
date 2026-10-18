@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   backend-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 테스트는 실제 Postgres 대상(앱이 ARRAY·pg_trgm에 의존 → SQLite 불가).
     services:
       postgres:
@@ -81,7 +81,7 @@ jobs:
         run: alembic check
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 유닛테스트(vitest) + tsc·빌드 통과를 게이트로.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,7 +118,7 @@ jobs:
           python3 scripts/check_bundle_size.py
 
   scripts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 이 저장소의 안전장치(백업·복원·정지·감시)는 전부 셸 스크립트인데 여태
     # 아무도 검사하지 않았다. 2026-07-22에 나온 버그 대부분이 여기 있었다 —
     # `head -1`의 EPIPE, `docker compose exec -T`의 stdin 삼킴, 미인용 변수.
@@ -257,7 +257,7 @@ jobs:
           python3 scripts/writing_style_check.py --ui
 
   runbook:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 복구 런북이 코드와 어긋났는지. 2026-07-27 DR 게임데이의 첫 블로커(F1)가
     # 이 부류였다 — 07-24에 추가된 '기본값 없는 변수'가 남아 재해 복구의 첫 명령이
     # 죽는 상태로 3일이 지났고, 아무도 DR 경로를 밟지 않아 몰랐다.
@@ -271,7 +271,7 @@ jobs:
         run: scripts/check_runbook_drift.sh
 
   secrets-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 커밋에 시크릿이 섞여 들어가는 것. 2026-07-22에 `.env`가 이미지에 구워진 채로
     # 운영에 돌고 있었다 — 그때까지 이 검사는 '사람이 눈으로'였다.
     # **이미지보다 깃이 나쁘다: 푸시하면 되돌릴 수 없다.**
@@ -290,7 +290,7 @@ jobs:
             git . -c /repo/.gitleaks.toml --no-banner --redact
 
   deps-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 의존성 취약점. 지금까지 이 검사가 **아예 없었다**.
     # 게이트 방식은 scripts/check_vulns.py 참고 — 요지는 '판단한 것만 통과'다.
     # (`--audit-level=high`면 오늘 당장 빨간불, `critical`이면 진짜 high도 조용하다)
@@ -312,7 +312,7 @@ jobs:
         run: python3 scripts/check_vulns.py
 
   terraform:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 인프라도 코드다. fmt·validate가 없으면 문법 오류를 apply 할 때 처음 안다.
     # (plan은 AWS 자격증명이 필요하고 상태를 읽으므로 CI에서는 하지 않는다.
     #  변수 값 관련 드리프트는 위 runbook 잡이 정적으로 본다)

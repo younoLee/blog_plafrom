@@ -20,7 +20,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       id-token: write # OIDC 토큰 발급(AWS 역할 assume)에 필수
       contents: read  # checkout용 최소 권한
