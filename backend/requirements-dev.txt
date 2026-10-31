@@ -1,9 +1,9 @@
 # 테스트 전용 의존성 (프로드 이미지엔 안 들어감). 설치: pip install -r requirements-dev.txt
-pytest==9.1.1
+pytest==9.2.0
 # httpx는 2026-08-07에 requirements.txt(런타임)로 옮겼다 — Web Push 발송이 직접 쓴다.
 # 여기 남겨두면 같은 핀이 두 곳에 생겨 올릴 때 한쪽만 고치는 사고가 난다.
 # TestClient도 그 런타임 설치본을 그대로 쓴다.
 pytest-cov==7.1.0  # 커버리지 측정 (pytest.ini에서 app 대상 리포트)
-ruff==0.17.0  # 린터 (설정: ruff.toml). 안 쓰는 import·잠재 버그·import 정렬 검사
+ruff==0.17.3  # 린터 (설정: ruff.toml). 안 쓰는 import·잠재 버그·import 정렬 검사
 # 타입 검사(CI 게이트). 설정·근거는 mypy.ini 참고.
 mypy==2.4.0
