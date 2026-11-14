@@ -46,6 +46,26 @@
       "recheck": "@tailwindcss/typography 가 postcss-selector-parser 7.x 를 쓰는 버전을 냈는지 본다. 냈으면 올리고 이 항목을 지운다.",
       "added": "2026-10-16",
       "expires": "2027-01-16"
+    },
+    {
+      "id": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch 10.2.5 (moderate)",
+      "why": [
+        "권고의 위협 모델은 '공격자가 준 glob 패턴의 globparts 증폭으로 인한 CPU 소진'이다(CWE-405).",
+        "이 저장소에서 minimatch 를 부르는 것은 eslint 와 typescript-eslint 둘뿐이고, 둘이 넘기는 패턴은",
+        "**우리 eslint.config.js 에 적힌 두 개뿐**이다 — `dist`(globalIgnores) 와 `**/*.{ts,tsx}`(files).",
+        "typescript-estree 쪽 호출은 `allowDefaultProject` 패턴을 맞출 때 하나인데(useProgramFromProjectService.js),",
+        "우리는 타입 정보 규칙(projectService)을 안 켜서 그 경로가 돌지 않는다. 사용자 입력이 lint 의 패턴에",
+        "닿는 길이 없고, 소진될 CPU 는 '우리 lint' 뿐이다. 패키지는 dev 전용이라(`dev: true`, 2026-11-14 lockfile",
+        "실측) 배포 번들에도 안 들어간다.",
+        "",
+        "⚠️ 다음 단락은 근거가 아니라 만료일의 이유다 — eslint 최신 10.15.0 과 @eslint/config-array 0.23.6 은",
+        "이미 `^11.0.5` 로 올렸지만, @typescript-eslint/typescript-estree 최신 8.72.2 가 아직 `^10.2.2` 다",
+        "(2026-11-14 레지스트리 실측). 그래서 eslint 만 올려서는 10.x 가 트리에 남는다."
+      ],
+      "recheck": "@typescript-eslint/typescript-estree 가 minimatch 11.0.1 이상을 허용하는 버전을 냈는지 본다. 냈으면 typescript-eslint 를 올리고 이 항목을 지운다.",
+      "added": "2026-11-14",
+      "expires": "2027-02-14"
     }
   ],
   "pip": []
