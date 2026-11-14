@@ -167,6 +167,43 @@ def test_plain_error_is_not_unreachable():
     assert _upstream_unreachable(RuntimeError("model not found")) is False
 
 
+def _closed_port() -> int:
+    """지금 아무도 안 듣는 로컬 포트 — 연결 거부를 네트워크 없이 만든다."""
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+# 위 시험들은 httpx 예외를 **손으로 만들어** 넣는다. 그래서 SDK 가 운송 계층을 httpx2 로
+# 바꿨을 때(10-17) 전부 초록인 채로 실제 분류는 깨져 있었다. 손으로 만든 예외는 '오늘 SDK 가
+# 실제로 던지는 것'을 대변하지 못한다 — 진짜 SDK 를 닫힌 포트로 불러서 그 예외로 판정한다.
+@pytest.mark.parametrize("vendor", ["anthropic", "openai"])
+def test_real_sdk_connection_refused_is_unreachable(vendor):
+    base = f"http://127.0.0.1:{_closed_port()}"
+    if vendor == "anthropic":
+        import anthropic
+
+        c = anthropic.Anthropic(api_key="x", base_url=base, max_retries=0, timeout=2)
+        call = lambda: c.messages.create(  # noqa: E731
+            model="m", max_tokens=1, messages=[{"role": "user", "content": "h"}]
+        )
+    else:
+        import openai
+
+        c = openai.OpenAI(api_key="x", base_url=base, max_retries=0, timeout=2)
+        call = lambda: c.chat.completions.create(  # noqa: E731
+            model="m", messages=[{"role": "user", "content": "h"}]
+        )
+    with pytest.raises(Exception) as ei:
+        call()
+    assert _upstream_unreachable(ei.value) is True, (
+        f"{vendor} SDK 가 던진 {type(ei.value).__name__} 사슬에서 운송 예외를 못 찾았다 — "
+        "SDK 가 또 운송 계층을 바꿨는지 본다"
+    )
+
+
 def test_cyclic_cause_chain_terminates():
     # __cause__가 순환해도 무한루프에 빠지면 안 된다(요청 하나가 워커를 영원히 문다)
     a = RuntimeError("a")

@@ -1,6 +1,7 @@
 import logging
 
 import httpx
+import httpx2
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -48,13 +49,22 @@ def _upstream_unreachable(e: BaseException) -> bool:
     (52초를 기다린 끝에 여전히 "키/모델명 확인"이 나왔다).
 
     그래서 __cause__/__context__ 사슬을 훑어 httpx의 연결·타임아웃 예외가 있는지 본다.
-    벤더 SDK가 무엇으로 감싸든 밑바닥은 httpx다(넷 다 httpx를 쓴다).
+
+    ⚠️ 2026-11-14: "밑바닥은 httpx다"가 **더는 참이 아니다.** anthropic 1.x·openai 3.x 는
+    별도 패키지 `httpx2` 로 통신한다(10-17 `407aee7` 의존성 업데이트로 들어왔다). httpx2 의
+    예외는 httpx 의 하위 타입이 아니라서, 이 함수는 그날부터 연결 거부·무응답을 **하나도**
+    못 알아봤고 사용자는 다시 "키/모델명 확인"을 받았다 — 07-28 에 고친 바로 그 증상이다.
+    11-14 카오스 훈련 기준선 비교에서 드러났다(anthropic refuse·hang 이 503 → 502).
+    둘 다 본다. 다음 교체는 test_degradation 의 '실제 SDK' 시험이 잡는다.
     """
     seen = set()
     cur: BaseException | None = e
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
-        if isinstance(cur, (httpx.TimeoutException, httpx.TransportError)):
+        if isinstance(
+            cur,
+            (httpx.TimeoutException, httpx.TransportError, httpx2.TimeoutException, httpx2.TransportError),
+        ):
             return True
         cur = cur.__cause__ or cur.__context__
     return False
