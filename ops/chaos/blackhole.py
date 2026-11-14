@@ -29,6 +29,7 @@ TLS를 종단한다. 대상이 전부 https라 평문으로는 가로챌 수 없
 인증서는 make_ca.sh가 만든 사설 CA로 서명하고, 컨테이너 신뢰 저장소에 넣는다.
 """
 import http.server
+import json
 import os
 import pathlib
 import ssl
@@ -123,12 +124,65 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = b'{"error":"chaos: not found"}'
             self.send_response(404)
         else:
-            body = b'{"ok":true,"chaos":"pass"}'
+            body = self._pass_body()
             self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _pass_body(self) -> bytes:
+        """기준선 응답 — **앱이 정상으로 받아들이는 모양**이어야 한다.
+
+        2026-11-14: 모든 호스트에 `{"ok":true}` 를 주던 시절의 기준선이 AI 초안·결제 confirm
+        에서 **주입 전부터 502** 였다. 그 사이 앱이 응답을 제대로 읽게 고쳐졌기 때문이다 —
+        결제는 status·totalAmount·orderId 를 대조하고(b3933ba), AI SDK 는 content 를 읽는다.
+        기준선이 이미 실패면 주입 뒤 502 와 구분이 안 되고, 훈련은 '견뎠다/무너졌다'를 하나도
+        판정하지 못한다. 07-28 규칙(기준선 먼저)이 지켜졌는데도 그 기준선이 거짓이었던 자리다.
+        """
+        host = (self.headers.get("Host") or "").split(":")[0]
+        raw = b""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n) if n > 0 else b""
+        except (ValueError, OSError):
+            pass
+        try:
+            req = json.loads(raw or b"{}")
+        except ValueError:
+            req = {}
+        # ai_guard 가 `# 제목` 으로 시작하지 않는 출력을 schema_mismatch 로 거른다(422)
+        text = "# chaos 기준선\n\n기준선 초안 본문입니다."
+        usage = {"input_tokens": 10, "output_tokens": 10}
+        if host == "api.tosspayments.com":
+            # 요청을 그대로 되돌려준다 — 앱의 위변조 대조(주문번호·금액)를 정상으로 통과한다
+            out = {"status": "DONE", "orderId": req.get("orderId"),
+                   "totalAmount": req.get("amount"), "paymentKey": req.get("paymentKey"),
+                   "method": "카드"}
+        elif host == "api.anthropic.com":
+            out = {"id": "msg_chaos", "type": "message", "role": "assistant",
+                   "model": req.get("model", "chaos"), "stop_reason": "end_turn",
+                   "stop_sequence": None, "content": [{"type": "text", "text": text}],
+                   "usage": usage}
+        elif host == "api.openai.com":
+            out = {"id": "chatcmpl-chaos", "object": "chat.completion", "created": int(time.time()),
+                   "model": req.get("model", "chaos"),
+                   "choices": [{"index": 0, "finish_reason": "stop",
+                                "message": {"role": "assistant", "content": text}}],
+                   "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20}}
+        elif host == "generativelanguage.googleapis.com":
+            out = {"candidates": [{"content": {"role": "model", "parts": [{"text": text}]},
+                                   "finishReason": "STOP", "index": 0}],
+                   "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 10,
+                                     "totalTokenCount": 20}}
+        elif host == "api.cohere.com":
+            out = {"id": "chaos", "finish_reason": "COMPLETE",
+                   "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+                   "usage": {"billed_units": {"input_tokens": 10, "output_tokens": 10}}}
+        else:
+            # 푸시·S3 는 상태코드만 본다
+            out = {"ok": True, "chaos": "pass"}
+        return json.dumps(out, ensure_ascii=False).encode()
 
     do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = _handle
 
