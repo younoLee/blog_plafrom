@@ -319,7 +319,17 @@ fi
 # --security 만 받는다: 이 서버의 전체 업그레이드는 도커·커널까지 한꺼번에 움직여
 # 정지 직전에 낼 위험이 아니다. 보안 권고가 붙은 것만 받아 창을 좁힌다.
 # 시간이 오래 걸릴 수 있어 ConnectTimeout 과 별개로 ServerAlive* 로 연결을 붙잡는다.
-say "4-C/6 보안 패치 — dnf -y upgrade --security"
+#
+# ⚠️ 2026-11-14: `--releasever=latest` 를 붙였다. 그전 이 줄은 **AMI 를 만든 날의 저장소
+# 스냅샷 안에서만** 보안 수정을 찾았다. AL2023 은 저장소 버전을 AMI 빌드 시점에 잠그고
+# ("locks to the same version that was used to build the AMI"), 잠긴 버전에는 새 패키지가
+# 안 들어온다. 그래서 출시 뒤 나온 수정에는 매번 'Nothing to do' 였다 — 11-14 정지 로그에
+# 새 릴리스 셋(20261102·1109·1112)이 안내되는데도 그랬다. 검사가 자기 대상을 못 보는 모양이다.
+# 마이너 릴리스는 패키지 구성을 안 바꾸고 기능·보안 수정만 담는다(AWS 문서:
+# "Testing your application before updating isn't necessary"). --security 는 그대로 둬서
+# 받는 범위는 이전과 같은 '보안 권고가 붙은 것'이다. 넘어간 릴리스는 RELEASE 줄로 남긴다.
+# 출처: https://docs.aws.amazon.com/linux/al2023/ug/deterministic-upgrades.html
+say "4-C/6 보안 패치 — dnf -y upgrade --security --releasever=latest"
 # 커널이 올라갔는지를 **출력에 남긴다.** 안 남기면 "정지했으니 다음 기동에 새 커널"인지
 # "받을 게 없었다"인지 구분이 안 되고, 그 구분이 없으면 패치했다는 사실만 믿게 된다.
 # 지금 도는 커널(uname -r)과 설치된 것 중 가장 높은 커널을 나란히 본다.
@@ -344,8 +354,10 @@ if patch_out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
                  -i "$SSH_KEY" "ec2-user@$DNS" '
                    set -o pipefail
                    rc=0
-                   sudo dnf -y upgrade --security 2>&1 | tail -25 || rc=$?
+                   echo "RELEASE_BEFORE=$(rpm -q --qf "%{VERSION}" system-release)"
+                   sudo dnf -y upgrade --security --releasever=latest 2>&1 | tail -25 || rc=$?
                    echo "DNF_RC=$rc"
+                   echo "RELEASE_AFTER=$(rpm -q --qf "%{VERSION}" system-release)"
                    echo "KERNEL_RUNNING=$(uname -r)"
                    echo "KERNEL_LATEST=$(ls -1 /boot/vmlinuz-* 2>/dev/null \
                                           | sed "s|.*/vmlinuz-||" | sort -V | tail -1)"
@@ -376,7 +388,7 @@ else
   # 접속·명령 실패를 '패치할 게 없었다'로 읽으면 안 된다. 그건 이 저장소가 이름 붙인
   # '없음'과 '못 봤음'을 뭉개는 자리다.
   echo "   ⚠️  보안 패치를 못 돌렸습니다 — 정지는 계속합니다. 다음에 켠 뒤 직접:"
-  echo "      ssh -i $SSH_KEY ec2-user@<DNS> 'sudo dnf -y upgrade --security'"
+  echo "      ssh -i $SSH_KEY ec2-user@<DNS> 'sudo dnf -y upgrade --security --releasever=latest'"
   printf '%s\n' "$patch_out" | sed 's/^/      /'
 fi
 
