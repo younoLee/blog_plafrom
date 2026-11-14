@@ -335,7 +335,7 @@ fi
 # mem_limit 합 720MB 가 떠 있어 OOM 킬러로 보인다. 그래서 dnf 동안만 컨테이너를 멈춘다 —
 # 이 시점엔 이미 주차(1절)·백업(2절)이 끝나 들어올 쓰기도 잃을 것도 없고, 바로 다음이 정지다.
 # **멈춘 채로 끄면 안 된다:** restart: unless-stopped 는 손으로 멈춘 컨테이너를 부팅 때 안
-# 올린다. 그래서 dnf 가 성공하든 죽든 `start` 로 되살린 뒤에 정지로 넘어간다.
+# 올린다. 그래서 dnf 가 성공하든 죽든 `up -d` 로 되살린 뒤에 정지로 넘어간다.
 say "4-C/6 보안 패치 — dnf -y upgrade --security --releasever=latest"
 # 커널이 올라갔는지를 **출력에 남긴다.** 안 남기면 "정지했으니 다음 기동에 새 커널"인지
 # "받을 게 없었다"인지 구분이 안 되고, 그 구분이 없으면 패치했다는 사실만 믿게 된다.
@@ -367,7 +367,9 @@ if patch_out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
                    sudo dnf -y upgrade --security --releasever=latest 2>&1 | tail -25 || rc=$?
                    echo "DNF_RC=$rc"
                    echo "RELEASE_AFTER=$(rpm -q --qf "%{VERSION}" system-release)"
-                   sudo docker compose -f docker-compose.prod.yml start >/dev/null 2>&1
+                   # start 가 아니라 up -d: start 는 depends_on 의 service_healthy 를 안 기다려
+                   # 백엔드가 db 보다 먼저 떴다(11-14, 기동 정리 작업이 "db" 이름 해석 실패로 28줄)
+                   sudo docker compose -f docker-compose.prod.yml up -d >/dev/null 2>&1
                    echo "CONTAINERS_START_RC=$?"
                    echo "KERNEL_RUNNING=$(uname -r)"
                    echo "KERNEL_LATEST=$(ls -1 /boot/vmlinuz-* 2>/dev/null \
@@ -390,7 +392,7 @@ if patch_out=$(ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
     echo "   OK   컨테이너 재시작 (다음 기동에 자동으로 뜬다)"
   else
     echo "   ❌  컨테이너를 다시 못 올렸습니다(종료코드 ${start_rc:-미확인}) — 다음에 켠 뒤 직접:"
-    echo "        ssh … 'cd ~/blog && sudo docker compose -f docker-compose.prod.yml start'"
+    echo "        ssh … 'cd ~/blog && sudo docker compose -f docker-compose.prod.yml up -d'"
   fi
 
   # 값을 못 읽었으면 **조용히 '커널 그대로'라고 말하지 않는다.** 커널 이름은
