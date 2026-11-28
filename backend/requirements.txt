@@ -13,11 +13,11 @@ bcrypt==5.0.0
 PyJWT==2.15.1
 psycopg2-binary==2.9.13
 python-dotenv==1.2.4
-anthropic==2.13.0
+anthropic==2.14.0
 slowapi==0.1.10
-boto3==1.44.10
+boto3==1.44.11
 cryptography==50.0.2
-openai==3.58.0
+openai==3.59.0
 google-genai==3.6.1
 cohere==7.3.2
 psutil==7.2.2  # 관리자 인프라 대시보드 실측(CPU·메모리·디스크·부하)
